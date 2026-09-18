@@ -773,7 +773,7 @@
   .code-line.no-move .cl-text { color: var(--ink-faint); }
   .code-line.edited { background: rgba(255,214,10,0.22); }
   .code-line.edited.active { background: rgba(255,59,48,0.10); }
-  .code-panel.editing .code-line { cursor: text; }
+  .code-panel .code-line { cursor: text; }
   .code-line .cl-input {
     flex: 1;
     min-width: 0;
@@ -1326,8 +1326,8 @@
           <div class="subtitle">
             Programı X/Z hareketlerine göre çizer. G00 (hızlı), G01 (doğrusal kesme) ve G02/G03 (yay) hareketleri
             desteklenir. Kaydırıcı veya kod satırına tıklayarak programda ilerleyin — takım o ana kadar gittiği yolu
-            ve o satırdaki konumunu gösterir. Düzenleme modunu açarak programı satır satır değiştirebilirsiniz;
-            çizim, ofsetler ve süre hesabı siz yazarken anında güncellenir.
+            ve o satırdaki konumunu gösterir. Kod paneli aynı zamanda bir editördür: satıra tıklayıp doğrudan
+            yazın, çizim, ofsetler ve süre hesabı siz yazarken anında güncellenir.
           </div>
         </header>
 
@@ -1396,11 +1396,10 @@
             <div class="zoom-hint" style="margin-top:0;">Boş alanda sol tık + sürükle ile görünümü kaydırabilir, fare tekerleğiyle yakınlaştırabilirsiniz.</div>
           </div>
           <div class="controls-row">
-            <button class="btn secondary" id="editToggleBtn5">Düzenleme: Kapalı</button>
-            <button class="btn secondary" id="insertLineBtn5" disabled>Alta Satır Ekle</button>
-            <button class="btn secondary" id="deleteLineBtn5" disabled>Satırı Sil</button>
+            <button class="btn secondary" id="insertLineBtn5">Alta Satır Ekle</button>
+            <button class="btn secondary" id="deleteLineBtn5">Satırı Sil</button>
             <button class="btn secondary" id="revertEditsBtn5" disabled>Değişiklikleri Geri Al</button>
-            <div class="zoom-hint" style="margin-top:0;">Düzenleme açıkken bir satıra tıklayıp doğrudan yazın — çizim anında güncellenir. Enter: alta yeni satır · ↑/↓: satır değiştir · Esc: düzenlemeyi kapat.</div>
+            <div class="zoom-hint" style="margin-top:0;">Kod panelinde bir satıra tıklayıp doğrudan yazın — çizim anında güncellenir. Enter: alta yeni satır · ↑/↓: satır değiştir · Esc: imleci bırak.</div>
           </div>
           <div class="ruler-readout" id="rulerReadout5"></div>
           <div class="sim-readout" id="simReadout5"></div>
@@ -2709,7 +2708,6 @@ downloadBtn.addEventListener('click', () => {
   const timeByToolTbody = document.getElementById('timeByToolTbody');
   const timeByItemTbody = document.getElementById('timeByItemTbody');
   const toolChangeSec5 = document.getElementById('toolChangeSec5');
-  const editToggleBtn5 = document.getElementById('editToggleBtn5');
   const insertLineBtn5 = document.getElementById('insertLineBtn5');
   const deleteLineBtn5 = document.getElementById('deleteLineBtn5');
   const revertEditsBtn5 = document.getElementById('revertEditsBtn5');
@@ -2728,7 +2726,6 @@ downloadBtn.addEventListener('click', () => {
   let zoomBox5 = { x: 0, y: 0, w: 400, h: 320 };
   function resetZoom5() { zoomBox5 = { x: 0, y: 0, w: 400, h: 320 }; }
   let latheVb = null; // last render's transform state (bounds/scale), for ruler + pan math
-  let editMode5 = false;      // inline code editing on/off
   let liveTimer5 = null;      // debounce handle for live re-parse while typing
   let originalText5 = '';     // program as last loaded/drawn, for "geri al"
   let dirty5 = false;         // true once the program has been edited in place
@@ -3194,8 +3191,8 @@ downloadBtn.addEventListener('click', () => {
       div.className = 'code-line' + (lineHasMove[lineNo] ? '' : ' no-move') + (editedLines5.has(lineNo) ? ' edited' : '');
       div.dataset.line = lineNo;
       div.innerHTML = `<span class="cl-num">${lineNo}</span><span class="cl-text">${escapeHtml5(line)}</span>`;
-      div.addEventListener('mousedown', () => { if (editMode5) stopPlayback(); });
-      div.addEventListener('click', () => { stopPlayback(); setCurrentLine(lineNo, { focus: editMode5 }); });
+      div.addEventListener('mousedown', () => stopPlayback());
+      div.addEventListener('click', () => { stopPlayback(); setCurrentLine(lineNo, { focus: true }); });
       codePanel5.appendChild(div);
     });
   }
@@ -3276,7 +3273,7 @@ downloadBtn.addEventListener('click', () => {
       deleteCurrentLine5();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setEditMode5(false);
+      e.target.blur();
     }
   }
 
@@ -3299,7 +3296,7 @@ downloadBtn.addEventListener('click', () => {
     editedLines5 = new Set(Array.from(editedLines5).map(n => (n > currentLine ? n + 1 : n)));
     editedLines5.add(currentLine + 1);
     markDirty5();
-    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: currentLine + 1, focus: editMode5 });
+    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: currentLine + 1, focus: true });
   }
 
   function deleteCurrentLine5() {
@@ -3309,18 +3306,7 @@ downloadBtn.addEventListener('click', () => {
     rawLines.splice(removed - 1, 1);
     editedLines5 = new Set(Array.from(editedLines5).filter(n => n !== removed).map(n => (n > removed ? n - 1 : n)));
     markDirty5();
-    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: Math.min(removed, rawLines.length), focus: editMode5 });
-  }
-
-  function setEditMode5(on) {
-    editMode5 = on;
-    codePanel5.classList.toggle('editing', on);
-    editToggleBtn5.textContent = on ? 'Düzenleme: Açık' : 'Düzenleme: Kapalı';
-    editToggleBtn5.classList.toggle('secondary', !on);
-    insertLineBtn5.disabled = !on;
-    deleteLineBtn5.disabled = !on;
-    if (on) { stopPlayback(); mountEditor5(currentLine, true); }
-    else { flushLiveEdit5(); unmountEditors5(); }
+    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: Math.min(removed, rawLines.length), focus: true });
   }
 
   // Re-parse the current program and refresh everything that depends on it.
@@ -3359,16 +3345,15 @@ downloadBtn.addEventListener('click', () => {
     drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır okundu. <b>${counts.rapid}</b> hızlı, <b>${counts.linear}</b> doğrusal, <b>${counts.arc}</b> yay hareketi bulundu. <b>${toolsFound.length}</b> takım, <b>${itemsFound.length}</b> item, <b>${toolChanges5.length}</b> takım değişimi (M06) tespit edildi.`;
   }
 
-  editToggleBtn5.addEventListener('click', () => setEditMode5(!editMode5));
-  insertLineBtn5.addEventListener('click', () => { if (editMode5) insertLineBelow5(); });
-  deleteLineBtn5.addEventListener('click', () => { if (editMode5) deleteCurrentLine5(); });
+  insertLineBtn5.addEventListener('click', insertLineBelow5);
+  deleteLineBtn5.addEventListener('click', deleteCurrentLine5);
   revertEditsBtn5.addEventListener('click', () => {
     clearTimeout(liveTimer5); liveTimer5 = null;
     rawLines = originalText5.split(/\r\n|\r|\n/);
     editedLines5 = new Set();
     dirty5 = false;
     revertEditsBtn5.disabled = true;
-    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: Math.min(currentLine, rawLines.length), focus: editMode5 });
+    refreshFromProgram({ keepZoom: true, rebuildCode: true, syncTextarea: true, line: Math.min(currentLine, rawLines.length), focus: true });
   });
 
   // The paste box stays live too, once the program has been drawn once.
@@ -3408,7 +3393,7 @@ downloadBtn.addEventListener('click', () => {
       activeEl.classList.add('active');
       activeEl.scrollIntoView({ block: 'nearest' });
     }
-    if (editMode5) mountEditor5(currentLine, !!o.focus);
+    if (playTimer) unmountEditors5(); else mountEditor5(currentLine, !!o.focus);
 
     const { pos, currentSeg } = positionAtLine(currentLine);
     let readout = `Satır ${currentLine} / ${rawLines.length}`;
@@ -3597,7 +3582,7 @@ downloadBtn.addEventListener('click', () => {
     cutTimePanel5.style.display = 'block';
     timeSummary5.style.display = 'none';
     timeResultsGrid5.style.display = 'none';
-    setCurrentLine(1, { focus: editMode5 });
+    setCurrentLine(1);
   });
 
   let playTimer = null;
@@ -3606,11 +3591,13 @@ downloadBtn.addEventListener('click', () => {
       clearInterval(playTimer);
       playTimer = null;
       playBtn5.textContent = '▶ Oynat';
+      mountEditor5(currentLine, false); // hand the line back to the editor
     }
   }
   function startPlayback() {
     if (playTimer) return;
-    if (editMode5) setEditMode5(false); // the editor would steal focus on every line
+    flushLiveEdit5();
+    unmountEditors5(); // the editor would take the caret on every played line
     if (currentLine >= rawLines.length) setCurrentLine(1); // restart from the top if already at the end
     const speed = Math.max(0.5, parseFloat(playSpeed5.value) || 5);
     playTimer = setInterval(() => {
