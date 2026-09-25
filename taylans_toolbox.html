@@ -789,6 +789,76 @@
     outline: none;
   }
 
+  /* ---- program comparison ---- */
+  .diff-input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpi {
+    background: var(--bg);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .kpi-label { font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 7px; }
+  .kpi-value { font-size: 21px; font-weight: 600; margin-top: 5px; font-family: var(--mono); color: var(--ink); }
+  .kpi-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; font-family: var(--mono); }
+
+  .diff-wrap {
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .diff-head {
+    display: grid;
+    grid-template-columns: 46px 1fr 46px 1fr;
+    background: var(--card);
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .diff-head > div { padding: 8px 10px; }
+  .diff-head > div:nth-child(2) { border-left: 1px solid var(--line-soft); }
+  .diff-body {
+    max-height: 560px;
+    overflow: auto;
+    background: #fbfbfd;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .diff-row { display: grid; grid-template-columns: 46px 1fr 46px 1fr; white-space: pre; }
+  .diff-row > div { padding: 2px 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .diff-row .dnum { color: var(--ink-faint); text-align: right; user-select: none; }
+  .diff-row .side-b { border-left: 1px solid var(--line-soft); }
+  .diff-row.eq .dtext { color: var(--ink-soft); }
+  .diff-row .side-a.changed { background: rgba(255,59,48,0.10); }
+  .diff-row .side-b.changed { background: rgba(31,138,76,0.12); }
+  .diff-row .dnum.side-a.changed { color: #ff3b30; }
+  .diff-row .dnum.side-b.changed { color: #1f8a4c; }
+  .diff-row.clickable { cursor: pointer; }
+  .diff-row.clickable:hover > div { filter: brightness(0.97); }
+  .diff-row.focused { outline: 2px solid var(--ink); outline-offset: -2px; }
+  .diff-row mark { background: rgba(255,214,10,0.6); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .diff-row .filler {
+    background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.04) 5px, rgba(0,0,0,0.04) 10px);
+  }
+  .diff-gap, .diff-empty {
+    padding: 5px 12px;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    background: var(--line-soft);
+    text-align: center;
+  }
+  .chg-row { cursor: pointer; }
+  .chg-chip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 1px 6px;
+    margin-right: 4px;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
   .range-slider {
     flex: 1;
     min-width: 140px;
@@ -809,6 +879,9 @@
 
   @media (max-width: 900px) {
     .lathe-sim-grid { grid-template-columns: 1fr; }
+    .diff-input-grid { grid-template-columns: 1fr; }
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .diff-head, .diff-row { grid-template-columns: 38px 1fr 38px 1fr; }
   }
 
   @media (min-width: 1400px) {
@@ -942,6 +1015,13 @@
           <path d="M3 17l5-7 4 4 3-6 6 9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="15" cy="8" r="1"/>
         </svg>
         <span class="label">Torna Program Simülatörü</span>
+      </div>
+      <div class="nav-item" data-tool="progdiff" title="Program Karşılaştırma">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3"/>
+          <path d="M12 7v10M9.5 9.5L12 7l2.5 2.5M9.5 14.5L12 17l2.5-2.5"/>
+        </svg>
+        <span class="label">Program Karşılaştırma</span>
       </div>
     </nav>
 
@@ -1558,6 +1638,232 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ============ TOOL: Program Karşılaştırma ============ -->
+      <div class="tool-view" id="tool-progdiff" style="display:none">
+        <header class="tool-header">
+          <h1>Program Karşılaştırma</h1>
+          <div class="subtitle">
+            İki program revizyonunu karşılaştırır. Blok (N) numaraları yok sayılabildiği için yeniden
+            numaralandırılmış bir revizyon yüzlerce sahte fark üretmez — yalnızca gerçekten değişen satırlar kalır.
+            Farklar ITEM bölümü ve takım bazında özetlenir, iki takım yolu üst üste çizilir ve çevrim süresi farkı
+            hesaplanır.
+          </div>
+        </header>
+
+        <!-- Step 1: two revisions -->
+        <div class="panel">
+          <div class="col-label">1. İki revizyonu yükleyin</div>
+          <div class="diff-input-grid">
+            <div>
+              <div class="mini-table-title"><span class="legend-dot" style="background:#8a8a8e"></span>A — Eski revizyon</div>
+              <div class="dropzone" id="dropzone6a">
+                <input type="file" id="fileInput6a" accept=".txt,.nc,.mpf,.eia,.dat">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+                  <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                </svg>
+                <div class="dz-title"><b>Dosya seçin</b> ya da sürükleyip bırakın</div>
+                <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat</div>
+              </div>
+              <div class="file-chip" id="fileChip6a">
+                <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v5h5"/>
+                </svg>
+                <span class="fc-name" id="fcName6a">—</span>
+                <button class="fc-remove" id="fcRemove6a" title="Dosyayı kaldır">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+                </button>
+              </div>
+              <textarea id="rawText6a" style="margin-top:14px; height:170px;" placeholder="...ya da eski revizyonu buraya yapıştırın"></textarea>
+            </div>
+            <div>
+              <div class="mini-table-title"><span class="legend-dot" style="background:#0071e3"></span>B — Yeni revizyon</div>
+              <div class="dropzone" id="dropzone6b">
+                <input type="file" id="fileInput6b" accept=".txt,.nc,.mpf,.eia,.dat">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+                  <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                </svg>
+                <div class="dz-title"><b>Dosya seçin</b> ya da sürükleyip bırakın</div>
+                <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat</div>
+              </div>
+              <div class="file-chip" id="fileChip6b">
+                <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v5h5"/>
+                </svg>
+                <span class="fc-name" id="fcName6b">—</span>
+                <button class="fc-remove" id="fcRemove6b" title="Dosyayı kaldır">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+                </button>
+              </div>
+              <textarea id="rawText6b" style="margin-top:14px; height:170px;" placeholder="...ya da yeni revizyonu buraya yapıştırın"></textarea>
+            </div>
+          </div>
+          <div class="controls-row">
+            <button class="btn secondary" id="swapBtn6" title="A ve B'yi yer değiştir">A ↔ B Değiştir</button>
+          </div>
+        </div>
+
+        <!-- Step 2: options -->
+        <div class="panel">
+          <div class="col-label">2. Karşılaştırma ayarları</div>
+          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+            <label class="checkbox-field">
+              <input type="checkbox" id="ignoreNChk6" checked>
+              Blok (N) numaralarını yok say
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" id="ignoreWsChk6" checked>
+              Boşluk ve harf büyüklüğü farklarını yok say
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" id="ignoreCommentsChk6">
+              Yorumları yok say
+            </label>
+          </div>
+          <div class="controls-row" style="flex-wrap:wrap;">
+            <label class="checkbox-field">
+              <input type="checkbox" id="diameterModeChk6" checked>
+              X değerleri çap olarak programlanmış
+            </label>
+            <div class="field">
+              <label>Birim sistemi</label>
+              <div class="segmented" id="unitSystemSegmented6">
+                <button class="seg-btn active" data-unit="inch">İnç (SFM)</button>
+                <button class="seg-btn" data-unit="metric">Metrik (m/dk)</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Hızlı hareket oranı (birim/dk)</label>
+              <input type="number" id="rapidRate6" class="plain-number" value="200" min="1" step="1">
+            </div>
+            <div class="field">
+              <label>Takım değiştirme süresi (sn)</label>
+              <input type="number" id="toolChangeSec6" class="plain-number" value="0" min="0" step="0.1">
+            </div>
+            <div class="spacer"></div>
+            <button class="btn" id="compareBtn6">Karşılaştır</button>
+          </div>
+          <div class="scan-summary" id="compareSummary6" style="display:none;"></div>
+        </div>
+
+        <!-- Step 3: summary -->
+        <div class="panel" id="diffSummaryPanel6" style="display:none;">
+          <div class="col-label">3. Özet</div>
+          <div class="kpi-row">
+            <div class="kpi">
+              <div class="kpi-label"><span class="legend-dot" style="background:#1f8a4c"></span>Eklenen satır</div>
+              <div class="kpi-value" id="kpiAdded6">0</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label"><span class="legend-dot" style="background:#ff3b30"></span>Silinen satır</div>
+              <div class="kpi-value" id="kpiRemoved6">0</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label"><span class="legend-dot" style="background:#b3521f"></span>Değişen satır</div>
+              <div class="kpi-value" id="kpiChanged6">0</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label"><span class="legend-dot" style="background:#0071e3"></span>Çevrim süresi farkı</div>
+              <div class="kpi-value" id="kpiTime6">—</div>
+              <div class="kpi-sub" id="kpiTimeSub6"></div>
+            </div>
+          </div>
+          <div class="mini-tables-grid" style="margin-top:18px;">
+            <div>
+              <div class="mini-table-title"><span class="legend-dot" style="background:#b3521f"></span>Item / Takım Bazında Fark</div>
+              <div class="points-table-wrap">
+                <table class="points-table">
+                  <thead><tr><th>Item</th><th>Takım</th><th>+</th><th>−</th><th>~</th></tr></thead>
+                  <tbody id="diffByItemTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div class="mini-table-title"><span class="legend-dot" style="background:#0071e3"></span>Süre Farkı</div>
+              <div class="points-table-wrap">
+                <table class="points-table">
+                  <thead><tr><th>Item</th><th>A</th><th>B</th><th>Fark</th></tr></thead>
+                  <tbody id="diffTimeTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:18px;">
+            <div class="mini-table-title"><span class="legend-dot" style="background:#1f8a4c"></span>Değişiklik Listesi</div>
+            <div class="points-table-wrap" style="max-height:320px;">
+              <table class="points-table">
+                <thead><tr><th>Satır (A → B)</th><th>Item</th><th>Takım</th><th>Değişiklik</th></tr></thead>
+                <tbody id="diffChangeListTbody"></tbody>
+              </table>
+            </div>
+            <div class="controls-row">
+              <div class="spacer"></div>
+              <button class="btn secondary" id="diffCsvBtn6">Fark Listesini CSV İndir</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: side-by-side lines -->
+        <div class="panel" id="diffViewPanel6" style="display:none;">
+          <div class="col-label">4. Satır Karşılaştırma</div>
+          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+            <div class="field">
+              <label>Görünüm</label>
+              <div class="segmented" id="diffViewSegmented6">
+                <button class="seg-btn active" data-view="changes">Sadece farklar</button>
+                <button class="seg-btn" data-view="all">Tüm program</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Çevre satır sayısı</label>
+              <input type="number" id="diffContext6" class="plain-number" value="3" min="0" max="20" style="width:80px;">
+            </div>
+            <button class="btn secondary" id="prevDiffBtn6" title="Önceki fark">◀ Önceki fark</button>
+            <button class="btn secondary" id="nextDiffBtn6" title="Sonraki fark">Sonraki fark ▶</button>
+            <div class="spacer"></div>
+            <div class="legend">
+              <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>Eklendi</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>Silindi</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#b3521f"></span>Değişti</div>
+            </div>
+          </div>
+          <div class="diff-wrap">
+            <div class="diff-head">
+              <div style="grid-column: span 2;">A — Eski revizyon</div>
+              <div style="grid-column: span 2;">B — Yeni revizyon</div>
+            </div>
+            <div class="diff-body" id="diffBody6"></div>
+          </div>
+          <div class="zoom-hint">Bir fark satırına tıklayın — o hareket aşağıdaki çizimde işaretlenir.</div>
+        </div>
+
+        <!-- Step 5: toolpath overlay -->
+        <div class="panel" id="diffPlotPanel6" style="display:none;">
+          <div class="col-label">5. Takım Yolu Karşılaştırma</div>
+          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+            <button class="btn secondary" id="diffZoomResetBtn6">Yakınlaştırmayı Sıfırla</button>
+            <label class="checkbox-field">
+              <input type="checkbox" id="showRapidsChk6">
+              Hızlı (G00) hareketleri de göster
+            </label>
+            <div class="spacer"></div>
+            <div class="legend" id="diffLegend6">
+              <div class="legend-item"><span class="legend-dot" style="background:#8a8a8e"></span>A — eski (kalın soluk)</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#0071e3"></span>B — yeni</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>B'de eklenen / değişen</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>A'dan çıkan (kesikli)</div>
+            </div>
+          </div>
+          <div class="preview-box">
+            <svg id="diffSvg6" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+          </div>
+          <div class="zoom-hint">A'nın soluk izi B'nin altından çıkıyorsa, satır metni değişmemiş olsa bile o hareketin
+            geometrisi önceki bir değişiklik yüzünden kaymış demektir. Fare tekerleğiyle yakınlaştırın, sol tık + sürükle ile kaydırın.</div>
+          <div class="ruler-readout" id="diffPlotReadout6"></div>
         </div>
       </div>
 
@@ -3844,6 +4150,634 @@ const LatheCore = (function () {
     zoomBox5 = { x: svgP.x - relX * newW, y: svgP.y - relY * newH, w: newW, h: newH };
     renderToolpath();
   }, { passive: false });
+})();
+
+/* ================= Tool: Program Karşılaştırma ================= */
+(function () {
+  const $ = id => document.getElementById(id);
+  const rawText6a = $('rawText6a'), rawText6b = $('rawText6b');
+  const compareBtn6 = $('compareBtn6'), compareSummary6 = $('compareSummary6');
+  const swapBtn6 = $('swapBtn6');
+  const ignoreNChk6 = $('ignoreNChk6'), ignoreWsChk6 = $('ignoreWsChk6'), ignoreCommentsChk6 = $('ignoreCommentsChk6');
+  const diameterModeChk6 = $('diameterModeChk6');
+  const rapidRate6 = $('rapidRate6'), toolChangeSec6 = $('toolChangeSec6');
+  const unitSystemSegmented6 = $('unitSystemSegmented6');
+  const diffSummaryPanel6 = $('diffSummaryPanel6'), diffViewPanel6 = $('diffViewPanel6'), diffPlotPanel6 = $('diffPlotPanel6');
+  const kpiAdded6 = $('kpiAdded6'), kpiRemoved6 = $('kpiRemoved6'), kpiChanged6 = $('kpiChanged6');
+  const kpiTime6 = $('kpiTime6'), kpiTimeSub6 = $('kpiTimeSub6');
+  const diffByItemTbody = $('diffByItemTbody'), diffTimeTbody = $('diffTimeTbody'), diffChangeListTbody = $('diffChangeListTbody');
+  const diffCsvBtn6 = $('diffCsvBtn6');
+  const diffBody6 = $('diffBody6'), diffContext6 = $('diffContext6'), diffViewSegmented6 = $('diffViewSegmented6');
+  const prevDiffBtn6 = $('prevDiffBtn6'), nextDiffBtn6 = $('nextDiffBtn6');
+  const diffSvg6 = $('diffSvg6'), diffZoomResetBtn6 = $('diffZoomResetBtn6'), showRapidsChk6 = $('showRapidsChk6');
+  const diffPlotReadout6 = $('diffPlotReadout6');
+
+  let unitSystem6 = 'inch';
+  let parsedA = null, parsedB = null;
+  let rows = [];               // aligned diff rows: {type, ai, bi} (0-indexed into each side's lines)
+  let changeList = [];         // the notable per-line changes, also what the CSV export writes
+  let changedB = new Set();    // 1-indexed B line numbers that are new or changed
+  let changedA = new Set();    // 1-indexed A line numbers that were removed or changed
+  let focusedRowIdx = -1;
+  let zoomBox6 = { x: 0, y: 0, w: 400, h: 320 };
+  let plotVb6 = null;
+
+  /* ---- file loading (same drop/paste pattern as the other tools) ---- */
+  function wireLoader(suffix, textarea) {
+    const dropzone = $('dropzone6' + suffix), fileInput = $('fileInput6' + suffix);
+    const fileChip = $('fileChip6' + suffix), fcName = $('fcName6' + suffix), fcRemove = $('fcRemove6' + suffix);
+    function load(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => { textarea.value = e.target.result; };
+      reader.readAsText(file);
+      fcName.textContent = file.name;
+      fileChip.classList.add('show');
+    }
+    fileInput.addEventListener('change', () => load(fileInput.files[0]));
+    ['dragenter', 'dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+    dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) load(f); });
+    fcRemove.addEventListener('click', e => { e.stopPropagation(); fileInput.value = ''; fileChip.classList.remove('show'); });
+    return { name: () => fcName.textContent, setName: v => { fcName.textContent = v; } };
+  }
+  const loaderA = wireLoader('a', rawText6a);
+  const loaderB = wireLoader('b', rawText6b);
+
+  swapBtn6.addEventListener('click', () => {
+    const t = rawText6a.value; rawText6a.value = rawText6b.value; rawText6b.value = t;
+    const n = loaderA.name(); loaderA.setName(loaderB.name()); loaderB.setName(n);
+    if (rows.length) compare();
+  });
+
+  unitSystemSegmented6.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      unitSystemSegmented6.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      unitSystem6 = btn.dataset.unit;
+      if (rows.length) renderSummary();
+    });
+  });
+
+  /* ---- comparison key ----
+     What counts as "the same line". Block numbers are dropped by default so a
+     renumbered revision doesn't read as a rewrite; the rest is opt-in. */
+  function normKey(line) {
+    let t = line;
+    if (ignoreNChk6.checked) t = t.replace(/^\s*\/?\s*N\s*\d+/i, '');
+    if (ignoreCommentsChk6.checked) t = LatheCore.stripComments(t);
+    if (ignoreWsChk6.checked) t = t.replace(/\s+/g, '').toUpperCase();
+    else t = t.replace(/\s+$/, '');
+    return t;
+  }
+
+  /* ---- Myers O(ND) diff over hashed lines ----
+     Chosen over a full LCS matrix because two revisions of one program are
+     mostly identical: the work scales with the number of edits, not with the
+     square of the program length. */
+  function diffKeys(a, b) {
+    const N = a.length, M = b.length;
+    const ops = [];
+    // Equal head/tail cost nothing to match and shrink the search a lot.
+    let head = 0;
+    while (head < N && head < M && a[head] === b[head]) head++;
+    let tail = 0;
+    while (tail < N - head && tail < M - head && a[N - 1 - tail] === b[M - 1 - tail]) tail++;
+    for (let i = 0; i < head; i++) ops.push({ type: 'eq', ai: i, bi: i });
+
+    const aMid = a.slice(head, N - tail), bMid = b.slice(head, M - tail);
+    const n = aMid.length, m = bMid.length;
+    const MAX = n + m;
+
+    if (n === 0 || m === 0 || MAX > 12000) {
+      // Nothing in common to align (or two programs so different that aligning
+      // them says nothing) — report the block as replaced wholesale.
+      for (let i = 0; i < n; i++) ops.push({ type: 'del', ai: head + i });
+      for (let j = 0; j < m; j++) ops.push({ type: 'ins', bi: head + j });
+    } else {
+      const offset = MAX;
+      let V = new Int32Array(2 * MAX + 1);
+      const trace = [];
+      let found = -1;
+      for (let D = 0; D <= MAX && found < 0; D++) {
+        trace.push(V.slice());
+        for (let k = -D; k <= D; k += 2) {
+          let x;
+          if (k === -D || (k !== D && V[offset + k - 1] < V[offset + k + 1])) x = V[offset + k + 1];
+          else x = V[offset + k - 1] + 1;
+          let y = x - k;
+          while (x < n && y < m && aMid[x] === bMid[y]) { x++; y++; }
+          V[offset + k] = x;
+          if (x >= n && y >= m) { found = D; break; }
+        }
+      }
+      // Walk the trace backwards into a script, then flip it into program order.
+      const back = [];
+      let x = n, y = m;
+      for (let D = found; D > 0; D--) {
+        const Vp = trace[D];
+        const k = x - y;
+        let prevK;
+        if (k === -D || (k !== D && Vp[offset + k - 1] < Vp[offset + k + 1])) prevK = k + 1;
+        else prevK = k - 1;
+        const prevX = Vp[offset + prevK], prevY = prevX - prevK;
+        while (x > prevX && y > prevY) { x--; y--; back.push({ type: 'eq', ai: head + x, bi: head + y }); }
+        if (x === prevX) { y--; back.push({ type: 'ins', bi: head + y }); }
+        else { x--; back.push({ type: 'del', ai: head + x }); }
+      }
+      while (x > 0 && y > 0) { x--; y--; back.push({ type: 'eq', ai: head + x, bi: head + y }); }
+      back.reverse();
+      back.forEach(op => ops.push(op));
+    }
+
+    for (let i = 0; i < tail; i++) ops.push({ type: 'eq', ai: N - tail + i, bi: M - tail + i });
+    return ops;
+  }
+
+  // A run of deletes immediately followed by inserts reads as "these lines were
+  // edited", which is far more useful than two separate blocks.
+  function pairIntoRows(ops) {
+    const out = [];
+    let i = 0;
+    while (i < ops.length) {
+      if (ops[i].type === 'eq') { out.push(ops[i]); i++; continue; }
+      const dels = [], inss = [];
+      while (i < ops.length && ops[i].type === 'del') { dels.push(ops[i]); i++; }
+      while (i < ops.length && ops[i].type === 'ins') { inss.push(ops[i]); i++; }
+      const pairs = Math.min(dels.length, inss.length);
+      for (let k = 0; k < pairs; k++) out.push({ type: 'chg', ai: dels[k].ai, bi: inss[k].bi });
+      for (let k = pairs; k < dels.length; k++) out.push(dels[k]);
+      for (let k = pairs; k < inss.length; k++) out.push(inss[k]);
+    }
+    return out;
+  }
+
+  /* ---- word-level diff inside one changed line ---- */
+  function splitWords(line) { return line.split(/(\s+)/).filter(w => w.length); }
+
+  function wordDiff(aText, bText) {
+    const aw = splitWords(aText), bw = splitWords(bText);
+    // Word counts per line are tiny, so a plain LCS table is the simplest thing
+    // that works here.
+    const n = aw.length, m = bw.length;
+    const dp = [];
+    for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i][j] = aw[i] === bw[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const aMark = new Array(n).fill(false), bMark = new Array(m).fill(false);
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (aw[i] === bw[j]) { i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { aMark[i] = true; i++; }
+      else { bMark[j] = true; j++; }
+    }
+    while (i < n) { aMark[i] = true; i++; }
+    while (j < m) { bMark[j] = true; j++; }
+    // A renumbered line is not an edited line: if block numbers are being
+    // ignored for matching, they must not be reported as a change either.
+    if (ignoreNChk6.checked) {
+      unmarkLeadingBlockNumber(aw, aMark);
+      unmarkLeadingBlockNumber(bw, bMark);
+    }
+    return { aw, bw, aMark, bMark };
+  }
+
+  function unmarkLeadingBlockNumber(words, marks) {
+    for (let k = 0; k < words.length; k++) {
+      if (!words[k].trim()) continue;      // leading whitespace
+      if (words[k].trim() === '/') continue; // block-skip slash
+      if (/^N\d+$/i.test(words[k].trim())) marks[k] = false;
+      return;
+    }
+  }
+
+  const WORD_RE = /^([A-Za-z])(-?(?:\d+\.?\d*|\.\d+))$/;
+
+  // Turn the marked words into readable notes: "F .005 → .0035", "+ M08", "− G97".
+  function changeNotes(aText, bText) {
+    const { aw, bw, aMark, bMark } = wordDiff(aText, bText);
+    const removed = aw.filter((w, k) => aMark[k] && w.trim()).map(w => w.trim());
+    const added = bw.filter((w, k) => bMark[k] && w.trim()).map(w => w.trim());
+    const notes = [];
+    const usedAdded = new Set();
+    removed.forEach(rw => {
+      const rm = rw.match(WORD_RE);
+      let partnerIdx = -1;
+      if (rm) {
+        partnerIdx = added.findIndex((aw2, idx) => {
+          if (usedAdded.has(idx)) return false;
+          const am = aw2.match(WORD_RE);
+          return am && am[1].toUpperCase() === rm[1].toUpperCase();
+        });
+      }
+      if (partnerIdx >= 0) {
+        usedAdded.add(partnerIdx);
+        const am = added[partnerIdx].match(WORD_RE);
+        notes.push({ kind: 'chg', letter: rm[1].toUpperCase(), from: rm[2], to: am[2], text: `${rm[1].toUpperCase()} ${rm[2]} → ${am[2]}` });
+      } else {
+        notes.push({ kind: 'del', text: `− ${rw}` });
+      }
+    });
+    added.forEach((w, idx) => { if (!usedAdded.has(idx)) notes.push({ kind: 'ins', text: `+ ${w}` }); });
+    return notes;
+  }
+
+  function escapeHtml6(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function markedHtml(words, marks) {
+    return words.map((w, k) => marks[k] && w.trim() ? `<mark>${escapeHtml6(w)}</mark>` : escapeHtml6(w)).join('');
+  }
+
+  /* ---- the comparison itself ---- */
+  function compare() {
+    const textA = rawText6a.value, textB = rawText6b.value;
+    if (!textA.trim() || !textB.trim()) {
+      compareSummary6.style.display = 'block';
+      compareSummary6.innerHTML = 'Karşılaştırmak için iki revizyonu da yükleyin.';
+      diffSummaryPanel6.style.display = diffViewPanel6.style.display = diffPlotPanel6.style.display = 'none';
+      return;
+    }
+    const diaMode = diameterModeChk6.checked;
+    parsedA = LatheCore.parse(textA, diaMode);
+    parsedB = LatheCore.parse(textB, diaMode);
+
+    const keysA = parsedA.lines.map(normKey);
+    const keysB = parsedB.lines.map(normKey);
+    rows = pairIntoRows(diffKeys(keysA, keysB));
+
+    changedA = new Set();
+    changedB = new Set();
+    changeList = [];
+    let added = 0, removed = 0, changed = 0;
+    rows.forEach((r, idx) => {
+      if (r.type === 'eq') return;
+      if (r.type === 'ins') {
+        added++; changedB.add(r.bi + 1);
+        changeList.push({ rowIdx: idx, aLine: '', bLine: r.bi + 1, item: parsedB.lineItem[r.bi + 1], tool: parsedB.lineTool[r.bi + 1], kind: 'ins', notes: [{ kind: 'ins', text: '+ ' + parsedB.lines[r.bi].trim() }] });
+      } else if (r.type === 'del') {
+        removed++; changedA.add(r.ai + 1);
+        changeList.push({ rowIdx: idx, aLine: r.ai + 1, bLine: '', item: parsedA.lineItem[r.ai + 1], tool: parsedA.lineTool[r.ai + 1], kind: 'del', notes: [{ kind: 'del', text: '− ' + parsedA.lines[r.ai].trim() }] });
+      } else {
+        changed++; changedA.add(r.ai + 1); changedB.add(r.bi + 1);
+        changeList.push({ rowIdx: idx, aLine: r.ai + 1, bLine: r.bi + 1, item: parsedB.lineItem[r.bi + 1], tool: parsedB.lineTool[r.bi + 1], kind: 'chg', notes: changeNotes(parsedA.lines[r.ai], parsedB.lines[r.bi]) });
+      }
+    });
+
+    const identical = added + removed + changed === 0;
+    const renumbered = identical && textA !== textB;
+    compareSummary6.style.display = 'block';
+    compareSummary6.innerHTML = identical
+      ? (renumbered
+        ? 'İki revizyon arasında <b>anlamlı fark yok</b> — farklar yalnızca yok sayılan kısımlarda (blok numaraları, boşluk ya da yorumlar).'
+        : 'İki revizyon <b>birebir aynı</b>.')
+      : `A: <b>${parsedA.lines.length}</b> satır · B: <b>${parsedB.lines.length}</b> satır · <b>${added}</b> eklendi, <b>${removed}</b> silindi, <b>${changed}</b> değişti.`;
+
+    kpiAdded6.textContent = added;
+    kpiRemoved6.textContent = removed;
+    kpiChanged6.textContent = changed;
+
+    diffSummaryPanel6.style.display = 'block';
+    diffViewPanel6.style.display = 'block';
+    diffPlotPanel6.style.display = 'block';
+    focusedRowIdx = -1;
+    diffPlotReadout6.textContent = '';
+    resetZoom6();
+    renderSummary();
+    renderRows();
+    renderOverlay();
+  }
+
+  function itemLabel(item) { return item === null || item === undefined ? '(item öncesi)' : 'Item ' + item; }
+
+  function renderSummary() {
+    /* per item + tool counts */
+    const buckets = {};
+    let order = 0;
+    changeList.forEach(c => {
+      const key = itemLabel(c.item) + '\u0000' + (c.tool || '—');
+      if (!buckets[key]) buckets[key] = { item: itemLabel(c.item), tool: c.tool || '—', ins: 0, del: 0, chg: 0, order: order++ };
+      buckets[key][c.kind]++;
+    });
+    const bucketRows = Object.values(buckets).sort((a, b) => a.order - b.order);
+    diffByItemTbody.innerHTML = bucketRows.length
+      ? bucketRows.map(b => `<tr><td>${b.item}</td><td>${b.tool}</td><td>${b.ins || ''}</td><td>${b.del || ''}</td><td>${b.chg || ''}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="fs-empty">Fark yok</td></tr>';
+
+    /* cycle time, both revisions through the same maths as the simulator */
+    const opts = {
+      rapidRate: parseFloat(rapidRate6.value) || 200,
+      toolChangeSec: Math.max(0, parseFloat(toolChangeSec6.value) || 0),
+      unitSystem: unitSystem6
+    };
+    const tA = LatheCore.computeTimes(parsedA.segments, parsedA.toolChanges, opts);
+    const tB = LatheCore.computeTimes(parsedB.segments, parsedB.toolChanges, opts);
+    const delta = tB.totalMin - tA.totalMin;
+    kpiTime6.textContent = LatheCore.formatMinutesDelta(delta);
+    kpiTimeSub6.textContent = `${LatheCore.formatMinutes(tA.totalMin)} → ${LatheCore.formatMinutes(tB.totalMin)}`;
+
+    const itemKeys = [];
+    Object.keys(tA.perItem).concat(Object.keys(tB.perItem)).forEach(k => { if (!itemKeys.includes(k)) itemKeys.push(k); });
+    itemKeys.sort((x, y) => {
+      const ox = tB.perItem[x] ? tB.perItem[x].order : 1000 + (tA.perItem[x] ? tA.perItem[x].order : 0);
+      const oy = tB.perItem[y] ? tB.perItem[y].order : 1000 + (tA.perItem[y] ? tA.perItem[y].order : 0);
+      return ox - oy;
+    });
+    const sum = v => v ? v.cutting + v.air + v.toolChange : 0;
+    const timeRows = itemKeys.map(k => {
+      const a = sum(tA.perItem[k]), b = sum(tB.perItem[k]);
+      return { key: k, a, b, d: b - a };
+    });
+    diffTimeTbody.innerHTML = timeRows.map(r => {
+      const cls = Math.abs(r.d * 60) < 0.5 ? '' : (r.d > 0 ? ' style="color:#b3521f"' : ' style="color:#1f8a4c"');
+      return `<tr><td>${r.key === '(item öncesi)' ? r.key : 'Item ' + r.key}</td><td>${LatheCore.formatMinutes(r.a)}</td><td>${LatheCore.formatMinutes(r.b)}</td><td${cls}>${LatheCore.formatMinutesDelta(r.d)}</td></tr>`;
+    }).join('') + `<tr><td><b>Toplam</b></td><td><b>${LatheCore.formatMinutes(tA.totalMin)}</b></td><td><b>${LatheCore.formatMinutes(tB.totalMin)}</b></td><td><b>${LatheCore.formatMinutesDelta(delta)}</b></td></tr>`;
+
+    /* the change list */
+    diffChangeListTbody.innerHTML = changeList.length
+      ? changeList.map(c => {
+        const chips = c.notes.map(n => {
+          const color = n.kind === 'ins' ? '#1f8a4c' : n.kind === 'del' ? '#ff3b30' : '#b3521f';
+          return `<span class="chg-chip" style="color:${color}">${escapeHtml6(n.text)}</span>`;
+        }).join(' ');
+        return `<tr class="chg-row" data-row="${c.rowIdx}"><td>${c.aLine || '—'} → ${c.bLine || '—'}</td><td>${itemLabel(c.item)}</td><td>${c.tool || '—'}</td><td>${chips}</td></tr>`;
+      }).join('')
+      : '<tr><td colspan="4" class="fs-empty">Fark yok</td></tr>';
+    diffChangeListTbody.querySelectorAll('.chg-row').forEach(tr => {
+      tr.addEventListener('click', () => focusRow(parseInt(tr.dataset.row, 10), true));
+    });
+  }
+
+  /* ---- side-by-side lines ---- */
+  function visibleRowIndices() {
+    const onlyChanges = diffViewSegmented6.querySelector('.seg-btn.active').dataset.view === 'changes';
+    if (!onlyChanges) return rows.map((_, i) => i);
+    const ctx = Math.max(0, Math.min(20, parseInt(diffContext6.value, 10) || 0));
+    const keep = new Set();
+    rows.forEach((r, i) => {
+      if (r.type === 'eq') return;
+      for (let k = i - ctx; k <= i + ctx; k++) if (k >= 0 && k < rows.length) keep.add(k);
+    });
+    return Array.from(keep).sort((a, b) => a - b);
+  }
+
+  function renderRows() {
+    const idxs = visibleRowIndices();
+    const frag = document.createDocumentFragment();
+    let prev = -1;
+    if (idxs.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'diff-empty';
+      empty.textContent = 'Gösterilecek fark yok.';
+      frag.appendChild(empty);
+    }
+    idxs.forEach(i => {
+      if (prev >= 0 && i > prev + 1) {
+        const gap = document.createElement('div');
+        gap.className = 'diff-gap';
+        gap.textContent = `⋯ ${i - prev - 1} satır atlandı ⋯`;
+        frag.appendChild(gap);
+      }
+      prev = i;
+      const r = rows[i];
+      const div = document.createElement('div');
+      div.className = 'diff-row ' + r.type + (r.type !== 'eq' ? ' clickable' : '');
+      div.dataset.row = i;
+
+      const aText = r.ai != null ? parsedA.lines[r.ai] : '';
+      const bText = r.bi != null ? parsedB.lines[r.bi] : '';
+      let aHtml = escapeHtml6(aText), bHtml = escapeHtml6(bText);
+      if (r.type === 'chg') {
+        const w = wordDiff(aText, bText);
+        aHtml = markedHtml(w.aw, w.aMark);
+        bHtml = markedHtml(w.bw, w.bMark);
+      }
+      // Only the side that actually holds the change is tinted; the empty
+      // counterpart gets a hatch meaning "no matching line here".
+      const aSide = (r.type === 'chg' || r.type === 'del') ? ' changed' : (r.type === 'ins' ? ' filler' : '');
+      const bSide = (r.type === 'chg' || r.type === 'ins') ? ' changed' : (r.type === 'del' ? ' filler' : '');
+      div.innerHTML =
+        `<div class="dnum side-a${aSide}">${r.ai != null ? r.ai + 1 : ''}</div>` +
+        `<div class="dtext side-a${aSide}">${aHtml}</div>` +
+        `<div class="dnum side-b${bSide}">${r.bi != null ? r.bi + 1 : ''}</div>` +
+        `<div class="dtext side-b${bSide}">${bHtml}</div>`;
+      if (r.type !== 'eq') div.addEventListener('click', () => focusRow(i, false));
+      frag.appendChild(div);
+    });
+    diffBody6.innerHTML = '';
+    diffBody6.appendChild(frag);
+    if (focusedRowIdx >= 0) markFocused();
+  }
+
+  function markFocused() {
+    diffBody6.querySelectorAll('.diff-row.focused').forEach(el => el.classList.remove('focused'));
+    const el = diffBody6.querySelector(`.diff-row[data-row="${focusedRowIdx}"]`);
+    if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'center' }); }
+  }
+
+  // Focusing a change marks the move it belongs to in the overlay, which is the
+  // "where on the part did this change?" question the tables can't answer.
+  function focusRow(idx, scrollIntoView) {
+    focusedRowIdx = idx;
+    markFocused();
+    const r = rows[idx];
+    const parts = [];
+    if (r && r.bi != null) {
+      const seg = parsedB.segments.find(s => s.lineNo === r.bi + 1);
+      if (seg) parts.push(`B satır ${r.bi + 1}: X${(seg.x2).toFixed(4)} Z${seg.z2.toFixed(4)}`);
+    }
+    if (r && r.ai != null) {
+      const seg = parsedA.segments.find(s => s.lineNo === r.ai + 1);
+      if (seg) parts.push(`A satır ${r.ai + 1}: X${(seg.x2).toFixed(4)} Z${seg.z2.toFixed(4)}`);
+    }
+    diffPlotReadout6.textContent = parts.length ? parts.join('  ·  ') : 'Bu satır bir hareket üretmiyor — çizimde karşılığı yok.';
+    renderOverlay();
+    if (scrollIntoView) diffViewPanel6.scrollIntoView({ block: 'nearest' });
+  }
+
+  function stepDiff(dir) {
+    const changedIdxs = rows.map((r, i) => (r.type === 'eq' ? -1 : i)).filter(i => i >= 0);
+    if (changedIdxs.length === 0) return;
+    let next;
+    if (focusedRowIdx < 0) next = dir > 0 ? changedIdxs[0] : changedIdxs[changedIdxs.length - 1];
+    else {
+      const pos = changedIdxs.indexOf(focusedRowIdx);
+      if (pos < 0) next = changedIdxs.find(i => i > focusedRowIdx) ?? changedIdxs[0];
+      else next = changedIdxs[(pos + dir + changedIdxs.length) % changedIdxs.length];
+    }
+    focusRow(next, false);
+  }
+
+  /* ---- toolpath overlay ----
+     A is the recessive backdrop (thin, gray); B is read against it. Added and
+     removed geometry carry both a colour and a weight/dash difference so the
+     distinction survives a colourblind reader or a black-and-white print. */
+  function resetZoom6() { zoomBox6 = { x: 0, y: 0, w: 400, h: 320 }; }
+
+  function renderOverlay() {
+    const W = 400, H = 320, PAD = 26;
+    diffSvg6.setAttribute('viewBox', `${zoomBox6.x} ${zoomBox6.y} ${zoomBox6.w} ${zoomBox6.h}`);
+    diffSvg6.innerHTML = '';
+    if (!parsedA || !parsedB) return;
+    const showRapids = showRapidsChk6.checked;
+    const keep = s => showRapids || s.type !== 'rapid';
+    const segsA = parsedA.segments.filter(keep), segsB = parsedB.segments.filter(keep);
+    const b = LatheCore.boundsOf([segsA, segsB]);
+    if (!b) return;
+
+    const rangeX = b.maxX - b.minX, rangeZ = b.maxZ - b.minZ;
+    const scale = Math.min((W - PAD * 2) / rangeZ, (H - PAD * 2) / rangeX);
+    const offZ = (W - rangeZ * scale) / 2, offX = (H - rangeX * scale) / 2;
+    const toSx = z => offZ + (z - b.minZ) * scale;
+    const toSy = x => H - (offX + (x - b.minX) * scale);
+    plotVb6 = { b, scale, offX, offZ, W, H };
+
+    const ns = 'http://www.w3.org/2000/svg';
+    function el(tag, attrs) {
+      const e = document.createElementNS(ns, tag);
+      Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+      return e;
+    }
+    function stroked(tag, attrs) {
+      return el(tag, Object.assign({ 'vector-effect': 'non-scaling-stroke' }, attrs));
+    }
+    function segPath(seg) {
+      const x1 = toSx(seg.z1), y1 = toSy(seg.x1);
+      const x2 = toSx(seg.z2), y2 = toSy(seg.x2);
+      if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
+        const r = seg.r * scale;
+        const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
+        const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
+        let delta = a2 - a1;
+        while (delta <= -Math.PI) delta += 2 * Math.PI;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        // Short way around, same simplification (and the same screen-flip
+        // correction) as the simulator's renderer.
+        return `M ${x1} ${y1} A ${r} ${r} 0 0 ${delta > 0 ? 0 : 1} ${x2} ${y2}`;
+      }
+      return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+
+    if (b.minX <= 0 && b.maxX >= 0) {
+      diffSvg6.appendChild(stroked('line', { x1: 0, y1: toSy(0), x2: W, y2: toSy(0), stroke: '#e5e5ea', 'stroke-width': 1 }));
+    }
+
+    // A, unchanged parts: drawn wider and underneath so it reads as a halo
+    // around B where the two agree — and shows through wherever B's geometry
+    // moved, even on a line whose own text never changed.
+    segsA.forEach(seg => {
+      if (changedA.has(seg.lineNo)) return;
+      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#8a8a8e', 'stroke-width': 3, opacity: 0.32, 'stroke-dasharray': seg.type === 'rapid' ? '3,2' : 'none' }));
+    });
+    // B, unchanged parts
+    segsB.forEach(seg => {
+      if (changedB.has(seg.lineNo)) return;
+      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#0071e3', 'stroke-width': 1.4, 'stroke-dasharray': seg.type === 'rapid' ? '3,2' : 'none' }));
+    });
+    // geometry the revision dropped
+    segsA.forEach(seg => {
+      if (!changedA.has(seg.lineNo)) return;
+      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#ff3b30', 'stroke-width': 2, 'stroke-dasharray': '5,3' }));
+    });
+    // geometry the revision adds or moves
+    segsB.forEach(seg => {
+      if (!changedB.has(seg.lineNo)) return;
+      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#1f8a4c', 'stroke-width': 2.4 }));
+    });
+
+    // the focused change, if it draws anything
+    const fr = focusedRowIdx >= 0 ? rows[focusedRowIdx] : null;
+    if (fr) {
+      const screenScale = zoomBox6.w / W;
+      const focusSeg = (fr.bi != null && parsedB.segments.find(s => s.lineNo === fr.bi + 1))
+        || (fr.ai != null && parsedA.segments.find(s => s.lineNo === fr.ai + 1));
+      if (focusSeg) {
+        diffSvg6.appendChild(stroked('path', { d: segPath(focusSeg), fill: 'none', stroke: '#1d1d1f', 'stroke-width': 3.4, opacity: 0.85 }));
+        diffSvg6.appendChild(el('circle', { cx: toSx(focusSeg.z2), cy: toSy(focusSeg.x2), r: 4 * screenScale, fill: '#1d1d1f' }));
+      }
+    }
+  }
+
+  /* ---- zoom / pan, same feel as the simulator ---- */
+  let isPanning6 = false, panStartX6 = 0, panStartY6 = 0, panStartBox6 = null, panScaleX6 = 1, panScaleY6 = 1;
+  diffSvg6.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = diffSvg6.getBoundingClientRect();
+    const fx = (e.clientX - rect.left) / rect.width, fy = (e.clientY - rect.top) / rect.height;
+    const px = zoomBox6.x + fx * zoomBox6.w, py = zoomBox6.y + fy * zoomBox6.h;
+    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
+    const newW = Math.min(400 * 8, Math.max(400 / 40, zoomBox6.w * factor));
+    const newH = newW * (320 / 400);
+    zoomBox6 = { x: px - fx * newW, y: py - fy * newH, w: newW, h: newH };
+    renderOverlay();
+  }, { passive: false });
+  diffSvg6.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    isPanning6 = true;
+    panStartX6 = e.clientX; panStartY6 = e.clientY;
+    panStartBox6 = Object.assign({}, zoomBox6);
+    const rect = diffSvg6.getBoundingClientRect();
+    panScaleX6 = zoomBox6.w / rect.width; panScaleY6 = zoomBox6.h / rect.height;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isPanning6) return;
+    zoomBox6 = {
+      x: panStartBox6.x - (e.clientX - panStartX6) * panScaleX6,
+      y: panStartBox6.y - (e.clientY - panStartY6) * panScaleY6,
+      w: panStartBox6.w, h: panStartBox6.h
+    };
+    renderOverlay();
+  });
+  window.addEventListener('mouseup', () => { isPanning6 = false; });
+  diffZoomResetBtn6.addEventListener('click', () => { resetZoom6(); renderOverlay(); });
+  showRapidsChk6.addEventListener('change', () => { resetZoom6(); renderOverlay(); });
+
+  /* ---- wiring ---- */
+  compareBtn6.addEventListener('click', compare);
+  [ignoreNChk6, ignoreWsChk6, ignoreCommentsChk6, diameterModeChk6].forEach(chk => {
+    chk.addEventListener('change', () => { if (rows.length || compareSummary6.style.display === 'block') compare(); });
+  });
+  [rapidRate6, toolChangeSec6].forEach(inp => {
+    inp.addEventListener('input', () => { if (rows.length) renderSummary(); });
+  });
+  diffViewSegmented6.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      diffViewSegmented6.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderRows();
+    });
+  });
+  diffContext6.addEventListener('input', () => { if (rows.length) renderRows(); });
+  prevDiffBtn6.addEventListener('click', () => stepDiff(-1));
+  nextDiffBtn6.addEventListener('click', () => stepDiff(1));
+
+  diffCsvBtn6.addEventListener('click', () => {
+    if (changeList.length === 0) return;
+    const out = [['A satiri', 'B satiri', 'Item', 'Takim', 'Tur', 'Degisiklik', 'A metni', 'B metni']];
+    changeList.forEach(c => {
+      const kind = c.kind === 'ins' ? 'Eklendi' : c.kind === 'del' ? 'Silindi' : 'Degisti';
+      out.push([
+        c.aLine || '', c.bLine || '',
+        c.item === null || c.item === undefined ? '' : c.item,
+        c.tool || '', kind,
+        c.notes.map(n => n.text).join(' | '),
+        c.aLine ? parsedA.lines[c.aLine - 1] : '',
+        c.bLine ? parsedB.lines[c.bLine - 1] : ''
+      ]);
+    });
+    const csv = out.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'program-karsilastirma.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
 })();
 </script>
 
