@@ -2659,6 +2659,339 @@ downloadBtn.addEventListener('click', () => {
   });
 })();
 
+/* ================= Shared lathe-program core =================
+   One parser and one set of time/geometry maths, used by both the
+   simulator and the revision comparison tool. Keeping them in one place
+   means a program reads the same way wherever it is shown. */
+const LatheCore = (function () {
+  // "ITEM" as a whole word (won't match "ITEMS"), then up to 15 non-digit
+  // characters (colons, dashes, "NO.", spaces, asterisks, ...), then the number.
+  const ITEM_RE = /\bITEM(?![A-Za-z])\D{0,15}?(\d+(?:\.\d+)?)/i;
+
+  function stripComments(line) {
+    let out = line.replace(/\([^)]*\)/g, ' ');
+    out = out.replace(/;.*$/, '');
+    out = out.replace(/\/\/.*$/, '');
+    return out;
+  }
+
+  // Which physical tool a T code calls: on a lathe "T0101" is turret pocket 01
+  // with wear offset 01, so T0101 and T0102 are the same tool and a second M06
+  // between them is not a tool change. Codes of two digits or fewer are taken
+  // whole (machining-centre style "T1 M06").
+  function toolPocket(code) {
+    if (!code) return null;
+    const digits = String(code).replace(/^T/i, '');
+    const pocket = digits.length > 2 ? digits.slice(0, digits.length - 2) : digits;
+    return pocket.replace(/^0+(?=\d)/, '') || pocket;
+  }
+
+  function parse(text, diameterMode) {
+    const lines = text.split(/\r\n|\r|\n/);
+    const segments = [];
+    const lineHasMove = new Array(lines.length + 1).fill(false);
+    const lineItem = new Array(lines.length + 1).fill(null);
+    const lineTool = new Array(lines.length + 1).fill(null);
+    const tools = [];
+    const items = [];
+    const toolChanges = [];
+    let skippedChanges = 0;
+
+    let posX = 0, posZ = 0, hasPosition = false;
+    let motionMode = 'rapid'; // sensible power-on default until a G0/1/2/3 is explicitly seen
+    let positioning = 'absolute';
+    let currentTool = null;
+    let currentItem = null;
+    let feedMode = null;    // 'perMin' | 'perRev' | null — from G94/95/98/99
+    let speedModeG = null;  // 'css' | 'rpm' | null — from G96/G97
+    let currentF = null;
+    let currentS = null;
+    let maxRpmLimit = null; // from an S on a G92/G50 line
+    let lastChangedTool = null; // tool in the spindle per the last counted M06
+    const counts = { rapid: 0, linear: 0, arc: 0 };
+
+    lines.forEach((rawLine, idx) => {
+      const lineNo = idx + 1;
+
+      const itemMatch = rawLine.match(ITEM_RE);
+      if (itemMatch) {
+        const newItemNum = itemMatch[1];
+        const isSameAsCurrent = currentItem !== null && parseFloat(currentItem) === parseFloat(newItemNum);
+        if (!isSameAsCurrent) { currentItem = newItemNum; items.push(currentItem); }
+      }
+
+      const code = stripComments(rawLine);
+
+      const tokens = [];
+      const tokenRe = /([A-Za-z])\s*(-?(?:\d+\.?\d*|\.\d+))/g;
+      let tok;
+      while ((tok = tokenRe.exec(code)) !== null) {
+        tokens.push({ letter: tok[1].toUpperCase(), value: parseFloat(tok[2]), raw: tok[2] });
+      }
+
+      let hasSpindleLimitLine = false;
+      tokens.forEach(t => {
+        if (t.letter === 'G') {
+          if (t.value === 0) motionMode = 'rapid';
+          else if (t.value === 1) motionMode = 'linear';
+          else if (t.value === 2) motionMode = 'arcCW';
+          else if (t.value === 3) motionMode = 'arcCCW';
+          else if (t.value === 90) positioning = 'absolute';
+          else if (t.value === 91) positioning = 'incremental';
+          else if (t.value === 94 || t.value === 98) feedMode = 'perMin';
+          else if (t.value === 95 || t.value === 99) feedMode = 'perRev';
+          else if (t.value === 96) speedModeG = 'css';
+          else if (t.value === 97) speedModeG = 'rpm';
+          else if (t.value === 92 || t.value === 50) hasSpindleLimitLine = true;
+        } else if (t.letter === 'T' && t.value !== 0) {
+          currentTool = 'T' + t.raw;
+          if (!tools.includes(currentTool)) tools.push(currentTool);
+        }
+      });
+
+      // M06 tool change. The T word on the same line (already applied above) or,
+      // failing that, the last commanded T decides which tool is being called in.
+      // A second M06 for the tool already in the spindle costs no change time.
+      if (tokens.some(t => t.letter === 'M' && Math.round(t.value) === 6)) {
+        const toolKey = toolPocket(currentTool) || '(bilinmeyen)';
+        if (toolKey !== lastChangedTool) {
+          toolChanges.push({ lineNo, tool: currentTool, item: currentItem });
+          lastChangedTool = toolKey;
+        } else {
+          skippedChanges++;
+        }
+      }
+
+      tokens.forEach(t => {
+        if (t.letter === 'S') {
+          if (hasSpindleLimitLine) maxRpmLimit = t.value; else currentS = t.value;
+        } else if (t.letter === 'F') {
+          currentF = t.value;
+        }
+      });
+
+      lineItem[lineNo] = currentItem;
+      lineTool[lineNo] = currentTool;
+
+      let xTok = null, zTok = null, iTok = null, kTok = null, rTok = null, lTok = null;
+      tokens.forEach(t => {
+        if (t.letter === 'X') xTok = t.value;
+        else if (t.letter === 'Z') zTok = t.value;
+        else if (t.letter === 'I') iTok = t.value;
+        else if (t.letter === 'K') kTok = t.value;
+        else if (t.letter === 'R') rTok = t.value;
+        else if (t.letter === 'L') lTok = t.value; // Okuma uses L instead of R for arc radius
+      });
+      const radiusTok = rTok !== null ? rTok : lTok;
+
+      const hasMove = xTok !== null || zTok !== null;
+      if (!hasMove) return;
+
+      let newX = posX, newZ = posZ;
+      if (xTok !== null) {
+        const plottedX = diameterMode ? xTok / 2 : xTok;
+        newX = positioning === 'incremental' ? posX + plottedX : plottedX;
+      }
+      if (zTok !== null) {
+        newZ = positioning === 'incremental' ? posZ + zTok : zTok;
+      }
+
+      if (!hasPosition) {
+        posX = newX; posZ = newZ; hasPosition = true;
+        lineHasMove[lineNo] = true;
+        return; // establishes the starting point; nothing to draw a segment from yet
+      }
+
+      const seg = { lineNo, type: motionMode, x1: posX, z1: posZ, x2: newX, z2: newZ, tool: currentTool, item: currentItem, F: currentF, feedMode, S: currentS, speedMode: speedModeG, maxRpmLimit };
+      if (motionMode === 'arcCW' || motionMode === 'arcCCW') {
+        if (iTok !== null || kTok !== null) {
+          // I/K are always radius-valued offsets from the start point, regardless
+          // of whether X is diameter-programmed.
+          seg.cx = posX + (iTok || 0);
+          seg.cz = posZ + (kTok || 0);
+          seg.r = Math.hypot(posX - seg.cx, posZ - seg.cz);
+        } else if (radiusTok !== null) {
+          // R/L-format fallback (L is Okuma's word for the same thing): solve
+          // for a center using the short-arc side. Direction/side selection
+          // for this format is a best-effort default — worth a visual sanity
+          // check if a program uses this form.
+          const dx = newX - posX, dz = newZ - posZ;
+          const chord = Math.hypot(dx, dz);
+          const rAbs = Math.abs(radiusTok);
+          const h = Math.sqrt(Math.max(0, rAbs * rAbs - (chord / 2) * (chord / 2)));
+          const mx = (posX + newX) / 2, mz = (posZ + newZ) / 2;
+          const ux = chord ? dx / chord : 0, uz = chord ? dz / chord : 0;
+          const perpX = -uz, perpZ = ux;
+          const sign = (motionMode === 'arcCW') ? 1 : -1;
+          seg.cx = mx + perpX * h * sign;
+          seg.cz = mz + perpZ * h * sign;
+          seg.r = rAbs;
+        } else {
+          seg.type = 'linear'; // no center info at all — fall back to a straight line rather than guessing
+        }
+        if (seg.type === 'arcCW' || seg.type === 'arcCCW') counts.arc++; else counts.linear++;
+      } else if (motionMode === 'rapid') {
+        counts.rapid++;
+      } else {
+        counts.linear++;
+      }
+
+      segments.push(seg);
+      lineHasMove[lineNo] = true;
+      posX = newX; posZ = newZ;
+    });
+
+    return { lines, segments, lineHasMove, lineItem, lineTool, tools, items, toolChanges, skippedChanges, counts };
+  }
+
+  /* ---- arc helpers ---- */
+  function arcLength(seg) {
+    const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
+    const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
+    let delta = a2 - a1;
+    while (delta <= -Math.PI) delta += 2 * Math.PI;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    return seg.r * Math.abs(delta);
+  }
+
+  // Sample points along an arc — used for auto-fit bounds (so a bulging arc
+  // doesn't get clipped) and for densifying arcs into a polyline.
+  function arcSamplePoints(seg) {
+    const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
+    const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
+    let delta = a2 - a1;
+    while (delta <= -Math.PI) delta += 2 * Math.PI;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    const pts = [];
+    const steps = 16;
+    for (let i = 0; i <= steps; i++) {
+      const a = a1 + delta * (i / steps);
+      pts.push({ x: seg.cx + seg.r * Math.sin(a), z: seg.cz + seg.r * Math.cos(a) });
+    }
+    return pts;
+  }
+
+  function segLength(seg) {
+    return (seg.type === 'arcCW' || seg.type === 'arcCCW') ? arcLength(seg) : Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
+  }
+
+  // Bounding box over a set of segments, arcs sampled so bulges are included.
+  function boundsOf(segmentLists, extraPoints) {
+    const allX = [], allZ = [];
+    (segmentLists || []).forEach(list => (list || []).forEach(s => {
+      if (s.type === 'arcCW' || s.type === 'arcCCW') {
+        arcSamplePoints(s).forEach(p => { allX.push(p.x); allZ.push(p.z); });
+      } else {
+        allX.push(s.x1, s.x2); allZ.push(s.z1, s.z2);
+      }
+    }));
+    (extraPoints || []).forEach(p => { allX.push(p.x); allZ.push(p.z); });
+    if (allX.length === 0) return null;
+    let minX = Math.min(...allX), maxX = Math.max(...allX);
+    let minZ = Math.min(...allZ), maxZ = Math.max(...allZ);
+    if (minX === maxX) { minX -= 1; maxX += 1; }
+    if (minZ === maxZ) { minZ -= 1; maxZ += 1; }
+    return { minX, maxX, minZ, maxZ };
+  }
+
+  function formatMinutes(min) {
+    const totalSec = Math.round(min * 60);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}sa ${m}dk ${s}sn`;
+    return `${m}dk ${s}sn`;
+  }
+
+  // Signed difference, e.g. "+2dk 14sn" / "-0dk 30sn" / "değişmedi".
+  function formatMinutesDelta(min) {
+    if (Math.abs(min * 60) < 0.5) return 'değişmedi';
+    return (min > 0 ? '+' : '−') + formatMinutes(Math.abs(min));
+  }
+
+  const FALLBACK_MAX_RPM = 6000; // only if a program never sets G50/G92 and the CSS diameter is tiny
+
+  /* ---- cutting / air / tool-change time ----
+     opts: { rapidRate, toolChangeSec, unitSystem: 'inch' | 'metric' } */
+  function computeTimes(segments, toolChanges, opts) {
+    const rapidRate = Math.max(0.001, opts.rapidRate || 200);
+    const toolChangeMin = Math.max(0, opts.toolChangeSec || 0) / 60;
+    const unitSystem = opts.unitSystem || 'inch';
+
+    let cuttingMin = 0, airMin = 0, toolChangeTotalMin = 0, unknownCount = 0;
+    const perTool = {};       // toolCode -> cutting minutes
+    const perToolChange = {}; // toolCode -> { min, count } spent changing TO that tool
+    const perItem = {};       // item -> { cutting, air, toolChange, order }
+    let itemOrder = 0;
+
+    function itemBucket(item) {
+      const key = item !== null && item !== undefined ? item : '(item öncesi)';
+      if (!perItem[key]) perItem[key] = { cutting: 0, air: 0, toolChange: 0, order: itemOrder++ };
+      return perItem[key];
+    }
+
+    // Moves and tool changes are walked together in program order so the
+    // per-item table keeps its chronological ordering.
+    const events = [];
+    (segments || []).forEach(seg => events.push({ lineNo: seg.lineNo, seg }));
+    (toolChanges || []).forEach(tc => events.push({ lineNo: tc.lineNo, tc }));
+    events.sort((a, b) => a.lineNo - b.lineNo);
+
+    events.forEach(ev => {
+      if (ev.tc) {
+        const key = ev.tc.tool || '(bilinmeyen)';
+        if (!perToolChange[key]) perToolChange[key] = { min: 0, count: 0 };
+        perToolChange[key].min += toolChangeMin;
+        perToolChange[key].count++;
+        toolChangeTotalMin += toolChangeMin;
+        itemBucket(ev.tc.item).toolChange += toolChangeMin;
+        return;
+      }
+      const seg = ev.seg;
+      const dist = segLength(seg);
+
+      if (seg.type === 'rapid') {
+        const t = dist / rapidRate;
+        airMin += t;
+        itemBucket(seg.item).air += t;
+        return;
+      }
+
+      if (seg.F == null || seg.F <= 0) { unknownCount++; return; }
+
+      let rpm;
+      if (seg.speedMode === 'rpm' && seg.S != null) {
+        rpm = seg.S;
+      } else if (seg.speedMode === 'css' && seg.S != null) {
+        const avgRadius = (seg.x1 + seg.x2) / 2;
+        const diameter = Math.max(Math.abs(2 * avgRadius), 1e-6);
+        rpm = unitSystem === 'inch' ? (12 * seg.S) / (Math.PI * diameter) : (1000 * seg.S) / (Math.PI * diameter);
+        rpm = Math.min(rpm, seg.maxRpmLimit != null ? seg.maxRpmLimit : FALLBACK_MAX_RPM);
+      } else {
+        unknownCount++; return;
+      }
+      if (!(rpm > 0)) { unknownCount++; return; }
+
+      const feedPerMin = seg.feedMode === 'perMin' ? seg.F : seg.F * rpm;
+      if (!(feedPerMin > 0)) { unknownCount++; return; }
+
+      const t = dist / feedPerMin;
+      cuttingMin += t;
+      if (seg.tool) perTool[seg.tool] = (perTool[seg.tool] || 0) + t;
+      itemBucket(seg.item).cutting += t;
+    });
+
+    return {
+      cuttingMin, airMin,
+      toolChangeMin: toolChangeTotalMin,
+      totalMin: cuttingMin + airMin + toolChangeTotalMin,
+      unknownCount, perTool, perToolChange, perItem
+    };
+  }
+
+  return { ITEM_RE, stripComments, toolPocket, parse, arcLength, arcSamplePoints, segLength, boundsOf, formatMinutes, formatMinutesDelta, computeTimes };
+})();
+
 /* ================= Tool: Torna Program Simülatörü ================= */
 (function () {
   const fileInput5 = document.getElementById('fileInput5');
@@ -2749,181 +3082,21 @@ downloadBtn.addEventListener('click', () => {
   dropzone5.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile5(f); });
   fcRemove5.addEventListener('click', e => { e.stopPropagation(); fileInput5.value = ''; fileChip5.classList.remove('show'); });
 
-  // Same lenient ITEM marker match as Torna Devir İlerleme Çıkarma: "ITEM" as a
-  // whole word (won't match "ITEMS"), then up to 15 non-digit characters
-  // (colons, dashes, "NO.", spaces, asterisks, etc.), then the number.
-  const ITEM_RE5 = /\bITEM(?![A-Za-z])\D{0,15}?(\d+(?:\.\d+)?)/i;
-
-  // Which physical tool a T code calls: on a lathe "T0101" is turret pocket 01
-  // with wear offset 01, so T0101 and T0102 are the same tool and a second M06
-  // between them is not a tool change. Codes of two digits or fewer are taken
-  // whole (machining-centre style "T1 M06").
-  function toolPocket5(code) {
-    if (!code) return null;
-    const digits = String(code).replace(/^T/i, '');
-    const pocket = digits.length > 2 ? digits.slice(0, digits.length - 2) : digits;
-    return pocket.replace(/^0+(?=\d)/, '') || pocket;
-  }
-
-
-
-  function stripComments(line) {
-    let out = line.replace(/\([^)]*\)/g, ' ');
-    out = out.replace(/;.*$/, '');
-    out = out.replace(/\/\/.*$/, '');
-    return out;
-  }
-
+  // Parsing lives in LatheCore so the simulator and the revision comparison
+  // read a program exactly the same way; this keeps the view's own state in sync.
+  let lineItem5 = [], lineTool5 = [];
   function parseProgram(text, diameterMode) {
-    rawLines = text.split(/\r\n|\r|\n/);
-    segments = [];
-    lineHasMove = new Array(rawLines.length + 1).fill(false);
-    toolsFound = [];
-    itemsFound = [];
-
-    let posX = 0, posZ = 0, hasPosition = false;
-    let motionMode = 'rapid'; // sensible power-on default until a G0/1/2/3 is explicitly seen
-    let positioning = 'absolute';
-    let currentTool = null;
-    let currentItem = null; // item number as matched (string), same merge-on-repeat logic as Torna Devir İlerleme
-    let feedMode = null;    // 'perMin' | 'perRev' | null — from G94/95/98/99
-    let speedModeG = null;  // 'css' | 'rpm' | null — from G96/G97
-    let currentF = null;
-    let currentS = null;
-    let maxRpmLimit = null; // from an S on a G92/G50 line
-    let lastChangedTool = null; // tool currently in the spindle per the last counted M06
-    let counts = { rapid: 0, linear: 0, arc: 0 };
-    toolChanges5 = [];
-    skippedChanges5 = 0;
-
-    rawLines.forEach((rawLine, idx) => {
-      const lineNo = idx + 1;
-
-      const itemMatch = rawLine.match(ITEM_RE5);
-      if (itemMatch) {
-        const newItemNum = itemMatch[1];
-        const isSameAsCurrent = currentItem !== null && parseFloat(currentItem) === parseFloat(newItemNum);
-        if (!isSameAsCurrent) { currentItem = newItemNum; itemsFound.push(currentItem); }
-      }
-
-      const code = stripComments(rawLine);
-
-      const tokens = [];
-      const tokenRe = /([A-Za-z])\s*(-?(?:\d+\.?\d*|\.\d+))/g;
-      let tok;
-      while ((tok = tokenRe.exec(code)) !== null) {
-        tokens.push({ letter: tok[1].toUpperCase(), value: parseFloat(tok[2]), raw: tok[2] });
-      }
-
-      let hasSpindleLimitLine = false;
-      tokens.forEach(t => {
-        if (t.letter === 'G') {
-          if (t.value === 0) motionMode = 'rapid';
-          else if (t.value === 1) motionMode = 'linear';
-          else if (t.value === 2) motionMode = 'arcCW';
-          else if (t.value === 3) motionMode = 'arcCCW';
-          else if (t.value === 90) positioning = 'absolute';
-          else if (t.value === 91) positioning = 'incremental';
-          else if (t.value === 94 || t.value === 98) feedMode = 'perMin';
-          else if (t.value === 95 || t.value === 99) feedMode = 'perRev';
-          else if (t.value === 96) speedModeG = 'css';
-          else if (t.value === 97) speedModeG = 'rpm';
-          else if (t.value === 92 || t.value === 50) hasSpindleLimitLine = true;
-        } else if (t.letter === 'T' && t.value !== 0) {
-          currentTool = 'T' + t.raw;
-          if (!toolsFound.includes(currentTool)) toolsFound.push(currentTool);
-        }
-      });
-      // M06 tool change. The T word on the same line (already applied above) or,
-      // failing that, the last commanded T decides which tool is being called in.
-      // A second M06 for the tool already in the spindle costs no change time.
-      if (tokens.some(t => t.letter === 'M' && Math.round(t.value) === 6)) {
-        const toolKey = toolPocket5(currentTool) || '(bilinmeyen)';
-        if (toolKey !== lastChangedTool) {
-          toolChanges5.push({ lineNo, tool: currentTool, item: currentItem });
-          lastChangedTool = toolKey;
-        } else {
-          skippedChanges5++;
-        }
-      }
-
-      tokens.forEach(t => {
-        if (t.letter === 'S') {
-          if (hasSpindleLimitLine) maxRpmLimit = t.value; else currentS = t.value;
-        } else if (t.letter === 'F') {
-          currentF = t.value;
-        }
-      });
-
-      let xTok = null, zTok = null, iTok = null, kTok = null, rTok = null, lTok = null;
-      tokens.forEach(t => {
-        if (t.letter === 'X') xTok = t.value;
-        else if (t.letter === 'Z') zTok = t.value;
-        else if (t.letter === 'I') iTok = t.value;
-        else if (t.letter === 'K') kTok = t.value;
-        else if (t.letter === 'R') rTok = t.value;
-        else if (t.letter === 'L') lTok = t.value; // Okuma uses L instead of R for arc radius
-      });
-      const radiusTok = rTok !== null ? rTok : lTok;
-
-      const hasMove = xTok !== null || zTok !== null;
-      if (!hasMove) return;
-
-      let newX = posX, newZ = posZ;
-      if (xTok !== null) {
-        const plottedX = diameterMode ? xTok / 2 : xTok;
-        newX = positioning === 'incremental' ? posX + plottedX : plottedX;
-      }
-      if (zTok !== null) {
-        newZ = positioning === 'incremental' ? posZ + zTok : zTok;
-      }
-
-      if (!hasPosition) {
-        posX = newX; posZ = newZ; hasPosition = true;
-        lineHasMove[lineNo] = true;
-        return; // establishes the starting point; nothing to draw a segment from yet
-      }
-
-      const seg = { lineNo, type: motionMode, x1: posX, z1: posZ, x2: newX, z2: newZ, tool: currentTool, item: currentItem, F: currentF, feedMode, S: currentS, speedMode: speedModeG, maxRpmLimit };
-      if (motionMode === 'arcCW' || motionMode === 'arcCCW') {
-        if (iTok !== null || kTok !== null) {
-          // I/K are always radius-valued offsets from the start point, regardless
-          // of whether X is diameter-programmed.
-          seg.cx = posX + (iTok || 0);
-          seg.cz = posZ + (kTok || 0);
-          seg.r = Math.hypot(posX - seg.cx, posZ - seg.cz);
-        } else if (radiusTok !== null) {
-          // R/L-format fallback (L is Okuma's word for the same thing): solve
-          // for a center using the short-arc side. Direction/side selection
-          // for this format is a best-effort default — worth a visual sanity
-          // check if a program uses this form.
-          const dx = newX - posX, dz = newZ - posZ;
-          const chord = Math.hypot(dx, dz);
-          const rAbs = Math.abs(radiusTok);
-          const h = Math.sqrt(Math.max(0, rAbs * rAbs - (chord / 2) * (chord / 2)));
-          const mx = (posX + newX) / 2, mz = (posZ + newZ) / 2;
-          const ux = chord ? dx / chord : 0, uz = chord ? dz / chord : 0;
-          const perpX = -uz, perpZ = ux;
-          const sign = (motionMode === 'arcCW') ? 1 : -1;
-          seg.cx = mx + perpX * h * sign;
-          seg.cz = mz + perpZ * h * sign;
-          seg.r = rAbs;
-        } else {
-          seg.type = 'linear'; // no center info at all — fall back to a straight line rather than guessing
-        }
-        if (seg.type === 'arcCW' || seg.type === 'arcCCW') counts.arc++; else counts.linear++;
-      } else if (motionMode === 'rapid') {
-        counts.rapid++;
-      } else {
-        counts.linear++;
-      }
-
-      segments.push(seg);
-      lineHasMove[lineNo] = true;
-      posX = newX; posZ = newZ;
-    });
-
-    return counts;
+    const parsed = LatheCore.parse(text, diameterMode);
+    rawLines = parsed.lines;
+    segments = parsed.segments;
+    lineHasMove = parsed.lineHasMove;
+    lineItem5 = parsed.lineItem;
+    lineTool5 = parsed.lineTool;
+    toolsFound = parsed.tools;
+    itemsFound = parsed.items;
+    toolChanges5 = parsed.toolChanges;
+    skippedChanges5 = parsed.skippedChanges;
+    return parsed.counts;
   }
 
   /* ---- polyline offset (same bisector method as CMM → CAD's tolerance offset) ---- */
@@ -3050,98 +3223,20 @@ downloadBtn.addEventListener('click', () => {
     });
   });
 
-  function arcLength5(seg) {
-    const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
-    const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
-    let delta = a2 - a1;
-    while (delta <= -Math.PI) delta += 2 * Math.PI;
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    return seg.r * Math.abs(delta);
-  }
-
-  function formatMinutes5(min) {
-    const totalSec = Math.round(min * 60);
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    if (h > 0) return `${h}sa ${m}dk ${s}sn`;
-    return `${m}dk ${s}sn`;
-  }
+  const arcLength5 = LatheCore.arcLength;
+  const formatMinutes5 = LatheCore.formatMinutes;
 
   function computeCuttingTime() {
-    const rapidRate = Math.max(0.001, parseFloat(rapidRate5.value) || 200);
     const toolChangeSec = Math.max(0, parseFloat(toolChangeSec5.value) || 0);
-    const toolChangeMin = toolChangeSec / 60;
-    const FALLBACK_MAX_RPM = 6000; // used only if a program never sets G50/G92 and CSS diameter is tiny
-
-    let cuttingTimeMin = 0, airTimeMin = 0, toolChangeTimeMin = 0, unknownCount = 0;
-    const perTool = {};       // toolCode -> cutting minutes
-    const perToolChange = {}; // toolCode -> { min, count } spent changing TO that tool
-    const perItem = {}; // itemNumber -> { cutting, air, toolChange, order }
-    let itemOrder = 0;
-
-    function itemBucket(item) {
-      const key = item !== null && item !== undefined ? item : '(item öncesi)';
-      if (!perItem[key]) perItem[key] = { cutting: 0, air: 0, toolChange: 0, order: itemOrder++ };
-      return perItem[key];
-    }
-
-    // Moves and tool changes are walked together in program order so the
-    // per-item table keeps its chronological ordering.
-    const events = [];
-    segments.forEach(seg => events.push({ lineNo: seg.lineNo, seg }));
-    toolChanges5.forEach(tc => events.push({ lineNo: tc.lineNo, tc }));
-    events.sort((a, b) => a.lineNo - b.lineNo);
-
-    events.forEach(ev => {
-      if (ev.tc) {
-        const key = ev.tc.tool || '(bilinmeyen)';
-        if (!perToolChange[key]) perToolChange[key] = { min: 0, count: 0 };
-        perToolChange[key].min += toolChangeMin;
-        perToolChange[key].count++;
-        toolChangeTimeMin += toolChangeMin;
-        itemBucket(ev.tc.item).toolChange += toolChangeMin;
-        return;
-      }
-      const seg = ev.seg;
-      const dist = (seg.type === 'arcCW' || seg.type === 'arcCCW') ? arcLength5(seg) : Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
-
-      if (seg.type === 'rapid') {
-        const t = dist / rapidRate;
-        airTimeMin += t;
-        itemBucket(seg.item).air += t;
-        return;
-      }
-
-      if (seg.F == null || seg.F <= 0) { unknownCount++; return; }
-
-      let rpm;
-      if (seg.speedMode === 'rpm' && seg.S != null) {
-        rpm = seg.S;
-      } else if (seg.speedMode === 'css' && seg.S != null) {
-        const avgRadius = (seg.x1 + seg.x2) / 2;
-        const diameter = Math.max(Math.abs(2 * avgRadius), 1e-6);
-        rpm = unitSystem5 === 'inch' ? (12 * seg.S) / (Math.PI * diameter) : (1000 * seg.S) / (Math.PI * diameter);
-        rpm = Math.min(rpm, seg.maxRpmLimit != null ? seg.maxRpmLimit : FALLBACK_MAX_RPM);
-      } else {
-        unknownCount++; return;
-      }
-      if (!(rpm > 0)) { unknownCount++; return; }
-
-      const feedPerMin = seg.feedMode === 'perMin' ? seg.F : seg.F * rpm;
-      if (!(feedPerMin > 0)) { unknownCount++; return; }
-
-      const t = dist / feedPerMin;
-      cuttingTimeMin += t;
-      if (seg.tool) perTool[seg.tool] = (perTool[seg.tool] || 0) + t;
-      itemBucket(seg.item).cutting += t;
+    const r = LatheCore.computeTimes(segments, toolChanges5, {
+      rapidRate: parseFloat(rapidRate5.value) || 200,
+      toolChangeSec,
+      unitSystem: unitSystem5
     });
 
-    const totalMin = cuttingTimeMin + airTimeMin + toolChangeTimeMin;
-
     const notes = [];
-    notes.push(unknownCount > 0
-      ? `${unknownCount} kesme hareketi için hız veya ilerleme modu belirlenemediğinden süreye dahil edilmedi.`
+    notes.push(r.unknownCount > 0
+      ? `${r.unknownCount} kesme hareketi için hız veya ilerleme modu belirlenemediğinden süreye dahil edilmedi.`
       : 'Tüm kesme hareketleri için süre hesaplandı.');
     notes.push(`<b>${toolChanges5.length}</b> takım değişimi (M06) sayıldı` +
       (skippedChanges5 > 0 ? `; aynı takım tekrar çağrıldığı için <b>${skippedChanges5}</b> M06 satırı süreye eklenmedi.` : '.'));
@@ -3149,27 +3244,27 @@ downloadBtn.addEventListener('click', () => {
     timeSummary5.innerHTML = notes.join(' ');
 
     timeTotalsTbody.innerHTML = `
-      <tr><td>Kesme Süresi</td><td>${formatMinutes5(cuttingTimeMin)}</td></tr>
-      <tr><td>Hava Süresi</td><td>${formatMinutes5(airTimeMin)}</td></tr>
-      <tr><td>Takım Değiştirme (${toolChanges5.length} × ${toolChangeSec} sn)</td><td>${formatMinutes5(toolChangeTimeMin)}</td></tr>
-      <tr><td><b>Toplam Süre</b></td><td><b>${formatMinutes5(totalMin)}</b></td></tr>
+      <tr><td>Kesme Süresi</td><td>${formatMinutes5(r.cuttingMin)}</td></tr>
+      <tr><td>Hava Süresi</td><td>${formatMinutes5(r.airMin)}</td></tr>
+      <tr><td>Takım Değiştirme (${toolChanges5.length} × ${toolChangeSec} sn)</td><td>${formatMinutes5(r.toolChangeMin)}</td></tr>
+      <tr><td><b>Toplam Süre</b></td><td><b>${formatMinutes5(r.totalMin)}</b></td></tr>
     `;
 
     const toolKeys = [];
-    toolsFound.concat(Object.keys(perTool)).concat(Object.keys(perToolChange)).forEach(k => {
+    toolsFound.concat(Object.keys(r.perTool)).concat(Object.keys(r.perToolChange)).forEach(k => {
       if (!toolKeys.includes(k)) toolKeys.push(k);
     });
-    const toolRows = toolKeys.map(tool => {
-      const cut = perTool[tool] || 0;
-      const chg = perToolChange[tool] ? perToolChange[tool].min : 0;
-      const cnt = perToolChange[tool] ? perToolChange[tool].count : 0;
-      return { tool, cut, chg, cnt };
-    }).filter(r => r.cut > 0 || r.cnt > 0);
+    const toolRows = toolKeys.map(tool => ({
+      tool,
+      cut: r.perTool[tool] || 0,
+      chg: r.perToolChange[tool] ? r.perToolChange[tool].min : 0,
+      cnt: r.perToolChange[tool] ? r.perToolChange[tool].count : 0
+    })).filter(row => row.cut > 0 || row.cnt > 0);
     timeByToolTbody.innerHTML = toolRows.length
-      ? toolRows.map(r => `<tr><td>${r.tool}</td><td>${formatMinutes5(r.cut)}</td><td>${formatMinutes5(r.chg)}${r.cnt ? ` <span style="color:var(--ink-faint)">(${r.cnt}×)</span>` : ''}</td><td>${formatMinutes5(r.cut + r.chg)}</td></tr>`).join('')
+      ? toolRows.map(row => `<tr><td>${row.tool}</td><td>${formatMinutes5(row.cut)}</td><td>${formatMinutes5(row.chg)}${row.cnt ? ` <span style="color:var(--ink-faint)">(${row.cnt}×)</span>` : ''}</td><td>${formatMinutes5(row.cut + row.chg)}</td></tr>`).join('')
       : '<tr><td colspan="4" class="fs-empty">Takım verisi yok</td></tr>';
 
-    const itemEntries = Object.entries(perItem).sort((a, b) => a[1].order - b[1].order);
+    const itemEntries = Object.entries(r.perItem).sort((a, b) => a[1].order - b[1].order);
     timeByItemTbody.innerHTML = itemEntries.length
       ? itemEntries.map(([item, v]) => `<tr><td>${item === '(item öncesi)' ? item : 'Item ' + item}</td><td>${formatMinutes5(v.cutting)}</td><td>${formatMinutes5(v.air)}</td><td>${formatMinutes5(v.toolChange)}</td><td>${formatMinutes5(v.cutting + v.air + v.toolChange)}</td></tr>`).join('')
       : '<tr><td colspan="5" class="fs-empty">Item verisi yok</td></tr>';
@@ -3407,23 +3502,7 @@ downloadBtn.addEventListener('click', () => {
     renderToolpath();
   }
 
-  // For arcs, sample points along the curve — used both for auto-fit bounds
-  // (so a bulging arc doesn't get clipped) and for densifying arcs into a
-  // polyline before computing the tool-radius offset.
-  function arcSamplePoints5(seg) {
-    const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
-    const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
-    let delta = a2 - a1;
-    while (delta <= -Math.PI) delta += 2 * Math.PI;
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    const pts = [];
-    const steps = 16;
-    for (let i = 0; i <= steps; i++) {
-      const a = a1 + delta * (i / steps);
-      pts.push({ x: seg.cx + seg.r * Math.sin(a), z: seg.cz + seg.r * Math.cos(a) });
-    }
-    return pts;
-  }
+  const arcSamplePoints5 = LatheCore.arcSamplePoints;
 
   function renderToolpath() {
     const W = 400, H = 320, PAD = 26;
