@@ -1087,163 +1087,170 @@
 
   /* ==================================================================
      Liquid Glass
-     Every surface is a pane of glass floating over a slow, living
-     gradient. Three things sell it and all three are here: the backdrop
-     has to actually move and be colourful (glass over flat grey is just
-     grey); each pane needs a specular rim that is bright where the light
-     falls and fades away from it; and the panes must react to the
-     pointer, because real glass catches the light as you lean over it.
+     The whole interface is glass over a slow, living wash of colour.
+
+     What costs frames here is not the blur radius, it is the NUMBER of
+     backdrop-filtered surfaces: each one has to re-blur the moving
+     backdrop every single frame. So only the surfaces that actually sit
+     on the page background carry a real backdrop-filter — the panel,
+     the rail, the mobile bar. Everything nested inside them is layered
+     translucent white instead, which looks the same (it is already
+     sitting on frosted glass) and costs nothing. Same reasoning for the
+     colour blobs: a soft radial gradient is its own blur, so they carry
+     no filter and animate on transform alone, which stays on the
+     compositor.
      ================================================================== */
 
   :root {
-    --glass: rgba(255,255,255,0.54);
-    --glass-strong: rgba(255,255,255,0.62);
-    --glass-solid: rgba(255,255,255,0.78);
-    --glass-blur: saturate(190%) blur(30px);
-    --glass-blur-lite: saturate(180%) blur(18px);
-    --glass-rim: rgba(255,255,255,0.85);
-    --glass-hairline: rgba(255,255,255,0.55);
-    --glass-shade: 0 10px 34px rgba(28,34,74,0.13), 0 2px 8px rgba(28,34,74,0.07);
-    --glass-shade-lg: 0 24px 70px rgba(28,34,74,0.20), 0 6px 18px rgba(28,34,74,0.10);
-    --glass-lip: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 1px rgba(255,255,255,0.35);
+    --glass: rgba(255,255,255,0.40);
+    --glass-strong: rgba(255,255,255,0.52);
+    --glass-solid: rgba(255,255,255,0.72);
+    --glass-rim: rgba(255,255,255,0.9);
+    --glass-hairline: rgba(255,255,255,0.6);
+    --glass-shade: 0 12px 40px rgba(24,30,68,0.14), 0 2px 10px rgba(24,30,68,0.08);
+    --glass-shade-lg: 0 30px 80px rgba(24,30,68,0.22), 0 8px 20px rgba(24,30,68,0.12);
+    --glass-lip: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 1px rgba(255,255,255,0.4);
     --ink: #14161c;
-    --ink-soft: #55596a;
-    --ink-faint: #8d92a6;
+    --ink-soft: #4f5468;
+    --ink-faint: #878da3;
     --line: rgba(120,130,170,0.34);
     --line-soft: rgba(120,130,170,0.20);
   }
 
   /* ---------- the living backdrop ---------- */
   body {
-    background: linear-gradient(160deg, #eaf0fb 0%, #f4eefb 45%, #eafaf6 100%);
+    background: linear-gradient(155deg, #dfe9ff 0%, #f2e6ff 40%, #e2fbf4 72%, #fff0e4 100%);
     background-attachment: fixed;
   }
   .glass-bg {
     position: fixed;
-    inset: 0;
+    inset: -10vmax;
     z-index: -3;
     overflow: hidden;
     pointer-events: none;
   }
+  /* No filter: the gradient's own falloff is the blur. That keeps each blob
+     a cached compositor layer that only ever gets translated. The drift is
+     applied from script at a low tick rate — see the note there. */
   .glass-bg span {
     position: absolute;
     display: block;
     border-radius: 50%;
-    filter: blur(60px);
-    opacity: 0.78;
+    opacity: 0.95;
     will-change: transform;
-  }
-  /* a veil over the blobs: the colour still moves underneath, but text on the
-     panes above keeps its contrast */
-  .glass-bg::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.26));
+    transform: translateZ(0);
   }
   .glass-bg span:nth-child(1) {
-    width: 52vw; height: 52vw; left: -8vw; top: -12vw;
-    background: radial-gradient(circle at 35% 35%, rgba(88,150,255,0.95), rgba(88,150,255,0) 70%);
-    animation: blobA 38s ease-in-out infinite alternate;
+    width: 78vmax; height: 78vmax; left: -22vmax; top: -26vmax;
+    background: radial-gradient(closest-side, rgba(56,132,255,0.95), rgba(56,132,255,0.45) 42%, rgba(56,132,255,0) 78%);
   }
   .glass-bg span:nth-child(2) {
-    width: 44vw; height: 44vw; right: -6vw; top: -8vw;
-    background: radial-gradient(circle at 60% 40%, rgba(255,118,196,0.85), rgba(255,118,196,0) 70%);
-    animation: blobB 47s ease-in-out infinite alternate;
+    width: 66vmax; height: 66vmax; right: -20vmax; top: -22vmax;
+    background: radial-gradient(closest-side, rgba(255,86,182,0.92), rgba(255,86,182,0.40) 42%, rgba(255,86,182,0) 78%);
   }
   .glass-bg span:nth-child(3) {
-    width: 58vw; height: 58vw; right: -12vw; bottom: -20vw;
-    background: radial-gradient(circle at 45% 55%, rgba(78,226,205,0.85), rgba(78,226,205,0) 70%);
-    animation: blobC 53s ease-in-out infinite alternate;
+    width: 84vmax; height: 84vmax; right: -26vmax; bottom: -34vmax;
+    background: radial-gradient(closest-side, rgba(0,222,196,0.92), rgba(0,222,196,0.42) 42%, rgba(0,222,196,0) 78%);
   }
   .glass-bg span:nth-child(4) {
-    width: 40vw; height: 40vw; left: 4vw; bottom: -14vw;
-    background: radial-gradient(circle at 50% 50%, rgba(255,193,104,0.80), rgba(255,193,104,0) 70%);
-    animation: blobD 41s ease-in-out infinite alternate;
+    width: 62vmax; height: 62vmax; left: -12vmax; bottom: -26vmax;
+    background: radial-gradient(closest-side, rgba(255,176,54,0.92), rgba(255,176,54,0.40) 42%, rgba(255,176,54,0) 78%);
   }
   .glass-bg span:nth-child(5) {
-    width: 36vw; height: 36vw; left: 38vw; top: 26vh;
-    background: radial-gradient(circle at 50% 50%, rgba(176,134,255,0.75), rgba(176,134,255,0) 70%);
-    animation: blobE 61s ease-in-out infinite alternate;
+    width: 58vmax; height: 58vmax; left: 26vmax; top: 14vmax;
+    background: radial-gradient(closest-side, rgba(150,96,255,0.88), rgba(150,96,255,0.36) 42%, rgba(150,96,255,0) 78%);
   }
   .glass-bg span:nth-child(6) {
-    width: 30vw; height: 30vw; left: 60vw; top: 52vh;
-    background: radial-gradient(circle at 50% 50%, rgba(120,255,214,0.65), rgba(120,255,214,0) 70%);
-    animation: blobB 44s ease-in-out infinite alternate-reverse;
+    width: 50vmax; height: 50vmax; left: 52vmax; top: 44vmax;
+    background: radial-gradient(closest-side, rgba(64,255,214,0.80), rgba(64,255,214,0.32) 42%, rgba(64,255,214,0) 78%);
   }
-  @keyframes blobA { to { transform: translate3d(14vw, 10vh, 0) scale(1.25) rotate(40deg); } }
-  @keyframes blobB { to { transform: translate3d(-16vw, 14vh, 0) scale(1.3) rotate(-30deg); } }
-  @keyframes blobC { to { transform: translate3d(-10vw, -16vh, 0) scale(1.15) rotate(25deg); } }
-  @keyframes blobD { to { transform: translate3d(18vw, -12vh, 0) scale(1.35) rotate(-20deg); } }
-  @keyframes blobE { to { transform: translate3d(-12vw, -8vh, 0) scale(1.4) rotate(35deg); } }
 
-  /* fine grain, so the blur reads as glass rather than as a gradient */
+  /* fine grain, so the wash reads as glass rather than as a gradient.
+     No blend mode: blending a full-screen layer forces everything under it
+     to be re-composited together, which is exactly what we are avoiding. */
   .glass-grain {
     position: fixed;
     inset: 0;
     z-index: -2;
     pointer-events: none;
-    opacity: 0.38;
-    mix-blend-mode: soft-light;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='0.55'/></svg>");
+    opacity: 0.22;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='200' height='200' filter='url(%23n)' opacity='0.5'/></svg>");
   }
 
-  /* ---------- the shared glass recipe ---------- */
-  .panel, .sidebar, .topbar, .kpi, .dropzone, .file-chip, .pair-chip,
-  .code-panel-wrap, .diff-wrap, .points-table-wrap, .grid-wrap, .fs-table-wrap,
-  .file-list, .pair-list-wrap, .preview-box, .scan-summary, .segmented,
-  .stepper, .select-field, textarea, .plain-number, .btn.secondary,
-  .sim-readout, .ruler-readout, .fs-raw-markers, .diff-body, .code-panel {
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
+  /* ---------- real glass: only what sits on the page background ----------
+     The rail and the bar blur themselves. A panel instead gets a frosted
+     PLATE behind its content, because the plate can be clipped: a panel full
+     of scrolling G-code would otherwise have to re-blur itself on every
+     scrolled frame, and the blur under an opaque table is invisible anyway.
+     The script cuts those regions out — see the frost note in the script. */
+  .sidebar, .topbar {
+    -webkit-backdrop-filter: blur(60px) saturate(220%) brightness(1.05);
+    backdrop-filter: blur(60px) saturate(220%) brightness(1.05);
+  }
+  .pane-frost {
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    /* Only a whisper of tint: the panel underneath carries the body of it, so
+       where a band stops, what changes is the blur, not the colour — which is
+       nearly invisible against a backdrop this smooth. (A mask would feather
+       the edge outright, but masking a backdrop-filter costs more than half
+       the frame rate on scroll, so the tint does the hiding instead.) */
+    background: rgba(255,255,255,0.10);
+    -webkit-backdrop-filter: blur(56px) saturate(220%) brightness(1.06);
+    backdrop-filter: blur(56px) saturate(220%) brightness(1.06);
   }
 
   .panel {
     position: relative;
-    background: var(--glass);
+    overflow: hidden;
+    background: rgba(255,255,255,0.30);
     border: 1px solid var(--glass-hairline);
-    border-radius: 26px;
+    border-radius: 28px;
     box-shadow: var(--glass-shade), var(--glass-lip);
     padding: 24px;
-    overflow: visible;
   }
   /* the specular rim: bright where the light lands, gone on the far side */
-  .panel::before, .kpi::before, .sidebar::before, .btn::before,
-  .nav-item.active::before, .dropzone::before, .preview-box::before {
+  .panel::before, .sidebar::before {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
     padding: 1px;
     background: linear-gradient(140deg,
-      rgba(255,255,255,0.98) 0%,
-      rgba(255,255,255,0.35) 22%,
-      rgba(255,255,255,0.04) 46%,
-      rgba(255,255,255,0.10) 62%,
-      rgba(255,255,255,0.72) 100%);
+      rgba(255,255,255,1) 0%,
+      rgba(255,255,255,0.4) 20%,
+      rgba(255,255,255,0.05) 46%,
+      rgba(255,255,255,0.12) 62%,
+      rgba(255,255,255,0.8) 100%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     mask-composite: exclude;
     pointer-events: none;
-    z-index: 1;
+    z-index: 3;
   }
-  /* the highlight that follows the pointer (--mx/--my are set in script) */
-  .panel::after, .kpi::after, .nav-item::after, .pair-chip::after, .pair-item::after {
+  /* The highlight that follows the pointer. It is a fixed-size circle moved
+     with a transform, never a re-painted gradient — the compositor does the
+     work and the panel underneath is never repainted. */
+  .panel::after, .kpi::after, .nav-item::after {
     content: '';
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, -20%),
-      rgba(255,255,255,0.55), rgba(255,255,255,0.12) 45%, transparent 68%);
+    top: 0; left: 0;
+    width: 620px; height: 620px;
+    margin: -310px 0 0 -310px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255,255,255,0.6), rgba(255,255,255,0.16) 46%, rgba(255,255,255,0) 72%);
+    transform: translate3d(var(--px, -2000px), var(--py, -2000px), 0);
     opacity: 0;
-    transition: opacity .45s ease;
-    z-index: 0;
+    transition: opacity .5s ease;
+    pointer-events: none;
+    will-change: transform, opacity;
+    z-index: 1;
   }
-  .panel:hover::after, .kpi:hover::after, .nav-item:hover::after,
-  .pair-chip:hover::after, .pair-item:hover::after { opacity: 1; }
-  .panel > *, .kpi > * { position: relative; z-index: 2; }
+  .nav-item::after { width: 260px; height: 260px; margin: -130px 0 0 -130px; }
+  .panel:hover::after, .kpi:hover::after, .nav-item:hover::after { opacity: 1; }
+  .panel > *:not(.pane-frost) { position: relative; z-index: 2; }
 
   /* ---------- sidebar: a floating rail ---------- */
   .sidebar {
@@ -1253,7 +1260,7 @@
     height: calc(100vh - 28px);
     margin: 14px 0 14px 14px;
     border: 1px solid var(--glass-hairline);
-    border-radius: 28px;
+    border-radius: 30px;
     background: var(--glass-strong);
     box-shadow: var(--glass-shade-lg), var(--glass-lip);
     overflow: hidden;
@@ -1265,60 +1272,61 @@
   }
   .nav-item {
     position: relative;
-    border-radius: 14px;
+    overflow: hidden;
+    border-radius: 15px;
     transition: transform .35s cubic-bezier(.2,.9,.3,1.35), background .25s ease, box-shadow .25s ease;
   }
-  .nav-item:hover { background: rgba(255,255,255,0.55); transform: translateX(2px); }
+  .nav-item > * { position: relative; z-index: 2; }
+  .nav-item:hover { background: rgba(255,255,255,0.6); transform: translateX(2px); }
   .nav-item.active {
-    background: linear-gradient(135deg, rgba(0,122,255,0.92), rgba(0,92,220,0.92));
+    background: linear-gradient(135deg, rgba(0,122,255,0.95), rgba(0,88,215,0.95));
     color: #fff;
-    box-shadow: 0 8px 22px rgba(0,113,227,0.38), inset 0 1px 0 rgba(255,255,255,0.55);
+    box-shadow: 0 10px 26px rgba(0,113,227,0.42), inset 0 1px 0 rgba(255,255,255,0.6);
   }
-  .nav-item.active:hover { transform: translateX(2px) scale(1.01); }
+  .nav-item.active:hover { transform: translateX(2px) scale(1.015); }
   .nav-section-label { letter-spacing: 0.08em; }
 
   /* ---------- buttons ---------- */
   .btn {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(170deg, rgba(20,142,255,0.96), rgba(0,96,220,0.96));
-    box-shadow: 0 8px 24px rgba(0,113,227,0.36),
-                inset 0 1px 0 rgba(255,255,255,0.6),
-                inset 0 -3px 8px rgba(0,40,110,0.28);
-    transition: transform .3s cubic-bezier(.2,.9,.3,1.5), box-shadow .25s ease, filter .25s ease;
+    background: linear-gradient(170deg, rgba(20,142,255,0.97), rgba(0,92,216,0.97));
+    box-shadow: 0 10px 26px rgba(0,113,227,0.38),
+                inset 0 1px 0 rgba(255,255,255,0.65),
+                inset 0 -3px 8px rgba(0,40,110,0.3);
+    transition: transform .3s cubic-bezier(.2,.9,.3,1.5), box-shadow .25s ease, background .25s ease;
   }
   .btn:hover:not(:disabled) {
-    background: linear-gradient(170deg, rgba(36,154,255,0.98), rgba(0,104,232,0.98));
+    background: linear-gradient(170deg, rgba(38,156,255,0.99), rgba(0,102,232,0.99));
     transform: translateY(-1px) scale(1.02);
-    box-shadow: 0 14px 34px rgba(0,113,227,0.42),
-                inset 0 1px 0 rgba(255,255,255,0.7),
-                inset 0 -3px 8px rgba(0,40,110,0.3);
+    box-shadow: 0 16px 38px rgba(0,113,227,0.46),
+                inset 0 1px 0 rgba(255,255,255,0.75),
+                inset 0 -3px 8px rgba(0,40,110,0.32);
   }
   .btn:active:not(:disabled) { transform: scale(0.95); }
-  /* a light sweeps across the pill on hover */
   .btn::after {
     content: '';
     position: absolute;
     top: -60%; bottom: -60%; left: -40%;
     width: 30%;
-    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.75), transparent);
-    transform: translateX(-160%) rotate(12deg);
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.8), transparent);
+    transform: translate3d(-160%, 0, 0) rotate(12deg);
     pointer-events: none;
   }
   .btn:hover:not(:disabled)::after { animation: sheen 0.9s ease-out; }
-  @keyframes sheen { to { transform: translateX(560%) rotate(12deg); } }
+  @keyframes sheen { to { transform: translate3d(560%, 0, 0) rotate(12deg); } }
   .btn.secondary {
-    background: var(--glass-strong);
+    background: rgba(255,255,255,0.62);
     border: 1px solid var(--glass-rim);
-    color: #0062cc;
-    box-shadow: 0 6px 18px rgba(28,34,74,0.10), var(--glass-lip);
+    color: #0060c8;
+    box-shadow: 0 8px 20px rgba(24,30,68,0.12), var(--glass-lip);
   }
   .btn.secondary:hover:not(:disabled) {
-    background: rgba(255,255,255,0.8);
-    box-shadow: 0 12px 26px rgba(28,34,74,0.14), var(--glass-lip);
+    background: rgba(255,255,255,0.86);
+    box-shadow: 0 14px 30px rgba(24,30,68,0.16), var(--glass-lip);
   }
   .btn:disabled, .btn.secondary:disabled {
-    background: rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.4);
     color: var(--ink-faint);
     box-shadow: none;
     border-color: var(--line-soft);
@@ -1330,125 +1338,124 @@
   .cl-input, .stepper {
     background: var(--glass-solid);
     border: 1px solid var(--glass-hairline);
-    box-shadow: inset 0 1px 3px rgba(28,34,74,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
+    box-shadow: inset 0 1px 3px rgba(24,30,68,0.08), inset 0 1px 0 rgba(255,255,255,0.95);
     border-radius: 14px;
   }
   textarea:focus, .plain-number:focus, .stepper input[type=number]:focus,
   .select-field:focus, .cl-input:focus {
     outline: none;
-    border-color: rgba(0,122,255,0.75);
-    box-shadow: 0 0 0 4px rgba(0,122,255,0.18), inset 0 1px 3px rgba(28,34,74,0.05);
+    border-color: rgba(0,122,255,0.8);
+    box-shadow: 0 0 0 4px rgba(0,122,255,0.2), inset 0 1px 3px rgba(24,30,68,0.05);
   }
   .checkbox-field input { accent-color: #007aff; }
 
-  /* ---------- containers ---------- */
+  /* ---------- everything nested: layered translucency, no second blur ---------- */
   .kpi {
     position: relative;
-    background: var(--glass-strong);
+    overflow: hidden;
+    background: linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.48));
     border: 1px solid var(--glass-hairline);
-    border-radius: 20px;
+    border-radius: 22px;
     box-shadow: var(--glass-shade), var(--glass-lip);
   }
+  .kpi > * { position: relative; z-index: 2; }
   .dropzone {
     position: relative;
-    background: rgba(255,255,255,0.34);
-    border: 1.5px dashed rgba(120,140,190,0.5);
-    border-radius: 22px;
-    transition: background .25s ease, border-color .25s ease, transform .3s ease;
+    background: linear-gradient(160deg, rgba(255,255,255,0.46), rgba(255,255,255,0.24));
+    border: 1.5px dashed rgba(110,132,190,0.55);
+    border-radius: 24px;
+    transition: background .25s ease, border-color .25s ease, transform .3s ease, box-shadow .3s ease;
   }
-  .dropzone:hover { background: rgba(255,255,255,0.5); transform: translateY(-1px); }
+  .dropzone:hover { background: rgba(255,255,255,0.62); transform: translateY(-1px); }
   .dropzone.dragover {
-    background: rgba(0,122,255,0.10);
-    border-color: rgba(0,122,255,0.7);
-    box-shadow: 0 0 0 6px rgba(0,122,255,0.12), 0 18px 40px rgba(0,113,227,0.2);
+    background: rgba(0,122,255,0.12);
+    border-color: rgba(0,122,255,0.75);
+    box-shadow: 0 0 0 6px rgba(0,122,255,0.14), 0 20px 44px rgba(0,113,227,0.24);
   }
-  .file-chip, .pair-chip, .fs-chip, .file-list, .pair-list-wrap,
-  .code-panel-wrap, .diff-wrap, .points-table-wrap, .grid-wrap,
-  .fs-table-wrap, .preview-box, .scan-summary, .ruler-readout, .sim-readout {
-    background: var(--glass-strong);
+  .file-chip, .pair-chip, .fs-chip, .scan-summary, .ruler-readout, .sim-readout {
+    background: linear-gradient(160deg, rgba(255,255,255,0.74), rgba(255,255,255,0.56));
     border: 1px solid var(--glass-hairline);
-    box-shadow: var(--glass-shade), inset 0 1px 0 rgba(255,255,255,0.85);
+    box-shadow: var(--glass-shade), inset 0 1px 0 rgba(255,255,255,0.9);
+  }
+  /* The data surfaces. Near-opaque on purpose: dense monospace wants a calm
+     backing, and it is what lets the frost be cut away underneath them. */
+  .file-list, .pair-list-wrap, .code-panel-wrap, .diff-wrap,
+  .points-table-wrap, .grid-wrap, .fs-table-wrap, .preview-box,
+  .fs-raw-markers {
+    background: linear-gradient(160deg, rgba(255,255,255,0.93), rgba(255,255,255,0.88));
+    border: 1px solid var(--glass-hairline);
+    box-shadow: var(--glass-shade), inset 0 1px 0 rgba(255,255,255,0.9);
   }
   .code-panel-wrap, .diff-wrap, .points-table-wrap, .grid-wrap,
-  .fs-table-wrap, .preview-box, .file-list, .pair-list-wrap { border-radius: 18px; }
-  .scan-summary, .ruler-readout, .sim-readout { border-radius: 14px; }
+  .fs-table-wrap, .preview-box, .file-list, .pair-list-wrap { border-radius: 20px; }
+  .scan-summary, .ruler-readout, .sim-readout { border-radius: 15px; }
   .preview-box { position: relative; }
-  .code-panel, .diff-body, .pair-list, .fs-raw-markers { background: rgba(255,255,255,0.42); }
-  .pair-chip { position: relative; border-radius: 13px; }
-  .file-chip { border-radius: 14px; }
+  .code-panel, .diff-body, .pair-list { background: transparent; }
+  .pair-chip { position: relative; border-radius: 14px; }
+  .file-chip { border-radius: 15px; }
 
-  /* table chrome */
   table.points-table thead th, table.data-grid thead th, .fs-table thead th,
   .diff-head, .pair-list-head {
-    background: rgba(255,255,255,0.72);
-    -webkit-backdrop-filter: var(--glass-blur-lite);
-    backdrop-filter: var(--glass-blur-lite);
+    background: rgba(255,255,255,0.82);
   }
   .mini-table-title { letter-spacing: 0.01em; }
 
-  /* segmented control: the selected pill floats above the glass */
   .segmented {
-    background: rgba(255,255,255,0.45);
+    background: rgba(255,255,255,0.5);
     border: 1px solid var(--glass-hairline);
-    border-radius: 12px;
-    box-shadow: inset 0 1px 3px rgba(28,34,74,0.08);
+    border-radius: 13px;
+    box-shadow: inset 0 1px 3px rgba(24,30,68,0.09);
   }
-  .seg-btn { transition: all .25s ease; border-radius: 10px; }
+  .seg-btn { transition: all .25s ease; border-radius: 11px; }
   .seg-btn.active {
-    background: linear-gradient(170deg, rgba(20,142,255,0.95), rgba(0,96,220,0.95));
+    background: linear-gradient(170deg, rgba(20,142,255,0.96), rgba(0,92,216,0.96));
     color: #fff;
-    box-shadow: 0 4px 14px rgba(0,113,227,0.34), inset 0 1px 0 rgba(255,255,255,0.5);
+    box-shadow: 0 5px 16px rgba(0,113,227,0.38), inset 0 1px 0 rgba(255,255,255,0.55);
   }
 
-  /* results list */
   .pair-item { position: relative; transition: background .25s ease; }
+  .pair-item:hover { background: rgba(255,255,255,0.55); }
   .pair-item.active {
-    background: linear-gradient(135deg, rgba(0,122,255,0.16), rgba(0,122,255,0.06));
-    box-shadow: inset 3px 0 0 #007aff, inset 0 1px 0 rgba(255,255,255,0.7);
+    background: linear-gradient(135deg, rgba(0,122,255,0.18), rgba(0,122,255,0.07));
+    box-shadow: inset 3px 0 0 #007aff, inset 0 1px 0 rgba(255,255,255,0.75);
   }
-  .diff-row .side-a.changed { background: rgba(255,59,48,0.17); }
-  .diff-row .side-b.changed { background: rgba(31,138,76,0.19); }
-  .diff-row mark { background: rgba(255,206,0,0.75); }
-  .code-line.active { background: rgba(255,59,48,0.16); }
-  .code-line.edited { background: rgba(255,214,10,0.30); }
 
-  /* headings get a little depth of their own */
   h1 {
     color: #0d1018;
     letter-spacing: -0.025em;
-    text-shadow: 0 1px 0 rgba(255,255,255,0.75);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.8);
   }
-  .subtitle, .col-label, .field label { text-shadow: 0 1px 0 rgba(255,255,255,0.5); }
-  .brand-text .name { letter-spacing: -0.01em; }
+  .subtitle, .col-label, .field label { text-shadow: 0 1px 0 rgba(255,255,255,0.55); }
 
   /* mobile chrome */
   .topbar {
     background: var(--glass-strong);
     border-bottom: 1px solid var(--glass-hairline);
-    box-shadow: 0 6px 24px rgba(28,34,74,0.10);
+    box-shadow: 0 8px 28px rgba(24,30,68,0.12);
   }
   .hamburger, .sidebar-collapse-btn, .sidebar-close-btn, .fc-remove, .row-remove {
-    background: var(--glass-strong);
+    background: rgba(255,255,255,0.7);
     border: 1px solid var(--glass-hairline);
-    -webkit-backdrop-filter: var(--glass-blur-lite);
-    backdrop-filter: var(--glass-blur-lite);
   }
-  .backdrop {
-    background: rgba(20,24,40,0.28);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
-  }
+  .backdrop { background: rgba(20,24,40,0.34); }
 
   /* glass scrollbars */
   ::-webkit-scrollbar { width: 11px; height: 11px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: rgba(110,125,170,0.35);
+    background: rgba(110,125,170,0.38);
     border-radius: 99px;
     border: 3px solid transparent;
     background-clip: content-box;
   }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(110,125,170,0.55); background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(110,125,170,0.58); background-clip: content-box; }
+
+  /* stronger tints, because they are read through all of this */
+  .diff-row .side-a.changed { background: rgba(255,59,48,0.19); }
+  .diff-row .side-b.changed { background: rgba(31,138,76,0.21); }
+  .diff-row mark { background: rgba(255,206,0,0.8); }
+  .code-line.active { background: rgba(255,59,48,0.18); }
+  .code-line.edited { background: rgba(255,214,10,0.32); }
 
   /* the glass rail is a desktop affordance; the drawer keeps its own geometry */
   @media (max-width: 860px) {
@@ -1458,31 +1465,28 @@
       height: auto;
       align-self: auto;
       margin: 0;
-      border-radius: 0 26px 26px 0;
+      border-radius: 0 28px 28px 0;
     }
   }
 
-  /* panes settle into place: switching tools, or a step appearing, should
-     look like glass sliding in rather than a rectangle blinking on */
+  /* panes settle into place when a tool opens or a step appears.
+     Opacity and transform only: animating a filter on a backdrop-filtered
+     panel re-blurs it on every frame of the animation. */
   .tool-view { animation: viewIn .4s cubic-bezier(.2,.8,.3,1) both; }
-  .tool-view .panel { animation: paneIn .6s cubic-bezier(.2,.85,.3,1) both; }
+  .tool-view .panel { animation: paneIn .55s cubic-bezier(.2,.85,.3,1) both; }
   .tool-view .panel:nth-of-type(1) { animation-delay: .00s; }
   .tool-view .panel:nth-of-type(2) { animation-delay: .06s; }
   .tool-view .panel:nth-of-type(3) { animation-delay: .12s; }
   .tool-view .panel:nth-of-type(4) { animation-delay: .18s; }
   .tool-view .panel:nth-of-type(5) { animation-delay: .24s; }
   .tool-view .panel:nth-of-type(n+6) { animation-delay: .30s; }
-  @keyframes viewIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+  @keyframes viewIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes paneIn {
-    from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(7px); }
-    to { opacity: 1; transform: none; filter: blur(0); }
+    from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.985); }
+    to { opacity: 1; transform: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .glass-bg span { animation: none; }
     .tool-view, .tool-view .panel { animation: none; }
     .btn:hover:not(:disabled)::after { animation: none; }
     .nav-item, .btn, .dropzone { transition: none; }
@@ -2365,23 +2369,207 @@
 </div>
 
 <script>
-/* ---------- Liquid glass: the panes catch the light where the pointer is ----------
-   Each glass surface carries a highlight positioned by --mx/--my. Writing those
-   on pointermove is what makes the panes feel like glass rather than like
-   frosted rectangles; it is deliberately generous and runs on every surface. */
+/* ---------- Liquid glass: the drifting colour behind everything ----------
+   The blobs are moved from here rather than by a CSS animation, and only a few
+   times a second. Every frosted pane on the page has to re-blur its backdrop
+   whenever that backdrop changes, so a backdrop that changes 60 times a second
+   costs a full-screen blur 60 times a second. At this drift speed a step is a
+   pixel or so — invisible — but between steps nothing under the glass has
+   moved, so the panes reuse their cached blur and the page stays at frame
+   rate. */
 (function () {
-  const GLASS = '.panel, .kpi, .nav-item, .pair-chip, .pair-item';
-  let queued = null;
-  document.addEventListener('pointermove', e => {
-    if (queued) return;
-    queued = requestAnimationFrame(() => {
-      queued = null;
-      const el = e.target.closest ? e.target.closest(GLASS) : null;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      el.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
-      el.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+  const blobs = Array.from(document.querySelectorAll('.glass-bg span'));
+  if (!blobs.length) return;
+  const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const spec = blobs.map((_, i) => ({
+    ax: 9 + i * 2.2, ay: 7 + (i * 3) % 6,
+    px: i * 1.7, py: i * 2.3 + 1,
+    tx: 71 + i * 13, ty: 89 + i * 11,
+    as: 0.08 + (i % 3) * 0.035, ts: 103 + i * 17
+  }));
+  const TAU = Math.PI * 2;
+  function place(t) {
+    for (let i = 0; i < blobs.length; i++) {
+      const s = spec[i];
+      const x = Math.sin(t / s.tx * TAU + s.px) * s.ax;
+      const y = Math.cos(t / s.ty * TAU + s.py) * s.ay;
+      const sc = 1 + s.as * Math.sin(t / s.ts * TAU);
+      blobs[i].style.transform =
+        'translate3d(' + x.toFixed(2) + 'vmax,' + y.toFixed(2) + 'vmax,0) scale(' + sc.toFixed(3) + ')';
+    }
+  }
+  place(0);
+  if (still) return;
+  const t0 = performance.now();
+  setInterval(() => place((performance.now() - t0) / 1000), 200);
+})();
+
+/* ---------- Liquid glass: frosted plates, laid around the data ----------
+   A backdrop-filter is recomputed whenever anything inside its bounds changes,
+   so a frosted panel wrapping a scrolling diff re-blurs itself on every
+   scrolled frame — measured here at about a third of the frame rate. Chrome
+   decides that by bounding box, so cutting holes out of one big plate does not
+   help: the box still covers the scroller.
+
+   Instead each panel's frost is laid down as rectangles that go AROUND its
+   scrolling regions — tables, code panes and text areas, which are
+   near-opaque anyway, so nothing is lost visually. The cost also scales with
+   how MANY filtered surfaces exist, not just which ones are touched, so only
+   the few largest bands get one; the rest of the panel wears a plain
+   translucent tint that is indistinguishable against this backdrop. */
+(function () {
+  const HOLES = '.diff-body, .code-panel, .pair-list, .grid-wrap, .points-table-wrap,' +
+                '.fs-table-wrap, .file-list, .pair-table, .fs-raw-markers, .preview-box, textarea';
+  const MIN = 3;           // ignore slivers
+  const MAX_PLATES = 6;    // page-wide budget; see refrost
+  const pools = new WeakMap(); // panel -> [plate elements]
+  let pending = false;
+
+  // Panel box minus the hole boxes, as a set of rectangles: slice into
+  // horizontal bands at every hole edge, then take the free spans in each.
+  function freeRects(w, h, holes) {
+    const cuts = new Set([0, h]);
+    holes.forEach(r => { cuts.add(Math.max(0, r.y)); cuts.add(Math.min(h, r.y + r.h)); });
+    const ys = Array.from(cuts).sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < ys.length - 1; i++) {
+      const y0 = Math.ceil(ys[i]), y1 = Math.floor(ys[i + 1]);
+      if (y1 - y0 < MIN) continue;
+      const mid = (ys[i] + ys[i + 1]) / 2;
+      const spans = holes
+        .filter(r => r.y < mid && r.y + r.h > mid)
+        .map(r => [Math.max(0, r.x), Math.min(w, r.x + r.w)])
+        .sort((a, b) => a[0] - b[0]);
+      let x = 0;
+      spans.forEach(([sx, ex]) => {
+        const x0 = Math.ceil(x), x1 = Math.floor(sx);
+        if (x1 - x0 >= MIN) out.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+        x = Math.max(x, ex);
+      });
+      const x0 = Math.ceil(x), x1 = Math.floor(w);
+      if (x1 - x0 >= MIN) out.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    }
+    return out;
+  }
+
+  function refrost() {
+    pending = null;
+
+    // Gather every frostable band on screen first: the budget is page-wide,
+    // not per panel. Measured on this page, six filtered surfaces cost the
+    // same as none; ten start to bite and fourteen halve the frame rate.
+    const candidates = [];
+    document.querySelectorAll('.tool-view').forEach(view => {
+      if (view.style.display === 'none') return; // a hidden tool has no layout to measure
+      view.querySelectorAll('.panel').forEach(panel => {
+        const pr = panel.getBoundingClientRect();
+        if (!pr.width || !pr.height) return;
+        const holes = [];
+        panel.querySelectorAll(HOLES).forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (r.width < 24 || r.height < 24) return;
+          holes.push({ x: r.left - pr.left, y: r.top - pr.top, w: r.width, h: r.height });
+        });
+        freeRects(pr.width, pr.height, holes).forEach(r => {
+          if (r.w * r.h < 4000) return;
+          candidates.push({ panel, r });
+        });
+      });
     });
+
+    candidates.sort((a, b) => b.r.w * b.r.h - a.r.w * a.r.h);
+    const chosen = new Map(); // panel -> rects it keeps
+    candidates.slice(0, MAX_PLATES).forEach(c => {
+      if (!chosen.has(c.panel)) chosen.set(c.panel, []);
+      chosen.get(c.panel).push(c.r);
+    });
+
+    document.querySelectorAll('.panel').forEach(panel => {
+      const rects = chosen.get(panel) || [];
+      let pool = pools.get(panel);
+      if (!pool) { pool = []; pools.set(panel, pool); }
+      while (pool.length < rects.length) {
+        const el = document.createElement('div');
+        el.className = 'pane-frost';
+        panel.insertBefore(el, panel.firstChild);
+        pool.push(el);
+      }
+      pool.forEach((el, i) => {
+        const r = rects[i];
+        // Writing a style attribute is itself a mutation, so only write on change.
+        const css = r
+          ? 'left:' + r.x + 'px;top:' + r.y + 'px;width:' + r.w + 'px;height:' + r.h + 'px'
+          : 'display:none';
+        if (el.dataset.box !== css) {
+          el.dataset.box = css;
+          el.style.cssText = css;
+        }
+      });
+    });
+  }
+
+  // Debounced rather than per-frame: re-measuring costs a forced layout, and
+  // the things that fire this (a table filling in, a panel opening) come in
+  // bursts. A plate catching up 120ms later is not visible.
+  function schedule() {
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(() => { pending = null; refrost(); }, 120);
+  }
+
+  const ro = new ResizeObserver(schedule);
+  function observeAll() {
+    document.querySelectorAll('.panel').forEach(el => ro.observe(el));
+    document.querySelectorAll(HOLES).forEach(el => ro.observe(el));
+  }
+
+  function boot() {
+    observeAll();
+    schedule();
+    // panels and tables come and go as the tools run; re-measure when they do
+    new MutationObserver(records => {
+      for (const r of records) {
+        const t = r.target;
+        // Skip the purely cosmetic writers — this tool's own plates, and the
+        // file map's viewport band, which is restyled on every scrolled frame.
+        if (t.nodeType === 1 && t.classList &&
+            (t.classList.contains('pane-frost') || t.classList.contains('fm-viewport'))) continue;
+        observeAll();
+        schedule();
+        return;
+      }
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    window.addEventListener('resize', schedule);
+    // Deliberately not listening to scroll: the plates are positioned inside
+    // the panel, so scrolling never moves them — and re-measuring on every
+    // scrolled frame is the very cost this is avoiding.
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+
+/* ---------- Liquid glass: the panes catch the light where the pointer is ----------
+   The highlight is a fixed circle that gets MOVED (--px/--py feed a transform),
+   never a gradient that gets re-painted at a new position: moving a layer is
+   compositor work, repainting a 1000px-wide pane with a backdrop-filter under
+   it is not. One rAF per move, and only for the pane actually under the
+   pointer. */
+(function () {
+  const GLASS = '.panel, .kpi, .nav-item';
+  let pending = null, current = null;
+  function flush() {
+    pending = null;
+    const e = current;
+    if (!e) return;
+    const el = e.target && e.target.closest ? e.target.closest(GLASS) : null;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--px', Math.round(e.clientX - r.left) + 'px');
+    el.style.setProperty('--py', Math.round(e.clientY - r.top) + 'px');
+  }
+  document.addEventListener('pointermove', e => {
+    current = e;
+    if (pending) return;
+    pending = requestAnimationFrame(flush);
   }, { passive: true });
 })();
 
