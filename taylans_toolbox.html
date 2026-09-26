@@ -791,34 +791,144 @@
 
   /* ---- program comparison ---- */
   .diff-input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-  .kpi {
-    background: var(--bg);
-    border-radius: 12px;
-    padding: 12px 14px;
+  .dropzone.compact { padding: 18px 16px; }
+  .dropzone.compact .icon { width: 26px; height: 26px; }
+  .file-count { font-size: 12px; color: var(--ink-soft); }
+  .file-list {
+    margin-top: 10px;
+    max-height: 210px;
+    overflow-y: auto;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
   }
+  .file-list:empty { display: none; }
+  .fl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .fl-row:last-child { border-bottom: none; }
+  .fl-name { font-family: var(--mono); color: var(--ink); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fl-meta { color: var(--ink-faint); font-size: 11.5px; white-space: nowrap; }
+  .fl-remove, .pc-x {
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 4px;
+  }
+  .fl-remove:hover, .pc-x:hover { color: #ff3b30; background: var(--line-soft); }
+
+  /* pairing */
+  .pair-table {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 440px;
+    overflow-y: auto;
+  }
+  .pair-row {
+    display: grid;
+    grid-template-columns: 1fr 84px 1fr;
+    align-items: center;
+    gap: 10px;
+  }
+  .pair-slot {
+    border: 1px dashed transparent;
+    border-radius: 10px;
+    padding: 2px;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+  }
+  .pair-slot.empty { border-color: var(--line); justify-content: center; }
+  .pair-slot.dragover { border-color: var(--blue); background: rgba(0,113,227,0.06); }
+  .pair-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: var(--bg);
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: grab;
+  }
+  .pair-chip:active { cursor: grabbing; }
+  .pair-chip.dragging { opacity: 0.4; }
+  .pc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pair-mid { text-align: center; color: var(--ink-faint); font-size: 13px; }
+  .pair-score { font-size: 11px; color: var(--amber); white-space: nowrap; }
+  .pair-none { color: var(--ink-faint); font-size: 12px; }
+  .pair-row.orphan .pair-chip { background: rgba(255,59,48,0.08); }
+
+  /* results */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpi { background: var(--bg); border-radius: 12px; padding: 12px 14px; }
   .kpi-label { font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 7px; }
   .kpi-value { font-size: 21px; font-weight: 600; margin-top: 5px; font-family: var(--mono); color: var(--ink); }
-  .kpi-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; font-family: var(--mono); }
 
-  .diff-wrap {
-    border: 1px solid var(--line-soft);
-    border-radius: 12px;
-    overflow: hidden;
-    margin-top: 6px;
-  }
-  .diff-head {
-    display: grid;
-    grid-template-columns: 46px 1fr 46px 1fr;
+  .cmp-results-grid { display: grid; grid-template-columns: 290px 1fr; gap: 18px; margin-top: 18px; }
+  .pair-list-wrap { border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+  .pair-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
     background: var(--card);
     border-bottom: 1px solid var(--line-soft);
     font-size: 12px;
     color: var(--ink-soft);
   }
-  .diff-head > div { padding: 8px 10px; }
+  .pair-list { max-height: 620px; overflow-y: auto; }
+  .pair-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line-soft);
+    cursor: pointer;
+  }
+  .pair-item:hover { background: var(--line-soft); }
+  .pair-item.active { background: rgba(0,113,227,0.10); box-shadow: inset 3px 0 0 var(--blue); }
+  .pi-name { font-family: var(--mono); font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pi-status { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .st { font-size: 11px; font-family: var(--mono); border-radius: 5px; padding: 1px 5px; }
+  .st-same { background: rgba(31,138,76,0.12); color: #1f8a4c; }
+  .st-ins { background: rgba(31,138,76,0.12); color: #1f8a4c; }
+  .st-del { background: rgba(255,59,48,0.10); color: #ff3b30; }
+  .st-chg { background: rgba(179,82,31,0.12); color: var(--amber); }
+  .st-orphan { background: rgba(255,59,48,0.10); color: #ff3b30; }
+  .st-note { font-size: 10.5px; color: var(--ink-faint); }
+
+  .preview-pane { min-width: 0; }
+  .preview-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ph-title { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .ph-badge { display: flex; gap: 5px; align-items: center; }
+  .diff-pos { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); white-space: nowrap; }
+
+  .diff-wrap { border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; margin-top: 6px; }
+  .diff-head {
+    display: grid;
+    grid-template-columns: 46px 1fr 46px 1fr 16px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .diff-head > div { padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .diff-head > div:nth-child(2) { border-left: 1px solid var(--line-soft); }
+  .diff-head .map-head { padding: 0; background: var(--bg); }
+  .diff-main { display: grid; grid-template-columns: 1fr 16px; }
   .diff-body {
-    max-height: 560px;
+    position: relative; /* makes it the offsetParent, so row offsetTop is comparable with scrollTop */
+    height: 560px;
     overflow: auto;
     background: #fbfbfd;
     font-family: var(--mono);
@@ -833,13 +943,13 @@
   .diff-row .side-b.changed { background: rgba(31,138,76,0.12); }
   .diff-row .dnum.side-a.changed { color: #ff3b30; }
   .diff-row .dnum.side-b.changed { color: #1f8a4c; }
+  .diff-row .filler {
+    background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.04) 5px, rgba(0,0,0,0.04) 10px);
+  }
   .diff-row.clickable { cursor: pointer; }
   .diff-row.clickable:hover > div { filter: brightness(0.97); }
   .diff-row.focused { outline: 2px solid var(--ink); outline-offset: -2px; }
   .diff-row mark { background: rgba(255,214,10,0.6); color: inherit; border-radius: 3px; padding: 0 1px; }
-  .diff-row .filler {
-    background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.04) 5px, rgba(0,0,0,0.04) 10px);
-  }
   .diff-gap, .diff-empty {
     padding: 5px 12px;
     font-size: 11.5px;
@@ -847,16 +957,38 @@
     background: var(--line-soft);
     text-align: center;
   }
-  .chg-row { cursor: pointer; }
-  .chg-chip {
-    font-family: var(--mono);
-    font-size: 11.5px;
-    background: var(--bg);
-    border-radius: 6px;
-    padding: 1px 6px;
-    margin-right: 4px;
-    white-space: nowrap;
-    display: inline-block;
+  .diff-empty { background: transparent; padding: 18px 12px; }
+
+  .identical-box { padding: 60px 24px; text-align: center; font-family: var(--sans); }
+  .ib-mark {
+    width: 42px; height: 42px; margin: 0 auto 14px;
+    border-radius: 50%;
+    background: rgba(31,138,76,0.12);
+    color: #1f8a4c;
+    font-size: 22px;
+    line-height: 42px;
+  }
+  .ib-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .ib-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 6px; }
+
+  /* file map */
+  .file-map { position: relative; background: var(--bg); border-left: 1px solid var(--line-soft); cursor: pointer; }
+  /* With everything on screen at once the map has nothing to add, and its
+     scale would disagree with where the rows visibly sit. */
+  .diff-wrap.no-map .diff-main { grid-template-columns: 1fr; }
+  .diff-wrap.no-map .diff-head { grid-template-columns: 46px 1fr 46px 1fr 0; }
+  .diff-wrap.no-map .file-map, .diff-wrap.no-map .map-head { display: none; }
+  .fm-tick { position: absolute; left: 2px; right: 2px; border-radius: 2px; min-height: 2px; }
+  .fm-ins { background: #1f8a4c; }
+  .fm-del { background: #ff3b30; }
+  .fm-chg { background: #b3521f; }
+  .fm-current { position: absolute; left: 0; right: 0; height: 2px; background: var(--ink); }
+  .fm-viewport {
+    position: absolute; left: 0; right: 0;
+    background: rgba(0,0,0,0.10);
+    border-top: 1px solid rgba(0,0,0,0.18);
+    border-bottom: 1px solid rgba(0,0,0,0.18);
+    pointer-events: none;
   }
 
   .range-slider {
@@ -881,7 +1013,11 @@
     .lathe-sim-grid { grid-template-columns: 1fr; }
     .diff-input-grid { grid-template-columns: 1fr; }
     .kpi-row { grid-template-columns: repeat(2, 1fr); }
-    .diff-head, .diff-row { grid-template-columns: 38px 1fr 38px 1fr; }
+    .cmp-results-grid { grid-template-columns: 1fr; }
+    .pair-list { max-height: 260px; }
+    .diff-head { grid-template-columns: 38px 1fr 38px 1fr 16px; }
+    .diff-row { grid-template-columns: 38px 1fr 38px 1fr; }
+    .pair-row { grid-template-columns: 1fr 54px 1fr; }
   }
 
   @media (min-width: 1400px) {
@@ -1646,224 +1782,176 @@
         <header class="tool-header">
           <h1>Program Karşılaştırma</h1>
           <div class="subtitle">
-            İki program revizyonunu karşılaştırır. Blok (N) numaraları yok sayılabildiği için yeniden
-            numaralandırılmış bir revizyon yüzlerce sahte fark üretmez — yalnızca gerçekten değişen satırlar kalır.
-            Farklar ITEM bölümü ve takım bazında özetlenir, iki takım yolu üst üste çizilir ve çevrim süresi farkı
-            hesaplanır.
+            Bir sürümün tüm program dosyalarını solda, yeni sürümünkileri sağda toplayın — dosyalar ada göre
+            kendiliğinden eşleşir, yanlış eşleşeni sürükleyerek düzeltebilirsiniz. Karşılaştırdığınızda her çift için
+            tek tek gezebileceğiniz bir fark listesi çıkar. Blok (N) numaraları yok sayılabildiği için yeniden
+            numaralandırılmış bir dosya baştan sona değişmiş gibi görünmez.
           </div>
         </header>
 
-        <!-- Step 1: two revisions -->
+        <!-- Step 1: the two sets of files -->
         <div class="panel">
-          <div class="col-label">1. İki revizyonu yükleyin</div>
+          <div class="col-label">1. Dosyaları yükleyin</div>
           <div class="diff-input-grid">
             <div>
-              <div class="mini-table-title"><span class="legend-dot" style="background:#8a8a8e"></span>A — Eski revizyon</div>
-              <div class="dropzone" id="dropzone6a">
-                <input type="file" id="fileInput6a" accept=".txt,.nc,.mpf,.eia,.dat">
+              <div class="mini-table-title"><span class="legend-dot" style="background:#8a8a8e"></span>A — Eski sürüm</div>
+              <div class="dropzone compact" id="dropzone6a">
+                <input type="file" id="fileInput6a" multiple>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
                   <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
                 </svg>
-                <div class="dz-title"><b>Dosya seçin</b> ya da sürükleyip bırakın</div>
-                <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat</div>
+                <div class="dz-title"><b>Dosyaları seçin</b> ya da sürükleyip bırakın</div>
+                <div class="dz-sub">Birden fazla dosya ya da klasör bırakabilirsiniz</div>
               </div>
-              <div class="file-chip" id="fileChip6a">
-                <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v5h5"/>
-                </svg>
-                <span class="fc-name" id="fcName6a">—</span>
-                <button class="fc-remove" id="fcRemove6a" title="Dosyayı kaldır">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
-                </button>
+              <div class="controls-row" style="margin-top:10px;">
+                <button class="btn secondary" id="pickFolderBtn6a">Klasör Seç</button>
+                <input type="file" id="folderInput6a" webkitdirectory directory multiple style="display:none">
+                <button class="btn secondary" id="clearBtn6a">Listeyi Temizle</button>
+                <div class="spacer"></div>
+                <span class="file-count" id="fileCount6a">0 dosya</span>
               </div>
-              <textarea id="rawText6a" style="margin-top:14px; height:170px;" placeholder="...ya da eski revizyonu buraya yapıştırın"></textarea>
+              <div class="file-list" id="fileList6a"></div>
             </div>
             <div>
-              <div class="mini-table-title"><span class="legend-dot" style="background:#0071e3"></span>B — Yeni revizyon</div>
-              <div class="dropzone" id="dropzone6b">
-                <input type="file" id="fileInput6b" accept=".txt,.nc,.mpf,.eia,.dat">
+              <div class="mini-table-title"><span class="legend-dot" style="background:#0071e3"></span>B — Yeni sürüm</div>
+              <div class="dropzone compact" id="dropzone6b">
+                <input type="file" id="fileInput6b" multiple>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
                   <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
                 </svg>
-                <div class="dz-title"><b>Dosya seçin</b> ya da sürükleyip bırakın</div>
-                <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat</div>
+                <div class="dz-title"><b>Dosyaları seçin</b> ya da sürükleyip bırakın</div>
+                <div class="dz-sub">Birden fazla dosya ya da klasör bırakabilirsiniz</div>
               </div>
-              <div class="file-chip" id="fileChip6b">
-                <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v5h5"/>
-                </svg>
-                <span class="fc-name" id="fcName6b">—</span>
-                <button class="fc-remove" id="fcRemove6b" title="Dosyayı kaldır">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
-                </button>
+              <div class="controls-row" style="margin-top:10px;">
+                <button class="btn secondary" id="pickFolderBtn6b">Klasör Seç</button>
+                <input type="file" id="folderInput6b" webkitdirectory directory multiple style="display:none">
+                <button class="btn secondary" id="clearBtn6b">Listeyi Temizle</button>
+                <div class="spacer"></div>
+                <span class="file-count" id="fileCount6b">0 dosya</span>
               </div>
-              <textarea id="rawText6b" style="margin-top:14px; height:170px;" placeholder="...ya da yeni revizyonu buraya yapıştırın"></textarea>
+              <div class="file-list" id="fileList6b"></div>
             </div>
           </div>
           <div class="controls-row">
-            <button class="btn secondary" id="swapBtn6" title="A ve B'yi yer değiştir">A ↔ B Değiştir</button>
+            <button class="btn secondary" id="swapSidesBtn6">A ve B Listelerini Değiştir</button>
           </div>
         </div>
 
-        <!-- Step 2: options -->
-        <div class="panel">
-          <div class="col-label">2. Karşılaştırma ayarları</div>
+        <!-- Step 2: pairing -->
+        <div class="panel" id="pairPanel6" style="display:none;">
+          <div class="col-label">2. Eşleştirme</div>
+          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+            <button class="btn secondary" id="autoPairBtn6">Yeniden Otomatik Eşleştir</button>
+            <div class="spacer"></div>
+            <div class="zoom-hint" style="margin-top:0;">Bir dosya adını sürükleyip başka bir satırın aynı taraftaki kutusuna bırakın — eşleşme yer değiştirir. × eşleşmeyi bozar.</div>
+          </div>
+          <div class="scan-summary" id="pairSummary6" style="display:none;"></div>
+          <div class="pair-table" id="pairTable6"></div>
+
+          <div class="col-label" style="margin-top:22px;">Yok sayılacaklar</div>
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
             <label class="checkbox-field">
               <input type="checkbox" id="ignoreNChk6" checked>
-              Blok (N) numaralarını yok say
+              Blok (N) numaraları
             </label>
             <label class="checkbox-field">
               <input type="checkbox" id="ignoreWsChk6" checked>
-              Boşluk ve harf büyüklüğü farklarını yok say
+              Boşluk ve harf büyüklüğü
             </label>
             <label class="checkbox-field">
               <input type="checkbox" id="ignoreCommentsChk6">
-              Yorumları yok say
+              Yorumlar — ( ) ve ;
             </label>
-          </div>
-          <div class="controls-row" style="flex-wrap:wrap;">
             <label class="checkbox-field">
-              <input type="checkbox" id="diameterModeChk6" checked>
-              X değerleri çap olarak programlanmış
+              <input type="checkbox" id="ignoreBlankChk6">
+              Boş satırlar
             </label>
-            <div class="field">
-              <label>Birim sistemi</label>
-              <div class="segmented" id="unitSystemSegmented6">
-                <button class="seg-btn active" data-unit="inch">İnç (SFM)</button>
-                <button class="seg-btn" data-unit="metric">Metrik (m/dk)</button>
-              </div>
-            </div>
-            <div class="field">
-              <label>Hızlı hareket oranı (birim/dk)</label>
-              <input type="number" id="rapidRate6" class="plain-number" value="200" min="1" step="1">
-            </div>
-            <div class="field">
-              <label>Takım değiştirme süresi (sn)</label>
-              <input type="number" id="toolChangeSec6" class="plain-number" value="0" min="0" step="0.1">
-            </div>
             <div class="spacer"></div>
             <button class="btn" id="compareBtn6">Karşılaştır</button>
           </div>
-          <div class="scan-summary" id="compareSummary6" style="display:none;"></div>
         </div>
 
-        <!-- Step 3: summary -->
-        <div class="panel" id="diffSummaryPanel6" style="display:none;">
-          <div class="col-label">3. Özet</div>
+        <!-- Step 3: results -->
+        <div class="panel" id="resultPanel6" style="display:none;">
+          <div class="col-label">3. Sonuçlar</div>
           <div class="kpi-row">
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#1f8a4c"></span>Eklenen satır</div>
-              <div class="kpi-value" id="kpiAdded6">0</div>
+              <div class="kpi-label">Karşılaştırılan çift</div>
+              <div class="kpi-value" id="kpiPairs6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#ff3b30"></span>Silinen satır</div>
-              <div class="kpi-value" id="kpiRemoved6">0</div>
+              <div class="kpi-label"><span class="legend-dot" style="background:#1f8a4c"></span>Aynı dosya</div>
+              <div class="kpi-value" id="kpiSame6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#b3521f"></span>Değişen satır</div>
-              <div class="kpi-value" id="kpiChanged6">0</div>
+              <div class="kpi-label"><span class="legend-dot" style="background:#b3521f"></span>Değişen dosya</div>
+              <div class="kpi-value" id="kpiDiff6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#0071e3"></span>Çevrim süresi farkı</div>
-              <div class="kpi-value" id="kpiTime6">—</div>
-              <div class="kpi-sub" id="kpiTimeSub6"></div>
+              <div class="kpi-label"><span class="legend-dot" style="background:#ff3b30"></span>Eşi olmayan</div>
+              <div class="kpi-value" id="kpiOrphan6">0</div>
             </div>
           </div>
-          <div class="mini-tables-grid" style="margin-top:18px;">
-            <div>
-              <div class="mini-table-title"><span class="legend-dot" style="background:#b3521f"></span>Item / Takım Bazında Fark</div>
-              <div class="points-table-wrap">
-                <table class="points-table">
-                  <thead><tr><th>Item</th><th>Takım</th><th>+</th><th>−</th><th>~</th></tr></thead>
-                  <tbody id="diffByItemTbody"></tbody>
-                </table>
-              </div>
-            </div>
-            <div>
-              <div class="mini-table-title"><span class="legend-dot" style="background:#0071e3"></span>Süre Farkı</div>
-              <div class="points-table-wrap">
-                <table class="points-table">
-                  <thead><tr><th>Item</th><th>A</th><th>B</th><th>Fark</th></tr></thead>
-                  <tbody id="diffTimeTbody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <div style="margin-top:18px;">
-            <div class="mini-table-title"><span class="legend-dot" style="background:#1f8a4c"></span>Değişiklik Listesi</div>
-            <div class="points-table-wrap" style="max-height:320px;">
-              <table class="points-table">
-                <thead><tr><th>Satır (A → B)</th><th>Item</th><th>Takım</th><th>Değişiklik</th></tr></thead>
-                <tbody id="diffChangeListTbody"></tbody>
-              </table>
-            </div>
-            <div class="controls-row">
-              <div class="spacer"></div>
-              <button class="btn secondary" id="diffCsvBtn6">Fark Listesini CSV İndir</button>
-            </div>
-          </div>
-        </div>
 
-        <!-- Step 4: side-by-side lines -->
-        <div class="panel" id="diffViewPanel6" style="display:none;">
-          <div class="col-label">4. Satır Karşılaştırma</div>
-          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
-            <div class="field">
-              <label>Görünüm</label>
-              <div class="segmented" id="diffViewSegmented6">
-                <button class="seg-btn active" data-view="changes">Sadece farklar</button>
-                <button class="seg-btn" data-view="all">Tüm program</button>
+          <div class="cmp-results-grid">
+            <div class="pair-list-wrap">
+              <div class="pair-list-head">
+                <span>Dosya çiftleri</span>
+                <label class="checkbox-field" style="font-size:11.5px;">
+                  <input type="checkbox" id="hideSameChk6">
+                  Aynı olanları gizle
+                </label>
+              </div>
+              <div class="pair-list" id="pairList6"></div>
+            </div>
+
+            <div class="preview-pane">
+              <div class="preview-head">
+                <div class="ph-title" id="previewTitle6">Soldan bir dosya çifti seçin</div>
+                <div class="ph-badge" id="previewBadge6"></div>
+              </div>
+              <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+                <button class="btn secondary" id="prevDiffBtn6">◀ Önceki fark</button>
+                <button class="btn secondary" id="nextDiffBtn6">Sonraki fark ▶</button>
+                <span class="diff-pos" id="diffPos6"></span>
+                <div class="field">
+                  <label>Görünüm</label>
+                  <div class="segmented" id="diffViewSegmented6">
+                    <button class="seg-btn active" data-view="changes">Sadece farklar</button>
+                    <button class="seg-btn" data-view="all">Tüm dosya</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Çevre satır</label>
+                  <input type="number" id="diffContext6" class="plain-number" value="3" min="0" max="20" style="width:74px;">
+                </div>
+                <div class="spacer"></div>
+                <div class="legend">
+                  <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>Eklendi</div>
+                  <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>Silindi</div>
+                  <div class="legend-item"><span class="legend-dot" style="background:#b3521f"></span>Değişti</div>
+                </div>
+              </div>
+              <div class="diff-wrap">
+                <div class="diff-head">
+                  <div style="grid-column: span 2;" id="diffHeadA6">A — Eski</div>
+                  <div style="grid-column: span 2;" id="diffHeadB6">B — Yeni</div>
+                  <div class="map-head" title="Dosya haritası"></div>
+                </div>
+                <div class="diff-main">
+                  <div class="diff-body" id="diffBody6"></div>
+                  <div class="file-map" id="fileMap6" title="Dosya haritası — farkların dosya içindeki yeri"></div>
+                </div>
               </div>
             </div>
-            <div class="field">
-              <label>Çevre satır sayısı</label>
-              <input type="number" id="diffContext6" class="plain-number" value="3" min="0" max="20" style="width:80px;">
-            </div>
-            <button class="btn secondary" id="prevDiffBtn6" title="Önceki fark">◀ Önceki fark</button>
-            <button class="btn secondary" id="nextDiffBtn6" title="Sonraki fark">Sonraki fark ▶</button>
-            <div class="spacer"></div>
-            <div class="legend">
-              <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>Eklendi</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>Silindi</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#b3521f"></span>Değişti</div>
-            </div>
           </div>
-          <div class="diff-wrap">
-            <div class="diff-head">
-              <div style="grid-column: span 2;">A — Eski revizyon</div>
-              <div style="grid-column: span 2;">B — Yeni revizyon</div>
-            </div>
-            <div class="diff-body" id="diffBody6"></div>
-          </div>
-          <div class="zoom-hint">Bir fark satırına tıklayın — o hareket aşağıdaki çizimde işaretlenir.</div>
-        </div>
 
-        <!-- Step 5: toolpath overlay -->
-        <div class="panel" id="diffPlotPanel6" style="display:none;">
-          <div class="col-label">5. Takım Yolu Karşılaştırma</div>
-          <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
-            <button class="btn secondary" id="diffZoomResetBtn6">Yakınlaştırmayı Sıfırla</button>
-            <label class="checkbox-field">
-              <input type="checkbox" id="showRapidsChk6">
-              Hızlı (G00) hareketleri de göster
-            </label>
+          <div class="controls-row">
             <div class="spacer"></div>
-            <div class="legend" id="diffLegend6">
-              <div class="legend-item"><span class="legend-dot" style="background:#8a8a8e"></span>A — eski (kalın soluk)</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#0071e3"></span>B — yeni</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>B'de eklenen / değişen</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>A'dan çıkan (kesikli)</div>
-            </div>
+            <button class="btn secondary" id="diffCsvBtn6">Tüm Farkları CSV İndir</button>
           </div>
-          <div class="preview-box">
-            <svg id="diffSvg6" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
-          </div>
-          <div class="zoom-hint">A'nın soluk izi B'nin altından çıkıyorsa, satır metni değişmemiş olsa bile o hareketin
-            geometrisi önceki bir değişiklik yüzünden kaymış demektir. Fare tekerleğiyle yakınlaştırın, sol tık + sürükle ile kaydırın.</div>
-          <div class="ruler-readout" id="diffPlotReadout6"></div>
         </div>
       </div>
 
@@ -2966,9 +3054,8 @@ downloadBtn.addEventListener('click', () => {
 })();
 
 /* ================= Shared lathe-program core =================
-   One parser and one set of time/geometry maths, used by both the
-   simulator and the revision comparison tool. Keeping them in one place
-   means a program reads the same way wherever it is shown. */
+   The simulator's parser and its time/geometry maths, kept apart from the
+   view so the parsing rules live in one readable place. */
 const LatheCore = (function () {
   // "ITEM" as a whole word (won't match "ITEMS"), then up to 15 non-digit
   // characters (colons, dashes, "NO.", spaces, asterisks, ...), then the number.
@@ -2996,8 +3083,6 @@ const LatheCore = (function () {
     const lines = text.split(/\r\n|\r|\n/);
     const segments = [];
     const lineHasMove = new Array(lines.length + 1).fill(false);
-    const lineItem = new Array(lines.length + 1).fill(null);
-    const lineTool = new Array(lines.length + 1).fill(null);
     const tools = [];
     const items = [];
     const toolChanges = [];
@@ -3076,9 +3161,6 @@ const LatheCore = (function () {
         }
       });
 
-      lineItem[lineNo] = currentItem;
-      lineTool[lineNo] = currentTool;
-
       let xTok = null, zTok = null, iTok = null, kTok = null, rTok = null, lTok = null;
       tokens.forEach(t => {
         if (t.letter === 'X') xTok = t.value;
@@ -3147,7 +3229,7 @@ const LatheCore = (function () {
       posX = newX; posZ = newZ;
     });
 
-    return { lines, segments, lineHasMove, lineItem, lineTool, tools, items, toolChanges, skippedChanges, counts };
+    return { lines, segments, lineHasMove, tools, items, toolChanges, skippedChanges, counts };
   }
 
   /* ---- arc helpers ---- */
@@ -3181,25 +3263,6 @@ const LatheCore = (function () {
     return (seg.type === 'arcCW' || seg.type === 'arcCCW') ? arcLength(seg) : Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
   }
 
-  // Bounding box over a set of segments, arcs sampled so bulges are included.
-  function boundsOf(segmentLists, extraPoints) {
-    const allX = [], allZ = [];
-    (segmentLists || []).forEach(list => (list || []).forEach(s => {
-      if (s.type === 'arcCW' || s.type === 'arcCCW') {
-        arcSamplePoints(s).forEach(p => { allX.push(p.x); allZ.push(p.z); });
-      } else {
-        allX.push(s.x1, s.x2); allZ.push(s.z1, s.z2);
-      }
-    }));
-    (extraPoints || []).forEach(p => { allX.push(p.x); allZ.push(p.z); });
-    if (allX.length === 0) return null;
-    let minX = Math.min(...allX), maxX = Math.max(...allX);
-    let minZ = Math.min(...allZ), maxZ = Math.max(...allZ);
-    if (minX === maxX) { minX -= 1; maxX += 1; }
-    if (minZ === maxZ) { minZ -= 1; maxZ += 1; }
-    return { minX, maxX, minZ, maxZ };
-  }
-
   function formatMinutes(min) {
     const totalSec = Math.round(min * 60);
     const h = Math.floor(totalSec / 3600);
@@ -3207,12 +3270,6 @@ const LatheCore = (function () {
     const s = totalSec % 60;
     if (h > 0) return `${h}sa ${m}dk ${s}sn`;
     return `${m}dk ${s}sn`;
-  }
-
-  // Signed difference, e.g. "+2dk 14sn" / "-0dk 30sn" / "değişmedi".
-  function formatMinutesDelta(min) {
-    if (Math.abs(min * 60) < 0.5) return 'değişmedi';
-    return (min > 0 ? '+' : '−') + formatMinutes(Math.abs(min));
   }
 
   const FALLBACK_MAX_RPM = 6000; // only if a program never sets G50/G92 and the CSS diameter is tiny
@@ -3295,7 +3352,7 @@ const LatheCore = (function () {
     };
   }
 
-  return { ITEM_RE, stripComments, toolPocket, parse, arcLength, arcSamplePoints, segLength, boundsOf, formatMinutes, formatMinutesDelta, computeTimes };
+  return { ITEM_RE, stripComments, toolPocket, parse, arcLength, arcSamplePoints, segLength, formatMinutes, computeTimes };
 })();
 
 /* ================= Tool: Torna Program Simülatörü ================= */
@@ -3388,16 +3445,12 @@ const LatheCore = (function () {
   dropzone5.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile5(f); });
   fcRemove5.addEventListener('click', e => { e.stopPropagation(); fileInput5.value = ''; fileChip5.classList.remove('show'); });
 
-  // Parsing lives in LatheCore so the simulator and the revision comparison
-  // read a program exactly the same way; this keeps the view's own state in sync.
-  let lineItem5 = [], lineTool5 = [];
+  // Parsing lives in LatheCore; this keeps the view's own state in sync with it.
   function parseProgram(text, diameterMode) {
     const parsed = LatheCore.parse(text, diameterMode);
     rawLines = parsed.lines;
     segments = parsed.segments;
     lineHasMove = parsed.lineHasMove;
-    lineItem5 = parsed.lineItem;
-    lineTool5 = parsed.lineTool;
     toolsFound = parsed.tools;
     itemsFound = parsed.items;
     toolChanges5 = parsed.toolChanges;
@@ -4152,93 +4205,369 @@ const LatheCore = (function () {
   }, { passive: false });
 })();
 
-/* ================= Tool: Program Karşılaştırma ================= */
+/* ================= Tool: Program Karşılaştırma =================
+   A batch, file-level comparison: two sets of program files are paired by
+   name, each pair is diffed, and one preview walks through them. Nothing here
+   parses G-code beyond the "what may be ignored" rules — these are plain text
+   files as far as this tool is concerned. */
 (function () {
   const $ = id => document.getElementById(id);
-  const rawText6a = $('rawText6a'), rawText6b = $('rawText6b');
-  const compareBtn6 = $('compareBtn6'), compareSummary6 = $('compareSummary6');
-  const swapBtn6 = $('swapBtn6');
-  const ignoreNChk6 = $('ignoreNChk6'), ignoreWsChk6 = $('ignoreWsChk6'), ignoreCommentsChk6 = $('ignoreCommentsChk6');
-  const diameterModeChk6 = $('diameterModeChk6');
-  const rapidRate6 = $('rapidRate6'), toolChangeSec6 = $('toolChangeSec6');
-  const unitSystemSegmented6 = $('unitSystemSegmented6');
-  const diffSummaryPanel6 = $('diffSummaryPanel6'), diffViewPanel6 = $('diffViewPanel6'), diffPlotPanel6 = $('diffPlotPanel6');
-  const kpiAdded6 = $('kpiAdded6'), kpiRemoved6 = $('kpiRemoved6'), kpiChanged6 = $('kpiChanged6');
-  const kpiTime6 = $('kpiTime6'), kpiTimeSub6 = $('kpiTimeSub6');
-  const diffByItemTbody = $('diffByItemTbody'), diffTimeTbody = $('diffTimeTbody'), diffChangeListTbody = $('diffChangeListTbody');
-  const diffCsvBtn6 = $('diffCsvBtn6');
-  const diffBody6 = $('diffBody6'), diffContext6 = $('diffContext6'), diffViewSegmented6 = $('diffViewSegmented6');
+  const pairPanel6 = $('pairPanel6'), pairTable6 = $('pairTable6'), pairSummary6 = $('pairSummary6');
+  const autoPairBtn6 = $('autoPairBtn6'), compareBtn6 = $('compareBtn6'), swapSidesBtn6 = $('swapSidesBtn6');
+  const ignoreNChk6 = $('ignoreNChk6'), ignoreWsChk6 = $('ignoreWsChk6');
+  const ignoreCommentsChk6 = $('ignoreCommentsChk6'), ignoreBlankChk6 = $('ignoreBlankChk6');
+  const resultPanel6 = $('resultPanel6');
+  const kpiPairs6 = $('kpiPairs6'), kpiSame6 = $('kpiSame6'), kpiDiff6 = $('kpiDiff6'), kpiOrphan6 = $('kpiOrphan6');
+  const pairList6 = $('pairList6'), hideSameChk6 = $('hideSameChk6');
+  const previewTitle6 = $('previewTitle6'), previewBadge6 = $('previewBadge6');
+  const diffHeadA6 = $('diffHeadA6'), diffHeadB6 = $('diffHeadB6');
+  const diffBody6 = $('diffBody6'), fileMap6 = $('fileMap6'), diffPos6 = $('diffPos6');
   const prevDiffBtn6 = $('prevDiffBtn6'), nextDiffBtn6 = $('nextDiffBtn6');
-  const diffSvg6 = $('diffSvg6'), diffZoomResetBtn6 = $('diffZoomResetBtn6'), showRapidsChk6 = $('showRapidsChk6');
-  const diffPlotReadout6 = $('diffPlotReadout6');
+  const diffViewSegmented6 = $('diffViewSegmented6'), diffContext6 = $('diffContext6');
+  const diffCsvBtn6 = $('diffCsvBtn6');
 
-  let unitSystem6 = 'inch';
-  let parsedA = null, parsedB = null;
-  let rows = [];               // aligned diff rows: {type, ai, bi} (0-indexed into each side's lines)
-  let changeList = [];         // the notable per-line changes, also what the CSV export writes
-  let changedB = new Set();    // 1-indexed B line numbers that are new or changed
-  let changedA = new Set();    // 1-indexed A line numbers that were removed or changed
+  let filesA = [], filesB = [];   // {id, name, path, text}
+  let pairs = [];                 // {a, b, how} — a/b are file objects or null
+  let results = [];               // per pair: {rows, added, removed, changed, identical, ignoredOnly}
+  let selectedPair = -1;
   let focusedRowIdx = -1;
-  let zoomBox6 = { x: 0, y: 0, w: 400, h: 320 };
-  let plotVb6 = null;
+  let nextFileId = 1;
+  const diffCache = new Map();    // re-pairing shouldn't re-diff what was already compared
 
-  /* ---- file loading (same drop/paste pattern as the other tools) ---- */
-  function wireLoader(suffix, textarea) {
-    const dropzone = $('dropzone6' + suffix), fileInput = $('fileInput6' + suffix);
-    const fileChip = $('fileChip6' + suffix), fcName = $('fcName6' + suffix), fcRemove = $('fcRemove6' + suffix);
-    function load(file) {
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = e => { textarea.value = e.target.result; };
-      reader.readAsText(file);
-      fcName.textContent = file.name;
-      fileChip.classList.add('show');
-    }
-    fileInput.addEventListener('change', () => load(fileInput.files[0]));
-    ['dragenter', 'dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-    ['dragleave', 'drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
-    dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) load(f); });
-    fcRemove.addEventListener('click', e => { e.stopPropagation(); fileInput.value = ''; fileChip.classList.remove('show'); });
-    return { name: () => fcName.textContent, setName: v => { fcName.textContent = v; } };
-  }
-  const loaderA = wireLoader('a', rawText6a);
-  const loaderB = wireLoader('b', rawText6b);
-
-  swapBtn6.addEventListener('click', () => {
-    const t = rawText6a.value; rawText6a.value = rawText6b.value; rawText6b.value = t;
-    const n = loaderA.name(); loaderA.setName(loaderB.name()); loaderB.setName(n);
-    if (rows.length) compare();
-  });
-
-  unitSystemSegmented6.querySelectorAll('.seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      unitSystemSegmented6.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      unitSystem6 = btn.dataset.unit;
-      if (rows.length) renderSummary();
+  /* ---------- file intake ---------- */
+  function readEntries(dirReader) {
+    return new Promise(resolve => {
+      const all = [];
+      (function readBatch() {
+        dirReader.readEntries(entries => {
+          if (!entries.length) { resolve(all); return; }
+          entries.forEach(e => all.push(e));
+          readBatch();
+        }, () => resolve(all));
+      })();
     });
+  }
+
+  // A dropped folder arrives as a directory entry; walk it so a whole revision
+  // folder can be dropped in one go.
+  async function collectEntry(entry, out, prefix) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      out.push({ file, path: prefix + entry.name });
+    } else if (entry.isDirectory) {
+      const entries = await readEntries(entry.createReader());
+      for (const child of entries) await collectEntry(child, out, prefix + entry.name + '/');
+    }
+  }
+
+  async function addFiles(side, picked) {
+    const list = side === 'a' ? filesA : filesB;
+    for (const { file, path } of picked) {
+      let text;
+      try { text = await file.text(); } catch (err) { continue; }
+      const name = file.name;
+      const existing = list.findIndex(f => f.path === path);
+      const rec = { id: nextFileId++, name, path, text };
+      if (existing >= 0) list[existing] = rec; else list.push(rec);
+    }
+    list.sort((x, y) => x.path.localeCompare(y.path, 'tr'));
+    renderFileList(side);
+    autoPair();
+  }
+
+  function wireSide(side) {
+    const dropzone = $('dropzone6' + side), fileInput = $('fileInput6' + side);
+    const folderInput = $('folderInput6' + side), pickFolderBtn = $('pickFolderBtn6' + side);
+    const clearBtn = $('clearBtn6' + side);
+
+    fileInput.addEventListener('change', () => {
+      addFiles(side, Array.from(fileInput.files).map(f => ({ file: f, path: f.webkitRelativePath || f.name })));
+      fileInput.value = '';
+    });
+    folderInput.addEventListener('change', () => {
+      addFiles(side, Array.from(folderInput.files).map(f => ({ file: f, path: f.webkitRelativePath || f.name })));
+      folderInput.value = '';
+    });
+    pickFolderBtn.addEventListener('click', () => folderInput.click());
+    clearBtn.addEventListener('click', () => {
+      if (side === 'a') filesA = []; else filesB = [];
+      renderFileList(side);
+      autoPair();
+    });
+
+    ['dragenter', 'dragover'].forEach(evt => dropzone.addEventListener(evt, e => {
+      if (!Array.from(e.dataTransfer.types).includes('Files')) return; // an internal chip drag, not a file drop
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+    dropzone.addEventListener('drop', async e => {
+      if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+      e.preventDefault();
+      const items = Array.from(e.dataTransfer.items || []);
+      const picked = [];
+      const entries = items.map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
+      if (entries.length) {
+        for (const entry of entries) await collectEntry(entry, picked, '');
+      } else {
+        Array.from(e.dataTransfer.files).forEach(f => picked.push({ file: f, path: f.name }));
+      }
+      addFiles(side, picked);
+    });
+  }
+  wireSide('a');
+  wireSide('b');
+
+  function renderFileList(side) {
+    const list = side === 'a' ? filesA : filesB;
+    const box = $('fileList6' + side);
+    $('fileCount6' + side).textContent = `${list.length} dosya`;
+    box.innerHTML = '';
+    list.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'fl-row';
+      row.innerHTML = `<span class="fl-name" title="${escapeHtml6(f.path)}">${escapeHtml6(f.path)}</span>` +
+        `<span class="fl-meta">${f.text.split(/\r\n|\r|\n/).length} satır</span>`;
+      const rm = document.createElement('button');
+      rm.className = 'fl-remove';
+      rm.title = 'Listeden çıkar';
+      rm.textContent = '×';
+      rm.addEventListener('click', () => {
+        const arr = side === 'a' ? filesA : filesB;
+        const i = arr.indexOf(f);
+        if (i >= 0) arr.splice(i, 1);
+        renderFileList(side);
+        autoPair();
+      });
+      row.appendChild(rm);
+      box.appendChild(row);
+    });
+  }
+
+  swapSidesBtn6.addEventListener('click', () => {
+    const t = filesA; filesA = filesB; filesB = t;
+    renderFileList('a'); renderFileList('b');
+    autoPair();
   });
 
-  /* ---- comparison key ----
-     What counts as "the same line". Block numbers are dropped by default so a
-     renumbered revision doesn't read as a rewrite; the rest is opt-in. */
+  /* ---------- pairing ---------- */
+  function baseName(p) { return p.split('/').pop(); }
+  function stripExt(n) { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(0, i) : n; }
+
+  // Dice coefficient over character bigrams: tolerant of the revision letters
+  // and date stamps that usually separate two versions of the same program.
+  function similarity(x, y) {
+    if (x === y) return 1;
+    if (x.length < 2 || y.length < 2) return x === y ? 1 : 0;
+    const counts = new Map();
+    for (let i = 0; i < x.length - 1; i++) {
+      const g = x.slice(i, i + 2);
+      counts.set(g, (counts.get(g) || 0) + 1);
+    }
+    let hits = 0, total = y.length - 1;
+    for (let i = 0; i < y.length - 1; i++) {
+      const g = y.slice(i, i + 2);
+      const c = counts.get(g) || 0;
+      if (c > 0) { counts.set(g, c - 1); hits++; }
+    }
+    return (2 * hits) / ((x.length - 1) + total);
+  }
+
+  const SIMILARITY_FLOOR = 0.55;
+
+  function autoPair() {
+    const leftover = new Set(filesB.map(f => f.id));
+    const byPath = new Map(), byName = new Map(), byStem = new Map();
+    filesB.forEach(f => {
+      const p = f.path.toLowerCase(), n = baseName(f.path).toLowerCase(), s = stripExt(n);
+      if (!byPath.has(p)) byPath.set(p, []);
+      if (!byName.has(n)) byName.set(n, []);
+      if (!byStem.has(s)) byStem.set(s, []);
+      byPath.get(p).push(f); byName.get(n).push(f); byStem.get(s).push(f);
+    });
+    function take(map, key) {
+      const bucket = map.get(key);
+      if (!bucket) return null;
+      while (bucket.length) {
+        const cand = bucket.shift();
+        if (leftover.has(cand.id)) { leftover.delete(cand.id); return cand; }
+      }
+      return null;
+    }
+
+    pairs = [];
+    const pending = [];
+    filesA.forEach(a => {
+      const b = take(byPath, a.path.toLowerCase())
+        || take(byName, baseName(a.path).toLowerCase())
+        || take(byStem, stripExt(baseName(a.path).toLowerCase()));
+      if (b) pairs.push({ a, b, how: 'name' });
+      else pending.push(a);
+    });
+
+    // Whatever is left gets matched on name similarity, best scores first.
+    const remainingB = filesB.filter(f => leftover.has(f.id));
+    const scored = [];
+    pending.forEach(a => remainingB.forEach(b => {
+      const s = similarity(stripExt(baseName(a.path).toLowerCase()), stripExt(baseName(b.path).toLowerCase()));
+      if (s >= SIMILARITY_FLOOR) scored.push({ a, b, s });
+    }));
+    scored.sort((p, q) => q.s - p.s);
+    const usedA = new Set(), usedB = new Set();
+    scored.forEach(({ a, b, s }) => {
+      if (usedA.has(a.id) || usedB.has(b.id)) return;
+      usedA.add(a.id); usedB.add(b.id);
+      pairs.push({ a, b, how: 'similar', score: s });
+    });
+
+    pending.forEach(a => { if (!usedA.has(a.id)) pairs.push({ a, b: null, how: null }); });
+    remainingB.forEach(b => { if (!usedB.has(b.id)) pairs.push({ a: null, b, how: null }); });
+
+    sortPairs();
+    renderPairTable();
+    if (results.length) compare(); // keep a shown result set in step with the pairing
+  }
+
+  function sortPairs() {
+    // Paired rows first, in A's order; then the files that have no counterpart.
+    const rank = p => (p.a && p.b) ? 0 : (p.a ? 1 : 2);
+    const key = p => (p.a ? p.a.path : p.b.path);
+    pairs.sort((x, y) => (rank(x) - rank(y)) || key(x).localeCompare(key(y), 'tr'));
+  }
+
+  autoPairBtn6.addEventListener('click', autoPair);
+
+  function renderPairTable() {
+    const any = filesA.length + filesB.length > 0;
+    pairPanel6.style.display = any ? 'block' : 'none';
+    if (!any) { resultPanel6.style.display = 'none'; return; }
+
+    const paired = pairs.filter(p => p.a && p.b).length;
+    const orphans = pairs.length - paired;
+    const bySimilar = pairs.filter(p => p.how === 'similar').length;
+    pairSummary6.style.display = 'block';
+    pairSummary6.innerHTML = `<b>${paired}</b> çift eşleşti` +
+      (bySimilar ? `, bunlardan <b>${bySimilar}</b> tanesi ada tam uymadığı için benzerliğe göre — kontrol edin.` : '.') +
+      (orphans ? ` <b>${orphans}</b> dosyanın eşi yok.` : '');
+
+    pairTable6.innerHTML = '';
+    pairs.forEach((p, idx) => {
+      const row = document.createElement('div');
+      row.className = 'pair-row' + (p.a && p.b ? '' : ' orphan');
+      row.dataset.idx = idx;
+      row.appendChild(slotEl(p, 'a', idx));
+      const mid = document.createElement('div');
+      mid.className = 'pair-mid';
+      mid.innerHTML = p.a && p.b
+        ? (p.how === 'similar' ? `<span class="pair-score" title="Ad benzerliği">→ %${Math.round(p.score * 100)}</span>` : '→')
+        : '<span class="pair-none">eşi yok</span>';
+      row.appendChild(mid);
+      row.appendChild(slotEl(p, 'b', idx));
+      pairTable6.appendChild(row);
+    });
+  }
+
+  function slotEl(pair, side, idx) {
+    const slot = document.createElement('div');
+    slot.className = 'pair-slot side-' + side;
+    slot.dataset.idx = idx;
+    slot.dataset.side = side;
+    const f = pair[side];
+    if (f) {
+      const chip = document.createElement('div');
+      chip.className = 'pair-chip';
+      chip.draggable = true;
+      chip.dataset.idx = idx;
+      chip.dataset.side = side;
+      chip.innerHTML = `<span class="pc-name" title="${escapeHtml6(f.path)}">${escapeHtml6(f.path)}</span>`;
+      const x = document.createElement('button');
+      x.className = 'pc-x';
+      x.title = 'Eşleşmeyi bozar';
+      x.textContent = '×';
+      x.addEventListener('click', e => { e.stopPropagation(); unpair(idx, side); });
+      chip.appendChild(x);
+      chip.addEventListener('dragstart', e => {
+        // The side rides in the MIME type so dragover can refuse the wrong
+        // column without reading the payload (which the API forbids there).
+        e.dataTransfer.setData('text/x-chip-' + side, String(idx));
+        e.dataTransfer.effectAllowed = 'move';
+        chip.classList.add('dragging');
+      });
+      chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
+      slot.appendChild(chip);
+    } else {
+      slot.classList.add('empty');
+      slot.innerHTML = '<span class="pair-none">—</span>';
+    }
+    slot.addEventListener('dragover', e => {
+      if (!Array.from(e.dataTransfer.types).includes('text/x-chip-' + side)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      slot.classList.add('dragover');
+    });
+    slot.addEventListener('dragleave', () => slot.classList.remove('dragover'));
+    slot.addEventListener('drop', e => {
+      const raw = e.dataTransfer.getData('text/x-chip-' + side);
+      slot.classList.remove('dragover');
+      if (raw === '') return;
+      e.preventDefault();
+      swapSlots(parseInt(raw, 10), idx, side);
+    });
+    return slot;
+  }
+
+  function swapSlots(fromIdx, toIdx, side) {
+    if (fromIdx === toIdx) return;
+    const from = pairs[fromIdx], to = pairs[toIdx];
+    if (!from || !to) return;
+    const tmp = to[side];
+    to[side] = from[side];
+    from[side] = tmp;
+    dropEmptyRows();
+    sortPairs();
+    renderPairTable();
+    if (results.length) compare();
+  }
+
+  function unpair(idx, side) {
+    const p = pairs[idx];
+    if (!p || !p[side]) return;
+    const moved = p[side];
+    p[side] = null;
+    const fresh = { a: null, b: null, how: null };
+    fresh[side] = moved;
+    pairs.push(fresh);
+    dropEmptyRows();
+    sortPairs();
+    renderPairTable();
+    if (results.length) compare();
+  }
+
+  function dropEmptyRows() { pairs = pairs.filter(p => p.a || p.b); }
+
+  /* ---------- what counts as a difference ---------- */
+  function stripComments6(line) {
+    return line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '').replace(/\/\/.*$/, '');
+  }
+
+  function optionsKey() {
+    return [ignoreNChk6.checked, ignoreWsChk6.checked, ignoreCommentsChk6.checked, ignoreBlankChk6.checked].join('|');
+  }
+
   function normKey(line) {
     let t = line;
     if (ignoreNChk6.checked) t = t.replace(/^\s*\/?\s*N\s*\d+/i, '');
-    if (ignoreCommentsChk6.checked) t = LatheCore.stripComments(t);
+    if (ignoreCommentsChk6.checked) t = stripComments6(t);
     if (ignoreWsChk6.checked) t = t.replace(/\s+/g, '').toUpperCase();
     else t = t.replace(/\s+$/, '');
     return t;
   }
 
-  /* ---- Myers O(ND) diff over hashed lines ----
-     Chosen over a full LCS matrix because two revisions of one program are
-     mostly identical: the work scales with the number of edits, not with the
-     square of the program length. */
+  /* ---- Myers O(ND) line diff: the work scales with the number of edits,
+     not with the square of the file length ---- */
   function diffKeys(a, b) {
     const N = a.length, M = b.length;
     const ops = [];
-    // Equal head/tail cost nothing to match and shrink the search a lot.
     let head = 0;
     while (head < N && head < M && a[head] === b[head]) head++;
     let tail = 0;
@@ -4250,8 +4579,6 @@ const LatheCore = (function () {
     const MAX = n + m;
 
     if (n === 0 || m === 0 || MAX > 12000) {
-      // Nothing in common to align (or two programs so different that aligning
-      // them says nothing) — report the block as replaced wholesale.
       for (let i = 0; i < n; i++) ops.push({ type: 'del', ai: head + i });
       for (let j = 0; j < m; j++) ops.push({ type: 'ins', bi: head + j });
     } else {
@@ -4271,7 +4598,6 @@ const LatheCore = (function () {
           if (x >= n && y >= m) { found = D; break; }
         }
       }
-      // Walk the trace backwards into a script, then flip it into program order.
       const back = [];
       let x = n, y = m;
       for (let D = found; D > 0; D--) {
@@ -4294,8 +4620,7 @@ const LatheCore = (function () {
     return ops;
   }
 
-  // A run of deletes immediately followed by inserts reads as "these lines were
-  // edited", which is far more useful than two separate blocks.
+  // A run of deletes followed by inserts reads as "these lines were edited".
   function pairIntoRows(ops) {
     const out = [];
     let i = 0;
@@ -4304,10 +4629,10 @@ const LatheCore = (function () {
       const dels = [], inss = [];
       while (i < ops.length && ops[i].type === 'del') { dels.push(ops[i]); i++; }
       while (i < ops.length && ops[i].type === 'ins') { inss.push(ops[i]); i++; }
-      const pairs = Math.min(dels.length, inss.length);
-      for (let k = 0; k < pairs; k++) out.push({ type: 'chg', ai: dels[k].ai, bi: inss[k].bi });
-      for (let k = pairs; k < dels.length; k++) out.push(dels[k]);
-      for (let k = pairs; k < inss.length; k++) out.push(inss[k]);
+      const n = Math.min(dels.length, inss.length);
+      for (let k = 0; k < n; k++) out.push({ type: 'chg', ai: dels[k].ai, bi: inss[k].bi });
+      for (let k = n; k < dels.length; k++) out.push(dels[k]);
+      for (let k = n; k < inss.length; k++) out.push(inss[k]);
     }
     return out;
   }
@@ -4317,8 +4642,6 @@ const LatheCore = (function () {
 
   function wordDiff(aText, bText) {
     const aw = splitWords(aText), bw = splitWords(bText);
-    // Word counts per line are tiny, so a plain LCS table is the simplest thing
-    // that works here.
     const n = aw.length, m = bw.length;
     const dp = [];
     for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
@@ -4336,19 +4659,16 @@ const LatheCore = (function () {
     }
     while (i < n) { aMark[i] = true; i++; }
     while (j < m) { bMark[j] = true; j++; }
-    // A renumbered line is not an edited line: if block numbers are being
-    // ignored for matching, they must not be reported as a change either.
-    if (ignoreNChk6.checked) {
-      unmarkLeadingBlockNumber(aw, aMark);
-      unmarkLeadingBlockNumber(bw, bMark);
-    }
+    // A renumbered line is not an edited line: if block numbers are ignored for
+    // matching, they must not be reported as a change either.
+    if (ignoreNChk6.checked) { unmarkLeadingBlockNumber(aw, aMark); unmarkLeadingBlockNumber(bw, bMark); }
     return { aw, bw, aMark, bMark };
   }
 
   function unmarkLeadingBlockNumber(words, marks) {
     for (let k = 0; k < words.length; k++) {
-      if (!words[k].trim()) continue;      // leading whitespace
-      if (words[k].trim() === '/') continue; // block-skip slash
+      if (!words[k].trim()) continue;
+      if (words[k].trim() === '/') continue;
       if (/^N\d+$/i.test(words[k].trim())) marks[k] = false;
       return;
     }
@@ -4356,7 +4676,7 @@ const LatheCore = (function () {
 
   const WORD_RE = /^([A-Za-z])(-?(?:\d+\.?\d*|\.\d+))$/;
 
-  // Turn the marked words into readable notes: "F .005 → .0035", "+ M08", "− G97".
+  // Readable notes: "F .005 → .0035", "+ M08", "− G97".
   function changeNotes(aText, bText) {
     const { aw, bw, aMark, bMark } = wordDiff(aText, bText);
     const removed = aw.filter((w, k) => aMark[k] && w.trim()).map(w => w.trim());
@@ -4365,18 +4685,18 @@ const LatheCore = (function () {
     const usedAdded = new Set();
     removed.forEach(rw => {
       const rm = rw.match(WORD_RE);
-      let partnerIdx = -1;
+      let partner = -1;
       if (rm) {
-        partnerIdx = added.findIndex((aw2, idx) => {
+        partner = added.findIndex((cand, idx) => {
           if (usedAdded.has(idx)) return false;
-          const am = aw2.match(WORD_RE);
-          return am && am[1].toUpperCase() === rm[1].toUpperCase();
+          const cm = cand.match(WORD_RE);
+          return cm && cm[1].toUpperCase() === rm[1].toUpperCase();
         });
       }
-      if (partnerIdx >= 0) {
-        usedAdded.add(partnerIdx);
-        const am = added[partnerIdx].match(WORD_RE);
-        notes.push({ kind: 'chg', letter: rm[1].toUpperCase(), from: rm[2], to: am[2], text: `${rm[1].toUpperCase()} ${rm[2]} → ${am[2]}` });
+      if (partner >= 0) {
+        usedAdded.add(partner);
+        const cm = added[partner].match(WORD_RE);
+        notes.push({ kind: 'chg', text: `${rm[1].toUpperCase()} ${rm[2]} → ${cm[2]}` });
       } else {
         notes.push({ kind: 'del', text: `− ${rw}` });
       }
@@ -4393,148 +4713,175 @@ const LatheCore = (function () {
     return words.map((w, k) => marks[k] && w.trim() ? `<mark>${escapeHtml6(w)}</mark>` : escapeHtml6(w)).join('');
   }
 
-  /* ---- the comparison itself ---- */
-  function compare() {
-    const textA = rawText6a.value, textB = rawText6b.value;
-    if (!textA.trim() || !textB.trim()) {
-      compareSummary6.style.display = 'block';
-      compareSummary6.innerHTML = 'Karşılaştırmak için iki revizyonu da yükleyin.';
-      diffSummaryPanel6.style.display = diffViewPanel6.style.display = diffPlotPanel6.style.display = 'none';
-      return;
-    }
-    const diaMode = diameterModeChk6.checked;
-    parsedA = LatheCore.parse(textA, diaMode);
-    parsedB = LatheCore.parse(textB, diaMode);
+  /* ---------- comparing every pair ---------- */
+  function splitLines(t) { return t.split(/\r\n|\r|\n/); }
 
-    const keysA = parsedA.lines.map(normKey);
-    const keysB = parsedB.lines.map(normKey);
-    rows = pairIntoRows(diffKeys(keysA, keysB));
+  function diffPair(p) {
+    const cacheKey = `${p.a ? p.a.id : '-'}:${p.b ? p.b.id : '-'}:${optionsKey()}`;
+    if (diffCache.has(cacheKey)) return diffCache.get(cacheKey);
 
-    changedA = new Set();
-    changedB = new Set();
-    changeList = [];
-    let added = 0, removed = 0, changed = 0;
-    rows.forEach((r, idx) => {
-      if (r.type === 'eq') return;
-      if (r.type === 'ins') {
-        added++; changedB.add(r.bi + 1);
-        changeList.push({ rowIdx: idx, aLine: '', bLine: r.bi + 1, item: parsedB.lineItem[r.bi + 1], tool: parsedB.lineTool[r.bi + 1], kind: 'ins', notes: [{ kind: 'ins', text: '+ ' + parsedB.lines[r.bi].trim() }] });
-      } else if (r.type === 'del') {
-        removed++; changedA.add(r.ai + 1);
-        changeList.push({ rowIdx: idx, aLine: r.ai + 1, bLine: '', item: parsedA.lineItem[r.ai + 1], tool: parsedA.lineTool[r.ai + 1], kind: 'del', notes: [{ kind: 'del', text: '− ' + parsedA.lines[r.ai].trim() }] });
-      } else {
-        changed++; changedA.add(r.ai + 1); changedB.add(r.bi + 1);
-        changeList.push({ rowIdx: idx, aLine: r.ai + 1, bLine: r.bi + 1, item: parsedB.lineItem[r.bi + 1], tool: parsedB.lineTool[r.bi + 1], kind: 'chg', notes: changeNotes(parsedA.lines[r.ai], parsedB.lines[r.bi]) });
+    const linesA = p.a ? splitLines(p.a.text) : [];
+    const linesB = p.b ? splitLines(p.b.text) : [];
+    let rows;
+    if (!p.a || !p.b) {
+      // No counterpart: show the whole file as added or removed rather than
+      // just saying so — it is usually a renamed file and you want to read it.
+      rows = p.a ? linesA.map((_, i) => ({ type: 'del', ai: i })) : linesB.map((_, i) => ({ type: 'ins', bi: i }));
+    } else {
+      let keysA = linesA.map(normKey), keysB = linesB.map(normKey);
+      if (ignoreBlankChk6.checked) {
+        // Blank lines still occupy a row so the two sides stay readable side by
+        // side; they are merely never treated as a difference.
+        keysA = keysA.map(k => (k.trim() === '' ? '\u0000blank' : k));
+        keysB = keysB.map(k => (k.trim() === '' ? '\u0000blank' : k));
       }
-    });
+      rows = pairIntoRows(diffKeys(keysA, keysB));
+    }
 
+    let added = 0, removed = 0, changed = 0;
+    rows.forEach(r => {
+      if (r.type === 'ins') added++;
+      else if (r.type === 'del') removed++;
+      else if (r.type === 'chg') changed++;
+    });
     const identical = added + removed + changed === 0;
-    const renumbered = identical && textA !== textB;
-    compareSummary6.style.display = 'block';
-    compareSummary6.innerHTML = identical
-      ? (renumbered
-        ? 'İki revizyon arasında <b>anlamlı fark yok</b> — farklar yalnızca yok sayılan kısımlarda (blok numaraları, boşluk ya da yorumlar).'
-        : 'İki revizyon <b>birebir aynı</b>.')
-      : `A: <b>${parsedA.lines.length}</b> satır · B: <b>${parsedB.lines.length}</b> satır · <b>${added}</b> eklendi, <b>${removed}</b> silindi, <b>${changed}</b> değişti.`;
-
-    kpiAdded6.textContent = added;
-    kpiRemoved6.textContent = removed;
-    kpiChanged6.textContent = changed;
-
-    diffSummaryPanel6.style.display = 'block';
-    diffViewPanel6.style.display = 'block';
-    diffPlotPanel6.style.display = 'block';
-    focusedRowIdx = -1;
-    diffPlotReadout6.textContent = '';
-    resetZoom6();
-    renderSummary();
-    renderRows();
-    renderOverlay();
-  }
-
-  function itemLabel(item) { return item === null || item === undefined ? '(item öncesi)' : 'Item ' + item; }
-
-  function renderSummary() {
-    /* per item + tool counts */
-    const buckets = {};
-    let order = 0;
-    changeList.forEach(c => {
-      const key = itemLabel(c.item) + '\u0000' + (c.tool || '—');
-      if (!buckets[key]) buckets[key] = { item: itemLabel(c.item), tool: c.tool || '—', ins: 0, del: 0, chg: 0, order: order++ };
-      buckets[key][c.kind]++;
-    });
-    const bucketRows = Object.values(buckets).sort((a, b) => a.order - b.order);
-    diffByItemTbody.innerHTML = bucketRows.length
-      ? bucketRows.map(b => `<tr><td>${b.item}</td><td>${b.tool}</td><td>${b.ins || ''}</td><td>${b.del || ''}</td><td>${b.chg || ''}</td></tr>`).join('')
-      : '<tr><td colspan="5" class="fs-empty">Fark yok</td></tr>';
-
-    /* cycle time, both revisions through the same maths as the simulator */
-    const opts = {
-      rapidRate: parseFloat(rapidRate6.value) || 200,
-      toolChangeSec: Math.max(0, parseFloat(toolChangeSec6.value) || 0),
-      unitSystem: unitSystem6
+    const res = {
+      rows, added, removed, changed, identical,
+      linesA, linesB,
+      ignoredOnly: identical && p.a && p.b && p.a.text !== p.b.text,
+      orphan: !p.a || !p.b
     };
-    const tA = LatheCore.computeTimes(parsedA.segments, parsedA.toolChanges, opts);
-    const tB = LatheCore.computeTimes(parsedB.segments, parsedB.toolChanges, opts);
-    const delta = tB.totalMin - tA.totalMin;
-    kpiTime6.textContent = LatheCore.formatMinutesDelta(delta);
-    kpiTimeSub6.textContent = `${LatheCore.formatMinutes(tA.totalMin)} → ${LatheCore.formatMinutes(tB.totalMin)}`;
-
-    const itemKeys = [];
-    Object.keys(tA.perItem).concat(Object.keys(tB.perItem)).forEach(k => { if (!itemKeys.includes(k)) itemKeys.push(k); });
-    itemKeys.sort((x, y) => {
-      const ox = tB.perItem[x] ? tB.perItem[x].order : 1000 + (tA.perItem[x] ? tA.perItem[x].order : 0);
-      const oy = tB.perItem[y] ? tB.perItem[y].order : 1000 + (tA.perItem[y] ? tA.perItem[y].order : 0);
-      return ox - oy;
-    });
-    const sum = v => v ? v.cutting + v.air + v.toolChange : 0;
-    const timeRows = itemKeys.map(k => {
-      const a = sum(tA.perItem[k]), b = sum(tB.perItem[k]);
-      return { key: k, a, b, d: b - a };
-    });
-    diffTimeTbody.innerHTML = timeRows.map(r => {
-      const cls = Math.abs(r.d * 60) < 0.5 ? '' : (r.d > 0 ? ' style="color:#b3521f"' : ' style="color:#1f8a4c"');
-      return `<tr><td>${r.key === '(item öncesi)' ? r.key : 'Item ' + r.key}</td><td>${LatheCore.formatMinutes(r.a)}</td><td>${LatheCore.formatMinutes(r.b)}</td><td${cls}>${LatheCore.formatMinutesDelta(r.d)}</td></tr>`;
-    }).join('') + `<tr><td><b>Toplam</b></td><td><b>${LatheCore.formatMinutes(tA.totalMin)}</b></td><td><b>${LatheCore.formatMinutes(tB.totalMin)}</b></td><td><b>${LatheCore.formatMinutesDelta(delta)}</b></td></tr>`;
-
-    /* the change list */
-    diffChangeListTbody.innerHTML = changeList.length
-      ? changeList.map(c => {
-        const chips = c.notes.map(n => {
-          const color = n.kind === 'ins' ? '#1f8a4c' : n.kind === 'del' ? '#ff3b30' : '#b3521f';
-          return `<span class="chg-chip" style="color:${color}">${escapeHtml6(n.text)}</span>`;
-        }).join(' ');
-        return `<tr class="chg-row" data-row="${c.rowIdx}"><td>${c.aLine || '—'} → ${c.bLine || '—'}</td><td>${itemLabel(c.item)}</td><td>${c.tool || '—'}</td><td>${chips}</td></tr>`;
-      }).join('')
-      : '<tr><td colspan="4" class="fs-empty">Fark yok</td></tr>';
-    diffChangeListTbody.querySelectorAll('.chg-row').forEach(tr => {
-      tr.addEventListener('click', () => focusRow(parseInt(tr.dataset.row, 10), true));
-    });
+    diffCache.set(cacheKey, res);
+    return res;
   }
 
-  /* ---- side-by-side lines ---- */
-  function visibleRowIndices() {
+  function compare() {
+    if (!pairs.length) return;
+    results = pairs.map(diffPair);
+
+    const pairedCount = pairs.filter(p => p.a && p.b).length;
+    const sameCount = results.filter((r, i) => pairs[i].a && pairs[i].b && r.identical).length;
+    const diffCount = pairedCount - sameCount;
+    const orphanCount = pairs.length - pairedCount;
+    kpiPairs6.textContent = pairedCount;
+    kpiSame6.textContent = sameCount;
+    kpiDiff6.textContent = diffCount;
+    kpiOrphan6.textContent = orphanCount;
+
+    resultPanel6.style.display = 'block';
+    renderPairList();
+
+    // Land on something worth looking at: the first pair that actually differs.
+    const firstInteresting = results.findIndex(r => !r.identical);
+    selectPair(firstInteresting >= 0 ? firstInteresting : 0);
+  }
+
+  compareBtn6.addEventListener('click', compare);
+  [ignoreNChk6, ignoreWsChk6, ignoreCommentsChk6, ignoreBlankChk6].forEach(chk => {
+    chk.addEventListener('change', () => { if (results.length) compare(); });
+  });
+  hideSameChk6.addEventListener('change', renderPairList);
+
+  function pairTitle(p) {
+    if (p.a && p.b) {
+      return p.a.path === p.b.path ? p.a.path : `${p.a.path}  →  ${p.b.path}`;
+    }
+    return (p.a || p.b).path;
+  }
+
+  function statusHtml(p, r) {
+    if (!p.a) return '<span class="st st-orphan">yalnızca B\'de</span>';
+    if (!p.b) return '<span class="st st-orphan">yalnızca A\'da</span>';
+    if (r.identical) return `<span class="st st-same">aynı</span>${r.ignoredOnly ? '<span class="st-note">yok sayılan farklar var</span>' : ''}`;
+    const bits = [];
+    if (r.added) bits.push(`<span class="st st-ins">+${r.added}</span>`);
+    if (r.removed) bits.push(`<span class="st st-del">−${r.removed}</span>`);
+    if (r.changed) bits.push(`<span class="st st-chg">~${r.changed}</span>`);
+    return bits.join(' ');
+  }
+
+  function renderPairList() {
+    pairList6.innerHTML = '';
+    const hideSame = hideSameChk6.checked;
+    let shown = 0;
+    pairs.forEach((p, i) => {
+      const r = results[i];
+      if (!r) return;
+      if (hideSame && r.identical && p.a && p.b) return;
+      shown++;
+      const el = document.createElement('div');
+      el.className = 'pair-item' + (i === selectedPair ? ' active' : '');
+      el.dataset.pair = i;
+      el.innerHTML = `<div class="pi-name" title="${escapeHtml6(pairTitle(p))}">${escapeHtml6(baseName((p.a || p.b).path))}</div>` +
+        `<div class="pi-status">${statusHtml(p, r)}</div>`;
+      el.addEventListener('click', () => selectPair(i));
+      pairList6.appendChild(el);
+    });
+    if (!shown) {
+      const empty = document.createElement('div');
+      empty.className = 'diff-empty';
+      empty.textContent = hideSame ? 'Değişen dosya yok.' : 'Dosya çifti yok.';
+      pairList6.appendChild(empty);
+    }
+  }
+
+  function selectPair(i) {
+    selectedPair = i;
+    focusedRowIdx = -1;
+    pairList6.querySelectorAll('.pair-item').forEach(el => el.classList.toggle('active', parseInt(el.dataset.pair, 10) === i));
+    const p = pairs[i], r = results[i];
+    if (!p || !r) return;
+    previewTitle6.textContent = pairTitle(p);
+    previewBadge6.innerHTML = statusHtml(p, r);
+    diffHeadA6.textContent = p.a ? 'A — ' + baseName(p.a.path) : 'A — (yok)';
+    diffHeadB6.textContent = p.b ? 'B — ' + baseName(p.b.path) : 'B — (yok)';
+    renderRows();
+    // Land on the first difference straight away — selecting a file is asking
+    // "what changed in this one".
+    const blocks = r.identical ? [] : diffBlocks(r);
+    prevDiffBtn6.disabled = nextDiffBtn6.disabled = blocks.length === 0;
+    if (blocks.length) focusedRowIdx = blocks[0].start;
+    markFocused(true);
+    renderFileMap();
+    updateDiffPos();
+  }
+
+  /* ---------- the side-by-side view ---------- */
+  function currentResult() { return results[selectedPair]; }
+
+  function visibleRowIndices(r) {
     const onlyChanges = diffViewSegmented6.querySelector('.seg-btn.active').dataset.view === 'changes';
-    if (!onlyChanges) return rows.map((_, i) => i);
+    if (!onlyChanges) return r.rows.map((_, i) => i);
     const ctx = Math.max(0, Math.min(20, parseInt(diffContext6.value, 10) || 0));
     const keep = new Set();
-    rows.forEach((r, i) => {
-      if (r.type === 'eq') return;
-      for (let k = i - ctx; k <= i + ctx; k++) if (k >= 0 && k < rows.length) keep.add(k);
+    r.rows.forEach((row, i) => {
+      if (row.type === 'eq') return;
+      for (let k = i - ctx; k <= i + ctx; k++) if (k >= 0 && k < r.rows.length) keep.add(k);
     });
     return Array.from(keep).sort((a, b) => a - b);
   }
 
   function renderRows() {
-    const idxs = visibleRowIndices();
+    const r = currentResult();
+    diffBody6.innerHTML = '';
+    if (!r) return;
+
+    if (r.identical) {
+      updateMapVisibility();
+      const box = document.createElement('div');
+      box.className = 'identical-box';
+      box.innerHTML = `<div class="ib-mark">✓</div>` +
+        `<div class="ib-title">Dosyalar birebir aynı</div>` +
+        (r.ignoredOnly
+          ? `<div class="ib-sub">Aradaki tek fark yok saydığınız kısımlarda: blok numaraları, boşluk ya da yorumlar.</div>`
+          : `<div class="ib-sub">${r.linesA.length} satırın tamamı aynı.</div>`);
+      diffBody6.appendChild(box);
+      return;
+    }
+
+    const idxs = visibleRowIndices(r);
     const frag = document.createDocumentFragment();
     let prev = -1;
-    if (idxs.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'diff-empty';
-      empty.textContent = 'Gösterilecek fark yok.';
-      frag.appendChild(empty);
-    }
     idxs.forEach(i => {
       if (prev >= 0 && i > prev + 1) {
         const gap = document.createElement('div');
@@ -4543,207 +4890,86 @@ const LatheCore = (function () {
         frag.appendChild(gap);
       }
       prev = i;
-      const r = rows[i];
+      const row = r.rows[i];
       const div = document.createElement('div');
-      div.className = 'diff-row ' + r.type + (r.type !== 'eq' ? ' clickable' : '');
+      div.className = 'diff-row ' + row.type + (row.type !== 'eq' ? ' clickable' : '');
       div.dataset.row = i;
 
-      const aText = r.ai != null ? parsedA.lines[r.ai] : '';
-      const bText = r.bi != null ? parsedB.lines[r.bi] : '';
+      const aText = row.ai != null ? r.linesA[row.ai] : '';
+      const bText = row.bi != null ? r.linesB[row.bi] : '';
       let aHtml = escapeHtml6(aText), bHtml = escapeHtml6(bText);
-      if (r.type === 'chg') {
+      if (row.type === 'chg') {
         const w = wordDiff(aText, bText);
         aHtml = markedHtml(w.aw, w.aMark);
         bHtml = markedHtml(w.bw, w.bMark);
       }
-      // Only the side that actually holds the change is tinted; the empty
-      // counterpart gets a hatch meaning "no matching line here".
-      const aSide = (r.type === 'chg' || r.type === 'del') ? ' changed' : (r.type === 'ins' ? ' filler' : '');
-      const bSide = (r.type === 'chg' || r.type === 'ins') ? ' changed' : (r.type === 'del' ? ' filler' : '');
+      // Only the side holding the change is tinted; the empty counterpart is
+      // hatched to read as "no matching line here".
+      const aSide = (row.type === 'chg' || row.type === 'del') ? ' changed' : (row.type === 'ins' ? ' filler' : '');
+      const bSide = (row.type === 'chg' || row.type === 'ins') ? ' changed' : (row.type === 'del' ? ' filler' : '');
       div.innerHTML =
-        `<div class="dnum side-a${aSide}">${r.ai != null ? r.ai + 1 : ''}</div>` +
+        `<div class="dnum side-a${aSide}">${row.ai != null ? row.ai + 1 : ''}</div>` +
         `<div class="dtext side-a${aSide}">${aHtml}</div>` +
-        `<div class="dnum side-b${bSide}">${r.bi != null ? r.bi + 1 : ''}</div>` +
+        `<div class="dnum side-b${bSide}">${row.bi != null ? row.bi + 1 : ''}</div>` +
         `<div class="dtext side-b${bSide}">${bHtml}</div>`;
-      if (r.type !== 'eq') div.addEventListener('click', () => focusRow(i, false));
+      if (row.type !== 'eq') div.addEventListener('click', () => focusRow(i));
       frag.appendChild(div);
     });
-    diffBody6.innerHTML = '';
     diffBody6.appendChild(frag);
-    if (focusedRowIdx >= 0) markFocused();
+    updateMapVisibility();
+    if (focusedRowIdx >= 0) markFocused(false);
   }
 
-  function markFocused() {
+  function markFocused(scroll) {
     diffBody6.querySelectorAll('.diff-row.focused').forEach(el => el.classList.remove('focused'));
     const el = diffBody6.querySelector(`.diff-row[data-row="${focusedRowIdx}"]`);
-    if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'center' }); }
+    if (el) {
+      el.classList.add('focused');
+      if (scroll) el.scrollIntoView({ block: 'center' });
+    }
   }
 
-  // Focusing a change marks the move it belongs to in the overlay, which is the
-  // "where on the part did this change?" question the tables can't answer.
-  function focusRow(idx, scrollIntoView) {
-    focusedRowIdx = idx;
-    markFocused();
-    const r = rows[idx];
-    const parts = [];
-    if (r && r.bi != null) {
-      const seg = parsedB.segments.find(s => s.lineNo === r.bi + 1);
-      if (seg) parts.push(`B satır ${r.bi + 1}: X${(seg.x2).toFixed(4)} Z${seg.z2.toFixed(4)}`);
-    }
-    if (r && r.ai != null) {
-      const seg = parsedA.segments.find(s => s.lineNo === r.ai + 1);
-      if (seg) parts.push(`A satır ${r.ai + 1}: X${(seg.x2).toFixed(4)} Z${seg.z2.toFixed(4)}`);
-    }
-    diffPlotReadout6.textContent = parts.length ? parts.join('  ·  ') : 'Bu satır bir hareket üretmiyor — çizimde karşılığı yok.';
-    renderOverlay();
-    if (scrollIntoView) diffViewPanel6.scrollIntoView({ block: 'nearest' });
+  function focusRow(i) {
+    focusedRowIdx = i;
+    markFocused(true);
+    updateDiffPos();
+    renderFileMap();
+  }
+
+  // Consecutive changed rows are one "difference" to jump between — stepping
+  // through a twenty-line edit one row at a time is not navigation.
+  function diffBlocks(r) {
+    const blocks = [];
+    let start = -1;
+    r.rows.forEach((row, i) => {
+      if (row.type !== 'eq') { if (start < 0) start = i; }
+      else if (start >= 0) { blocks.push({ start, end: i - 1 }); start = -1; }
+    });
+    if (start >= 0) blocks.push({ start, end: r.rows.length - 1 });
+    return blocks;
   }
 
   function stepDiff(dir) {
-    const changedIdxs = rows.map((r, i) => (r.type === 'eq' ? -1 : i)).filter(i => i >= 0);
-    if (changedIdxs.length === 0) return;
-    let next;
-    if (focusedRowIdx < 0) next = dir > 0 ? changedIdxs[0] : changedIdxs[changedIdxs.length - 1];
-    else {
-      const pos = changedIdxs.indexOf(focusedRowIdx);
-      if (pos < 0) next = changedIdxs.find(i => i > focusedRowIdx) ?? changedIdxs[0];
-      else next = changedIdxs[(pos + dir + changedIdxs.length) % changedIdxs.length];
-    }
-    focusRow(next, false);
+    const r = currentResult();
+    if (!r || r.identical) return;
+    const blocks = diffBlocks(r);
+    if (!blocks.length) return;
+    let pos = blocks.findIndex(b => focusedRowIdx >= b.start && focusedRowIdx <= b.end);
+    if (pos < 0) pos = dir > 0 ? -1 : blocks.length;
+    const next = (pos + dir + blocks.length) % blocks.length;
+    focusRow(blocks[next].start);
   }
 
-  /* ---- toolpath overlay ----
-     A is the recessive backdrop (thin, gray); B is read against it. Added and
-     removed geometry carry both a colour and a weight/dash difference so the
-     distinction survives a colourblind reader or a black-and-white print. */
-  function resetZoom6() { zoomBox6 = { x: 0, y: 0, w: 400, h: 320 }; }
-
-  function renderOverlay() {
-    const W = 400, H = 320, PAD = 26;
-    diffSvg6.setAttribute('viewBox', `${zoomBox6.x} ${zoomBox6.y} ${zoomBox6.w} ${zoomBox6.h}`);
-    diffSvg6.innerHTML = '';
-    if (!parsedA || !parsedB) return;
-    const showRapids = showRapidsChk6.checked;
-    const keep = s => showRapids || s.type !== 'rapid';
-    const segsA = parsedA.segments.filter(keep), segsB = parsedB.segments.filter(keep);
-    const b = LatheCore.boundsOf([segsA, segsB]);
-    if (!b) return;
-
-    const rangeX = b.maxX - b.minX, rangeZ = b.maxZ - b.minZ;
-    const scale = Math.min((W - PAD * 2) / rangeZ, (H - PAD * 2) / rangeX);
-    const offZ = (W - rangeZ * scale) / 2, offX = (H - rangeX * scale) / 2;
-    const toSx = z => offZ + (z - b.minZ) * scale;
-    const toSy = x => H - (offX + (x - b.minX) * scale);
-    plotVb6 = { b, scale, offX, offZ, W, H };
-
-    const ns = 'http://www.w3.org/2000/svg';
-    function el(tag, attrs) {
-      const e = document.createElementNS(ns, tag);
-      Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
-      return e;
-    }
-    function stroked(tag, attrs) {
-      return el(tag, Object.assign({ 'vector-effect': 'non-scaling-stroke' }, attrs));
-    }
-    function segPath(seg) {
-      const x1 = toSx(seg.z1), y1 = toSy(seg.x1);
-      const x2 = toSx(seg.z2), y2 = toSy(seg.x2);
-      if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
-        const r = seg.r * scale;
-        const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
-        const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
-        let delta = a2 - a1;
-        while (delta <= -Math.PI) delta += 2 * Math.PI;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        // Short way around, same simplification (and the same screen-flip
-        // correction) as the simulator's renderer.
-        return `M ${x1} ${y1} A ${r} ${r} 0 0 ${delta > 0 ? 0 : 1} ${x2} ${y2}`;
-      }
-      return `M ${x1} ${y1} L ${x2} ${y2}`;
-    }
-
-    if (b.minX <= 0 && b.maxX >= 0) {
-      diffSvg6.appendChild(stroked('line', { x1: 0, y1: toSy(0), x2: W, y2: toSy(0), stroke: '#e5e5ea', 'stroke-width': 1 }));
-    }
-
-    // A, unchanged parts: drawn wider and underneath so it reads as a halo
-    // around B where the two agree — and shows through wherever B's geometry
-    // moved, even on a line whose own text never changed.
-    segsA.forEach(seg => {
-      if (changedA.has(seg.lineNo)) return;
-      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#8a8a8e', 'stroke-width': 3, opacity: 0.32, 'stroke-dasharray': seg.type === 'rapid' ? '3,2' : 'none' }));
-    });
-    // B, unchanged parts
-    segsB.forEach(seg => {
-      if (changedB.has(seg.lineNo)) return;
-      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#0071e3', 'stroke-width': 1.4, 'stroke-dasharray': seg.type === 'rapid' ? '3,2' : 'none' }));
-    });
-    // geometry the revision dropped
-    segsA.forEach(seg => {
-      if (!changedA.has(seg.lineNo)) return;
-      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#ff3b30', 'stroke-width': 2, 'stroke-dasharray': '5,3' }));
-    });
-    // geometry the revision adds or moves
-    segsB.forEach(seg => {
-      if (!changedB.has(seg.lineNo)) return;
-      diffSvg6.appendChild(stroked('path', { d: segPath(seg), fill: 'none', stroke: '#1f8a4c', 'stroke-width': 2.4 }));
-    });
-
-    // the focused change, if it draws anything
-    const fr = focusedRowIdx >= 0 ? rows[focusedRowIdx] : null;
-    if (fr) {
-      const screenScale = zoomBox6.w / W;
-      const focusSeg = (fr.bi != null && parsedB.segments.find(s => s.lineNo === fr.bi + 1))
-        || (fr.ai != null && parsedA.segments.find(s => s.lineNo === fr.ai + 1));
-      if (focusSeg) {
-        diffSvg6.appendChild(stroked('path', { d: segPath(focusSeg), fill: 'none', stroke: '#1d1d1f', 'stroke-width': 3.4, opacity: 0.85 }));
-        diffSvg6.appendChild(el('circle', { cx: toSx(focusSeg.z2), cy: toSy(focusSeg.x2), r: 4 * screenScale, fill: '#1d1d1f' }));
-      }
-    }
+  function updateDiffPos() {
+    const r = currentResult();
+    if (!r || r.identical) { diffPos6.textContent = ''; return; }
+    const blocks = diffBlocks(r);
+    const pos = blocks.findIndex(b => focusedRowIdx >= b.start && focusedRowIdx <= b.end);
+    diffPos6.textContent = `${pos >= 0 ? pos + 1 : '–'} / ${blocks.length} fark`;
   }
 
-  /* ---- zoom / pan, same feel as the simulator ---- */
-  let isPanning6 = false, panStartX6 = 0, panStartY6 = 0, panStartBox6 = null, panScaleX6 = 1, panScaleY6 = 1;
-  diffSvg6.addEventListener('wheel', e => {
-    e.preventDefault();
-    const rect = diffSvg6.getBoundingClientRect();
-    const fx = (e.clientX - rect.left) / rect.width, fy = (e.clientY - rect.top) / rect.height;
-    const px = zoomBox6.x + fx * zoomBox6.w, py = zoomBox6.y + fy * zoomBox6.h;
-    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
-    const newW = Math.min(400 * 8, Math.max(400 / 40, zoomBox6.w * factor));
-    const newH = newW * (320 / 400);
-    zoomBox6 = { x: px - fx * newW, y: py - fy * newH, w: newW, h: newH };
-    renderOverlay();
-  }, { passive: false });
-  diffSvg6.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    isPanning6 = true;
-    panStartX6 = e.clientX; panStartY6 = e.clientY;
-    panStartBox6 = Object.assign({}, zoomBox6);
-    const rect = diffSvg6.getBoundingClientRect();
-    panScaleX6 = zoomBox6.w / rect.width; panScaleY6 = zoomBox6.h / rect.height;
-  });
-  window.addEventListener('mousemove', e => {
-    if (!isPanning6) return;
-    zoomBox6 = {
-      x: panStartBox6.x - (e.clientX - panStartX6) * panScaleX6,
-      y: panStartBox6.y - (e.clientY - panStartY6) * panScaleY6,
-      w: panStartBox6.w, h: panStartBox6.h
-    };
-    renderOverlay();
-  });
-  window.addEventListener('mouseup', () => { isPanning6 = false; });
-  diffZoomResetBtn6.addEventListener('click', () => { resetZoom6(); renderOverlay(); });
-  showRapidsChk6.addEventListener('change', () => { resetZoom6(); renderOverlay(); });
-
-  /* ---- wiring ---- */
-  compareBtn6.addEventListener('click', compare);
-  [ignoreNChk6, ignoreWsChk6, ignoreCommentsChk6, diameterModeChk6].forEach(chk => {
-    chk.addEventListener('change', () => { if (rows.length || compareSummary6.style.display === 'block') compare(); });
-  });
-  [rapidRate6, toolChangeSec6].forEach(inp => {
-    inp.addEventListener('input', () => { if (rows.length) renderSummary(); });
-  });
+  prevDiffBtn6.addEventListener('click', () => stepDiff(-1));
+  nextDiffBtn6.addEventListener('click', () => stepDiff(1));
   diffViewSegmented6.querySelectorAll('.seg-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       diffViewSegmented6.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
@@ -4751,25 +4977,129 @@ const LatheCore = (function () {
       renderRows();
     });
   });
-  diffContext6.addEventListener('input', () => { if (rows.length) renderRows(); });
-  prevDiffBtn6.addEventListener('click', () => stepDiff(-1));
-  nextDiffBtn6.addEventListener('click', () => stepDiff(1));
+  diffContext6.addEventListener('input', () => { if (results.length) renderRows(); });
 
-  diffCsvBtn6.addEventListener('click', () => {
-    if (changeList.length === 0) return;
-    const out = [['A satiri', 'B satiri', 'Item', 'Takim', 'Tur', 'Degisiklik', 'A metni', 'B metni']];
-    changeList.forEach(c => {
-      const kind = c.kind === 'ins' ? 'Eklendi' : c.kind === 'del' ? 'Silindi' : 'Degisti';
-      out.push([
-        c.aLine || '', c.bLine || '',
-        c.item === null || c.item === undefined ? '' : c.item,
-        c.tool || '', kind,
-        c.notes.map(n => n.text).join(' | '),
-        c.aLine ? parsedA.lines[c.aLine - 1] : '',
-        c.bLine ? parsedB.lines[c.bLine - 1] : ''
-      ]);
+  /* ---------- file map ----------
+     Where the differences sit in the whole file, regardless of which slice of
+     it the panel is currently showing. */
+  function renderFileMap() {
+    fileMap6.innerHTML = '';
+    const r = currentResult();
+    if (!r || !r.rows.length) return;
+    const total = r.rows.length;
+    const frag = document.createDocumentFragment();
+    let run = null;
+    const flush = () => {
+      if (!run) return;
+      const tick = document.createElement('div');
+      tick.className = 'fm-tick fm-' + run.type;
+      tick.style.top = (run.start / total * 100) + '%';
+      tick.style.height = Math.max(0.6, (run.end - run.start + 1) / total * 100) + '%';
+      frag.appendChild(tick);
+      run = null;
+    };
+    r.rows.forEach((row, i) => {
+      if (row.type === 'eq') { flush(); return; }
+      if (run && run.type === row.type && i === run.end + 1) run.end = i;
+      else { flush(); run = { type: row.type, start: i, end: i }; }
     });
-    const csv = out.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    flush();
+
+    if (focusedRowIdx >= 0) {
+      const cur = document.createElement('div');
+      cur.className = 'fm-current';
+      cur.style.top = (focusedRowIdx / total * 100) + '%';
+      frag.appendChild(cur);
+    }
+    const view = document.createElement('div');
+    view.className = 'fm-viewport';
+    view.id = 'fmViewport6';
+    frag.appendChild(view);
+    fileMap6.appendChild(frag);
+    updateMapVisibility();
+    updateViewport();
+  }
+
+  // The map answers "where in the file are the differences", so it earns its
+  // place whenever the file is longer than the pane — even in the filtered
+  // view, where the changed slices alone may well fit on screen. A file with
+  // no differences has nothing to map.
+  function updateMapVisibility() {
+    const wrap = diffBody6.closest('.diff-wrap');
+    const r = currentResult();
+    if (!wrap || !r) return;
+    const firstRow = diffBody6.querySelector('.diff-row');
+    const rowH = firstRow ? firstRow.offsetHeight : 17;
+    const fitsOnScreen = r.rows.length * rowH <= diffBody6.clientHeight + 2;
+    wrap.classList.toggle('no-map', r.identical || fitsOnScreen);
+  }
+
+  // The panel may be showing only the changed slices, so the viewport band is
+  // derived from which rows are actually on screen, not from raw scroll ratios.
+  function updateViewport() {
+    const view = document.getElementById('fmViewport6');
+    const r = currentResult();
+    if (!view || !r || !r.rows.length) return;
+    const rowEls = diffBody6.querySelectorAll('.diff-row');
+    if (!rowEls.length) { view.style.display = 'none'; return; }
+    view.style.display = 'block';
+    const top = diffBody6.scrollTop, bottom = top + diffBody6.clientHeight;
+    let first = null, last = null;
+    rowEls.forEach(el => {
+      const y = el.offsetTop, y2 = y + el.offsetHeight;
+      if (y2 >= top && y <= bottom) {
+        const idx = parseInt(el.dataset.row, 10);
+        if (first === null || idx < first) first = idx;
+        if (last === null || idx > last) last = idx;
+      }
+    });
+    if (first === null) { view.style.display = 'none'; return; }
+    const total = r.rows.length;
+    view.style.top = (first / total * 100) + '%';
+    view.style.height = Math.max(1.5, (last - first + 1) / total * 100) + '%';
+  }
+
+  let mapScrollTimer = null;
+  diffBody6.addEventListener('scroll', () => {
+    if (mapScrollTimer) return;
+    mapScrollTimer = requestAnimationFrame(() => { mapScrollTimer = null; updateViewport(); });
+  });
+
+  fileMap6.addEventListener('click', e => {
+    const r = currentResult();
+    if (!r || !r.rows.length) return;
+    const rect = fileMap6.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const target = Math.round(frac * (r.rows.length - 1));
+    // Snap to the nearest actual difference so a rough click still lands on one.
+    const blocks = diffBlocks(r);
+    if (!blocks.length) return;
+    let best = blocks[0], bestDist = Infinity;
+    blocks.forEach(b => {
+      const d = target < b.start ? b.start - target : (target > b.end ? target - b.end : 0);
+      if (d < bestDist) { bestDist = d; best = b; }
+    });
+    focusRow(best.start);
+  });
+
+  /* ---------- CSV of every difference in every pair ---------- */
+  diffCsvBtn6.addEventListener('click', () => {
+    if (!results.length) return;
+    const out = [['A dosyasi', 'B dosyasi', 'A satiri', 'B satiri', 'Tur', 'Degisiklik', 'A metni', 'B metni']];
+    pairs.forEach((p, i) => {
+      const r = results[i];
+      if (!r) return;
+      r.rows.forEach(row => {
+        if (row.type === 'eq') return;
+        const kind = row.type === 'ins' ? 'Eklendi' : row.type === 'del' ? 'Silindi' : 'Degisti';
+        const aText = row.ai != null ? r.linesA[row.ai] : '';
+        const bText = row.bi != null ? r.linesB[row.bi] : '';
+        const note = row.type === 'chg' ? changeNotes(aText, bText).map(n => n.text).join(' | ')
+          : (row.type === 'ins' ? '+ ' + bText.trim() : '− ' + aText.trim());
+        out.push([p.a ? p.a.path : '', p.b ? p.b.path : '', row.ai != null ? row.ai + 1 : '', row.bi != null ? row.bi + 1 : '', kind, note, aText, bText]);
+      });
+    });
+    const csv = out.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
