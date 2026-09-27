@@ -1454,10 +1454,7 @@
       <div class="tool-view" id="tool-renumber">
         <header class="tool-header">
           <h1>MAHO MillPlus N numarası düzenleme</h1>
-          <div class="subtitle">
-            Satır başındaki N-blok numaralarını yeniden sıralar ve mantığın bozulmaması için
-            <code>G29 N=####</code> atlama hedeflerini de otomatik olarak günceller.
-          </div>
+          <div class="subtitle"><code>G29 N=####</code> atlama hedefleri de güncellenir.</div>
         </header>
 
         <div class="panel">
@@ -1467,8 +1464,8 @@
               <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
               <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
             </svg>
-            <div class="dz-title"><b>Dosya seçmek için tıklayın</b> ya da sürükleyip bırakın</div>
-            <div class="dz-sub">.txt dosyaları desteklenir</div>
+            <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+            <div class="dz-sub">.txt</div>
           </div>
 
           <div class="file-chip" id="fileChip">
@@ -1521,7 +1518,7 @@
           <div class="cols">
             <div>
               <div class="col-label">Girdi</div>
-              <textarea id="inputBox" placeholder="Programı buraya yapıştırın ya da yukarıdan bir .txt dosyası yükleyin..."></textarea>
+              <textarea id="inputBox" placeholder="Programı yapıştırın"></textarea>
             </div>
             <div>
               <div class="col-label">Çıktı</div>
@@ -1544,12 +1541,6 @@
       <div class="tool-view" id="tool-nomact" style="display:none">
         <header class="tool-header">
           <h1>CMM → CAD</h1>
-          <div class="subtitle">
-            CMM ölçüm raporunu satır/sütun olarak ayrıştırır. X/Y'yi <b>Nominal</b> ve <b>Aktüel</b> olarak ayrı ayrı
-            seçmenizi sağlar; bir tolerans değeri girip nominal geometriyi ofsetleyebilir, ikisini birlikte
-            önizleyebilir, aralarındaki mesafeyi cetvelle ölçebilir ve sonucu AutoCAD'de çalıştırılabilir bir
-            <code>.scr</code> dosyası olarak indirebilirsiniz.
-          </div>
         </header>
 
         <!-- Step 1: load file -->
@@ -1561,8 +1552,8 @@
               <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
               <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
             </svg>
-            <div class="dz-title"><b>Dosya seçmek için tıklayın</b> ya da sürükleyip bırakın</div>
-            <div class="dz-sub">.txt, .res, .dat, .csv desteklenir</div>
+            <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+            <div class="dz-sub">.txt · .res · .dat · .csv</div>
           </div>
           <div class="file-chip" id="fileChip3">
             <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -1574,7 +1565,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
             </button>
           </div>
-          <textarea id="rawText3" style="margin-top:14px; height:150px;" placeholder="...ya da raporu doğrudan buraya yapıştırın"></textarea>
+          <textarea id="rawText3" style="margin-top:14px; height:150px;" placeholder="...ya da yapıştırın"></textarea>
         </div>
 
         <!-- Step 2: parse into grid, select Nominal/Aktüel X/Y cells -->
@@ -1589,7 +1580,7 @@
           <div id="scanSummary3" class="scan-summary" style="display:none;"></div>
 
           <div id="gridSection3" style="display:none;">
-            <div class="grid-hint">Bir hücreye tıklayıp sürükleyerek aralık seçin, ya da <b>Ctrl</b> (Mac: <b>⌘</b>) tuşuyla tek tek hücre ekleyin/çıkarın. Sonra aşağıdaki dört butondan biriyle atayın.</div>
+            <div class="grid-hint">Sürükle: aralık · <b>Ctrl</b>/<b>⌘</b>: tek tek</div>
             <div class="grid-wrap" id="gridWrap3">
               <table class="data-grid" id="dataGrid3"></table>
             </div>
@@ -1660,7 +1651,6 @@
           <div class="scan-summary" id="toleranceNote" style="display:none;">
             Not: Profil ofseti, keskin iç köşelerde büyük tolerans değerleriyle yaklaşık sonuç verebilir — karmaşık profillerde görsel olarak kontrol edin.
           </div>
-          <div class="zoom-hint">Fare tekerleğiyle yakınlaştırıp uzaklaştırabilirsiniz.</div>
           <div class="preview-box" style="margin-top:8px;">
             <svg id="previewSvg3" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
           </div>
@@ -1757,12 +1747,7 @@
       <div class="tool-view" id="tool-feedspeed" style="display:none">
         <header class="tool-header">
           <h1>Torna Devir İlerleme Çıkarma</h1>
-          <div class="subtitle">
-            Torna programını yorum satırlarındaki <code>ITEM &lt;no&gt;</code> ifadesine göre bölümlere ayırır ve her
-            bölüm için devir başı ilerleme, maksimum devir (G92/G50), kesme hızı (SFM, G96), devir (RPM, G97) ve
-            kullanılan takım numaralarını ayrı sütunlarda listeler. Dakika başı ilerleme hareketleri hava hareketi
-            sayılıp yok sayılır; her bölümdeki en yüksek ilerleme değeri vurgulanır.
-          </div>
+          <div class="subtitle"><code>ITEM</code> satırlarına göre bölümlenir. Dakika başı (G94/G98) ilerlemeler sayılmaz.</div>
         </header>
 
         <!-- Step 1: load file -->
@@ -1774,8 +1759,8 @@
               <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
               <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
             </svg>
-            <div class="dz-title"><b>Dosya seçmek için tıklayın</b> ya da sürükleyip bırakın</div>
-            <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat desteklenir</div>
+            <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+            <div class="dz-sub">.txt · .nc · .mpf · .eia · .dat</div>
           </div>
           <div class="file-chip" id="fileChip4">
             <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -1787,7 +1772,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
             </button>
           </div>
-          <textarea id="rawText4" style="margin-top:14px; height:220px;" placeholder="...ya da programı doğrudan buraya yapıştırın"></textarea>
+          <textarea id="rawText4" style="margin-top:14px; height:220px;" placeholder="...ya da yapıştırın"></textarea>
         </div>
 
         <!-- Step 2: analyze -->
@@ -1822,12 +1807,6 @@
       <div class="tool-view" id="tool-lathesim" style="display:none">
         <header class="tool-header">
           <h1>Torna Program Simülatörü</h1>
-          <div class="subtitle">
-            Programı X/Z hareketlerine göre çizer. G00 (hızlı), G01 (doğrusal kesme) ve G02/G03 (yay) hareketleri
-            desteklenir. Kaydırıcı veya kod satırına tıklayarak programda ilerleyin — takım o ana kadar gittiği yolu
-            ve o satırdaki konumunu gösterir. Kod paneli aynı zamanda bir editördür: satıra tıklayıp doğrudan
-            yazın, çizim, ofsetler ve süre hesabı siz yazarken anında güncellenir.
-          </div>
         </header>
 
         <!-- Step 1: load file -->
@@ -1839,8 +1818,8 @@
               <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
               <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
             </svg>
-            <div class="dz-title"><b>Dosya seçmek için tıklayın</b> ya da sürükleyip bırakın</div>
-            <div class="dz-sub">.txt, .nc, .mpf, .eia, .dat desteklenir</div>
+            <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+            <div class="dz-sub">.txt · .nc · .mpf · .eia · .dat</div>
           </div>
           <div class="file-chip" id="fileChip5">
             <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -1852,7 +1831,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
             </button>
           </div>
-          <textarea id="rawText5" style="margin-top:14px; height:180px;" placeholder="...ya da programı doğrudan buraya yapıştırın"></textarea>
+          <textarea id="rawText5" style="margin-top:14px; height:180px;" placeholder="...ya da yapıştırın"></textarea>
         </div>
 
         <!-- Step 2: options + draw -->
@@ -1892,13 +1871,13 @@
           <div class="controls-row">
             <button class="btn secondary" id="rulerToggleBtn5">Cetvel: Kapalı</button>
             <button class="btn secondary" id="rulerClearBtn5">Ölçümü Temizle</button>
-            <div class="zoom-hint" style="margin-top:0;">Boş alanda sol tık + sürükle ile görünümü kaydırabilir, fare tekerleğiyle yakınlaştırabilirsiniz.</div>
+            <div class="zoom-hint" style="margin-top:0;">Sürükle: kaydır · Tekerlek: yakınlaştır</div>
           </div>
           <div class="controls-row">
             <button class="btn secondary" id="insertLineBtn5">Alta Satır Ekle</button>
             <button class="btn secondary" id="deleteLineBtn5">Satırı Sil</button>
             <button class="btn secondary" id="revertEditsBtn5" disabled>Değişiklikleri Geri Al</button>
-            <div class="zoom-hint" style="margin-top:0;">Kod panelinde bir satıra tıklayıp doğrudan yazın — çizim anında güncellenir. Enter: alta yeni satır · ↑/↓: satır değiştir · Esc: imleci bırak.</div>
+            <div class="zoom-hint" style="margin-top:0;">Satıra tıklayıp yazın · Enter: yeni satır · ↑/↓: satır · Esc: çık</div>
           </div>
           <div class="ruler-readout" id="rulerReadout5"></div>
           <div class="sim-readout" id="simReadout5"></div>
@@ -1915,12 +1894,7 @@
         <!-- Step 4: tool list, nose-radius offset, export -->
         <div class="panel" id="toolOffsetPanel5" style="display:none;">
           <div class="col-label">4. Takımlar ve Ofset Geometrisi</div>
-          <div class="subtitle" style="margin-bottom:14px;">
-            Programda bulunan takımlar aşağıda listelenir. Her takım için uç yarıçapını girin — programlanan
-            yörünge, o takımın geçtiği bölümlerde bu yarıçap kadar ofsetlenerek takımın gerçekte oluşturacağı
-            geometriyi (parça yüzeyini) yaklaşık olarak hesaplar. Yay içeren yollarda ofset, yayı noktalara
-            örnekleyip yaklaşık olarak hesaplanır.
-          </div>
+          <div class="subtitle" style="margin-bottom:14px;">Uç yarıçapı girilen takımların yolu ofsetlenir. Yaylarda yaklaşıktır.</div>
           <div class="mini-tables-grid" id="toolTableWrap" style="grid-template-columns: 1fr;">
             <div>
               <div class="points-table-wrap">
@@ -2000,15 +1974,7 @@
         <!-- Step 5: cutting time -->
         <div class="panel" id="cutTimePanel5" style="display:none;">
           <div class="col-label">5. Kesme Süresi</div>
-          <div class="subtitle" style="margin-bottom:14px;">
-            G96 (sabit yüzey hızı) bölümlerinde devir, o anki çap kullanılarak hesaplanır (G92/G50 varsa maksimum
-            devir olarak uygulanır). G97 bölümlerinde S değeri doğrudan devir olarak alınır. Hızlı (G00) hareketler
-            aşağıda girilen hızlı hareket oranına göre "hava süresi" olarak, kesme hareketleri ise ilerleme ve
-            devire göre "kesme süresi" olarak hesaplanır. Her M06 takım değişimi için aşağıdaki takım değiştirme
-            süresi eklenir. Hangi takımın takıldığını M06 satırındaki T kodu (yoksa en son çağrılan T) belirler;
-            aynı takım yeniden çağrıldığında süre eklenmez. Karşılaştırma taret numarası üzerinden yapılır, yani
-            T0101'den T0102'ye geçiş (aynı takım, farklı aşınma ofseti) takım değişimi sayılmaz.
-          </div>
+          <div class="subtitle" style="margin-bottom:14px;">Devir G96'da çaptan, G97'de S'ten. Süre her M06'da eklenir, aynı taret tekrarlanırsa eklenmez.</div>
           <div class="controls-row" style="margin-top:0;">
             <div class="field">
               <label>Birim sistemi</label>
@@ -2064,12 +2030,6 @@
       <div class="tool-view" id="tool-progdiff" style="display:none">
         <header class="tool-header">
           <h1>Program Karşılaştırma</h1>
-          <div class="subtitle">
-            Bir sürümün tüm program dosyalarını solda, yeni sürümünkileri sağda toplayın — dosyalar ada göre
-            kendiliğinden eşleşir, yanlış eşleşeni sürükleyerek düzeltebilirsiniz. Karşılaştırdığınızda her çift için
-            tek tek gezebileceğiniz bir fark listesi çıkar. Blok (N) numaraları yok sayılabildiği için yeniden
-            numaralandırılmış bir dosya baştan sona değişmiş gibi görünmez.
-          </div>
         </header>
 
         <!-- Step 1: the two sets of files -->
@@ -2084,8 +2044,8 @@
                   <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
                   <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
                 </svg>
-                <div class="dz-title"><b>Dosyaları seçin</b> ya da sürükleyip bırakın</div>
-                <div class="dz-sub">Birden fazla dosya ya da klasör bırakabilirsiniz</div>
+                <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+                <div class="dz-sub">Dosya ya da klasör</div>
               </div>
               <div class="controls-row" style="margin-top:10px;">
                 <button class="btn secondary" id="pickFolderBtn6a">Klasör Seç</button>
@@ -2104,8 +2064,8 @@
                   <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
                   <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
                 </svg>
-                <div class="dz-title"><b>Dosyaları seçin</b> ya da sürükleyip bırakın</div>
-                <div class="dz-sub">Birden fazla dosya ya da klasör bırakabilirsiniz</div>
+                <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
+                <div class="dz-sub">Dosya ya da klasör</div>
               </div>
               <div class="controls-row" style="margin-top:10px;">
                 <button class="btn secondary" id="pickFolderBtn6b">Klasör Seç</button>
@@ -2128,7 +2088,7 @@
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
             <button class="btn secondary" id="autoPairBtn6">Yeniden Otomatik Eşleştir</button>
             <div class="spacer"></div>
-            <div class="zoom-hint" style="margin-top:0;">Bir dosya adını sürükleyip başka bir satırın aynı taraftaki kutusuna bırakın — eşleşme yer değiştirir. × eşleşmeyi bozar.</div>
+            <div class="zoom-hint" style="margin-top:0;">Sürükleyerek eşleştirin · × eşleşmeyi bozar</div>
           </div>
           <div class="scan-summary" id="pairSummary6" style="display:none;"></div>
           <div class="pair-table" id="pairTable6"></div>
@@ -2418,14 +2378,14 @@ function renumber() {
   outputBox.value = newLines.join('\n');
   downloadBtn.disabled = false;
 
-  let msg = `Tamamlandı. N${startN} değerinden başlayarak ${step} artışla ${lineNewNum.filter(n => n !== null).length} satır yeniden numaralandırıldı.`;
+  let msg = `${lineNewNum.filter(n => n !== null).length} satır · N${startN}'dan ${step} artışla`;
   let warn = false;
   if (duplicated.length > 0) {
-    msg += `\nNot: Şu eski N-numaraları birden fazla kez göründü (ör. her item bloğunda tekrarlanan numaralandırma) — bu numaralara yapılan G29 atlama referansları en yakın konuma göre eşleştirildi, lütfen kontrol edin: ` + duplicated.join(', ');
+    msg += `\nTekrar eden N (en yakına eşleştirildi, kontrol edin): ` + duplicated.join(', ');
     warn = true;
   }
   if (missingRefs.size > 0) {
-    msg += `\nUyarı: Şu atlama hedef(ler)i çözümlenemedi, eşleşen bir satır numarası bulunamadı: ` + Array.from(missingRefs).join(', ') + ' — değiştirilmeden bırakıldı.';
+    msg += `\nÇözümlenemeyen atlama hedefi (değiştirilmedi): ` + Array.from(missingRefs).join(', ');
     warn = true;
   }
   showLog(msg, warn);
@@ -2549,7 +2509,7 @@ downloadBtn.addEventListener('click', () => {
     }
     renderGrid();
     scanSummary3.style.display = 'block';
-    scanSummary3.innerHTML = `<b>${grid.length}</b> satır, en fazla <b>${maxCols}</b> sütun bulundu.`;
+    scanSummary3.innerHTML = `<b>${grid.length}</b> satır · en fazla <b>${maxCols}</b> sütun`;
     gridSection3.style.display = 'block';
     updateAssignCounts();
   }
@@ -2705,10 +2665,10 @@ downloadBtn.addEventListener('click', () => {
     actualPoints = act.pts;
 
     extractLog3.style.display = 'block';
-    let msg = `Nominal: <b>${nominalPoints.length}</b> nokta. Aktüel: <b>${actualPoints.length}</b> nokta.`;
-    if (nom.xCount !== nom.yCount) msg += ` Uyarı: Nominal X/Y hücre sayıları farklı (${nom.xCount}/${nom.yCount}) — sırayla eşleştirildi.`;
-    if (act.xCount !== act.yCount) msg += ` Uyarı: Aktüel X/Y hücre sayıları farklı (${act.xCount}/${act.yCount}) — sırayla eşleştirildi.`;
-    if (nom.skipped || act.skipped) msg += ` ${nom.skipped + act.skipped} hücre sayısal değer olmadığı için atlandı.`;
+    let msg = `Nominal <b>${nominalPoints.length}</b> · Aktüel <b>${actualPoints.length}</b> nokta`;
+    if (nom.xCount !== nom.yCount) msg += ` · Nominal X/Y sayısı farklı (${nom.xCount}/${nom.yCount})`;
+    if (act.xCount !== act.yCount) msg += ` · Aktüel X/Y sayısı farklı (${act.xCount}/${act.yCount})`;
+    if (nom.skipped || act.skipped) msg += ` · ${nom.skipped + act.skipped} sayısal olmayan hücre atlandı`;
     extractLog3.innerHTML = msg;
 
     renderPointsTables();
@@ -3258,11 +3218,11 @@ downloadBtn.addEventListener('click', () => {
   function renderResults(items, rawMarkers, counts) {
     feedResultsPanel.style.display = 'block';
 
-    let summary = `<b>${items.length}</b> bölüm (item) bulundu.`;
-    if (counts.ignoredPerMin > 0) summary += ` ${counts.ignoredPerMin} ilerleme değeri dakika başı modda olduğu için (hava hareketi) yok sayıldı.`;
-    if (counts.ignoredOutOfRange > 0) summary += ` ${counts.ignoredOutOfRange} ilerleme değeri 0.02 ipr sınırına takıldığı için (muhtemelen gerçek bir kesme ilerlemesi değil) yok sayıldı.`;
-    if (counts.ignoredUnknownFeed > 0) summary += ` ${counts.ignoredUnknownFeed} ilerleme değeri, mod (G94/95/98/99) henüz belirlenmeden karşılaşıldığı için yok sayıldı.`;
-    if (counts.ignoredUnknownSpeed > 0) summary += ` ${counts.ignoredUnknownSpeed} hız değeri, mod (G92/50, G96, G97) henüz belirlenmeden karşılaşıldığı için yok sayıldı.`;
+    let summary = `<b>${items.length}</b> item`;
+    if (counts.ignoredPerMin > 0) summary += ` · ${counts.ignoredPerMin} ilerleme atlandı (dakika başı)`;
+    if (counts.ignoredOutOfRange > 0) summary += ` · ${counts.ignoredOutOfRange} ilerleme atlandı (>0.02 ipr)`;
+    if (counts.ignoredUnknownFeed > 0) summary += ` · ${counts.ignoredUnknownFeed} ilerleme atlandı (mod yok)`;
+    if (counts.ignoredUnknownSpeed > 0) summary += ` · ${counts.ignoredUnknownSpeed} hız atlandı (mod yok)`;
     feedSummary.innerHTML = summary;
 
     fsTbody.innerHTML = '';
@@ -3850,8 +3810,8 @@ const LatheCore = (function () {
     offsetsComputed5 = true;
     offsetSummary5.style.display = 'block';
     offsetSummary5.innerHTML = toolsWithRadius > 0
-      ? `<b>${toolsWithRadius}</b> takım için ofset geometri hesaplandı.`
-      : 'Hiçbir takıma yarıçap girilmedi — önce en az bir takıma uç yarıçapı girin.';
+      ? `<b>${toolsWithRadius}</b> takım ofsetlendi`
+      : 'Önce bir takıma uç yarıçapı girin.';
     renderToolpath();
   }
   computeOffsetBtn5.addEventListener('click', computeOffsets);
@@ -3876,14 +3836,11 @@ const LatheCore = (function () {
       unitSystem: unitSystem5
     });
 
-    const notes = [];
-    notes.push(r.unknownCount > 0
-      ? `${r.unknownCount} kesme hareketi için hız veya ilerleme modu belirlenemediğinden süreye dahil edilmedi.`
-      : 'Tüm kesme hareketleri için süre hesaplandı.');
-    notes.push(`<b>${toolChanges5.length}</b> takım değişimi (M06) sayıldı` +
-      (skippedChanges5 > 0 ? `; aynı takım tekrar çağrıldığı için <b>${skippedChanges5}</b> M06 satırı süreye eklenmedi.` : '.'));
+    const notes = [`<b>${toolChanges5.length}</b> M06 sayıldı`];
+    if (skippedChanges5 > 0) notes.push(`<b>${skippedChanges5}</b> tekrar atlandı`);
+    if (r.unknownCount > 0) notes.push(`<b>${r.unknownCount}</b> hareket hesaplanamadı (hız/ilerleme modu yok)`);
     timeSummary5.style.display = 'block';
-    timeSummary5.innerHTML = notes.join(' ');
+    timeSummary5.innerHTML = notes.join(' · ');
 
     timeTotalsTbody.innerHTML = `
       <tr><td>Kesme Süresi</td><td>${formatMinutes5(r.cuttingMin)}</td></tr>
@@ -4079,7 +4036,7 @@ const LatheCore = (function () {
 
   function showDrawSummary5(counts) {
     drawSummary5.style.display = 'block';
-    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır okundu. <b>${counts.rapid}</b> hızlı, <b>${counts.linear}</b> doğrusal, <b>${counts.arc}</b> yay hareketi bulundu. <b>${toolsFound.length}</b> takım, <b>${itemsFound.length}</b> item, <b>${toolChanges5.length}</b> takım değişimi (M06) tespit edildi.`;
+    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır · <b>${counts.rapid}</b> hızlı · <b>${counts.linear}</b> doğrusal · <b>${counts.arc}</b> yay · <b>${toolsFound.length}</b> takım · <b>${itemsFound.length}</b> item · <b>${toolChanges5.length}</b> M06`;
   }
 
   insertLineBtn5.addEventListener('click', insertLineBelow5);
@@ -4729,9 +4686,9 @@ const LatheCore = (function () {
     const orphans = pairs.length - paired;
     const bySimilar = pairs.filter(p => p.how === 'similar').length;
     pairSummary6.style.display = 'block';
-    pairSummary6.innerHTML = `<b>${paired}</b> çift eşleşti` +
-      (bySimilar ? `, bunlardan <b>${bySimilar}</b> tanesi ada tam uymadığı için benzerliğe göre — kontrol edin.` : '.') +
-      (orphans ? ` <b>${orphans}</b> dosyanın eşi yok.` : '');
+    pairSummary6.innerHTML = `<b>${paired}</b> çift` +
+      (bySimilar ? ` · <b>${bySimilar}</b> benzerliğe göre, kontrol edin` : '') +
+      (orphans ? ` · <b>${orphans}</b> eşsiz` : '');
 
     pairTable6.innerHTML = '';
     pairs.forEach((p, idx) => {
@@ -5156,8 +5113,8 @@ const LatheCore = (function () {
       box.innerHTML = `<div class="ib-mark">✓</div>` +
         `<div class="ib-title">Dosyalar birebir aynı</div>` +
         (r.ignoredOnly
-          ? `<div class="ib-sub">Aradaki tek fark yok saydığınız kısımlarda: blok numaraları, boşluk ya da yorumlar.</div>`
-          : `<div class="ib-sub">${r.linesA.length} satırın tamamı aynı.</div>`);
+          ? `<div class="ib-sub">Fark yalnızca yok sayılan kısımlarda.</div>`
+          : `<div class="ib-sub">${r.linesA.length} satır</div>`);
       diffBody6.appendChild(box);
       return;
     }
