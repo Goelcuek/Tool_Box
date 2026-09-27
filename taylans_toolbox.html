@@ -2403,6 +2403,65 @@ downloadBtn.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+/* ================= Shared geometry: polyline offset =================
+   Miter offset along the corner bisector, used by CMM → CAD for the tolerance
+   band and by the simulator for the tool-nose offset. Points are {x, y}; the
+   outer side is to the left of the direction of travel.
+
+   Repeated points are the case to be careful about: a CMM re-measuring a
+   point, or a program restating a position it is already at, puts two equal
+   points in a row. That is not an edge — it has no normal — so each corner is
+   built from the nearest DISTINCT neighbour on either side. (Built from the
+   zero-length edge instead, the corner clamp below kicked in and pushed that
+   point out 2.86× the offset.) */
+function offsetPolylineXY(pts, tol, closed) {
+  const n = pts.length;
+  if (n < 2) return { outer: [], inner: [] };
+  const EPS = 1e-9;
+  const dir = (a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy);
+    return l < EPS ? null : { x: dx / l, y: dy / l };
+  };
+  const at = k => pts[((k % n) + n) % n];
+  function edgeInto(i) {
+    for (let k = 1; k < n; k++) {
+      if (!closed && i - k < 0) return null;
+      const d = dir(at(i - k), pts[i]);
+      if (d) return d;
+    }
+    return null;
+  }
+  function edgeOutOf(i) {
+    for (let k = 1; k < n; k++) {
+      if (!closed && i + k > n - 1) return null;
+      const d = dir(pts[i], at(i + k));
+      if (d) return d;
+    }
+    return null;
+  }
+
+  const outer = [], inner = [];
+  for (let i = 0; i < n; i++) {
+    let e1 = edgeInto(i), e2 = edgeOutOf(i);
+    if (!e1) e1 = e2;
+    if (!e2) e2 = e1;
+    if (!e1) { // every point is the same point: nothing to offset from
+      outer.push({ x: pts[i].x, y: pts[i].y });
+      inner.push({ x: pts[i].x, y: pts[i].y });
+      continue;
+    }
+    const n1 = { x: -e1.y, y: e1.x }, n2 = { x: -e2.y, y: e2.x };
+    const sx = n1.x + n2.x, sy = n1.y + n2.y, sl = Math.hypot(sx, sy);
+    const bisector = sl < 1e-6 ? n1 : { x: sx / sl, y: sy / sl };
+    // clamp: a very sharp corner would otherwise throw the miter to infinity
+    const cosHalf = Math.max(n1.x * bisector.x + n1.y * bisector.y, 0.35);
+    const mag = tol / cosHalf;
+    outer.push({ x: pts[i].x + bisector.x * mag, y: pts[i].y + bisector.y * mag });
+    inner.push({ x: pts[i].x - bisector.x * mag, y: pts[i].y - bisector.y * mag });
+  }
+  return { outer, inner };
+}
+
 /* ================= Tool: CMM → CAD ================= */
 (function () {
   const fileInput3 = document.getElementById('fileInput3');
@@ -2557,6 +2616,7 @@ downloadBtn.addEventListener('click', () => {
     } else {
       selectedCells.clear(); selectedCells.add(cellKey(r, c));
       anchorCell = { r, c }; isDragging = true;
+      startAutoScroll();
     }
     updateSelectionClasses();
   }
@@ -2571,8 +2631,18 @@ downloadBtn.addEventListener('click', () => {
   // Edge auto-scroll while drag-selecting, so you don't need a second hand on the scrollbar/wheel.
   let lastMouseEvt = null;
   document.addEventListener('mousemove', e => { lastMouseEvt = e; });
-  (function autoScrollLoop() {
-    if (isDragging && lastMouseEvt) {
+  // Runs only while a drag is in progress: started by the mousedown that
+  // begins one, and it stops itself on the first frame after the mouse is
+  // released, so the page is idle the rest of the time.
+  let autoScrollRunning = false;
+  function startAutoScroll() {
+    if (autoScrollRunning) return;
+    autoScrollRunning = true;
+    requestAnimationFrame(autoScrollLoop);
+  }
+  function autoScrollLoop() {
+    if (!isDragging) { autoScrollRunning = false; return; }
+    if (lastMouseEvt) {
       const rect = gridWrap3.getBoundingClientRect();
       const EDGE = 40, MAXSPD = 16, MARGIN = 60;
       let dy = 0, dx = 0;
@@ -2597,7 +2667,7 @@ downloadBtn.addEventListener('click', () => {
       }
     }
     requestAnimationFrame(autoScrollLoop);
-  })();
+  }
 
   function setRectSelection(a, b) {
     selectedCells.clear();
@@ -2708,37 +2778,7 @@ downloadBtn.addEventListener('click', () => {
   }
 
   /* ---- tolerance geometry (profile offset) ---- */
-  function offsetPolyline(pts, tol, closed) {
-    const n = pts.length;
-    if (n < 2) return { outer: [], inner: [] };
-    const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
-    const norm = v => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
-    const perp = v => ({ x: -v.y, y: v.x });
-    const outer = [], inner = [];
-    for (let i = 0; i < n; i++) {
-      let e1, e2;
-      if (closed) {
-        const iPrev = (i - 1 + n) % n, iNext = (i + 1) % n;
-        e1 = norm(sub(pts[i], pts[iPrev]));
-        e2 = norm(sub(pts[iNext], pts[i]));
-      } else if (i === 0) {
-        e2 = norm(sub(pts[1], pts[0])); e1 = e2;
-      } else if (i === n - 1) {
-        e1 = norm(sub(pts[i], pts[i - 1])); e2 = e1;
-      } else {
-        e1 = norm(sub(pts[i], pts[i - 1])); e2 = norm(sub(pts[i + 1], pts[i]));
-      }
-      const n1 = perp(e1), n2 = perp(e2);
-      let bisector = norm({ x: n1.x + n2.x, y: n1.y + n2.y });
-      if (Math.hypot(n1.x + n2.x, n1.y + n2.y) < 1e-6) bisector = n1;
-      let cosHalf = n1.x * bisector.x + n1.y * bisector.y;
-      cosHalf = Math.max(cosHalf, 0.35); // clamp: avoids extreme spikes on very sharp corners
-      const mag = tol / cosHalf;
-      outer.push({ x: pts[i].x + bisector.x * mag, y: pts[i].y + bisector.y * mag });
-      inner.push({ x: pts[i].x - bisector.x * mag, y: pts[i].y - bisector.y * mag });
-    }
-    return { outer, inner };
-  }
+
 
   function applyTolerance() {
     const tolRaw = parseFloat(toleranceValue.value);
@@ -2756,7 +2796,7 @@ downloadBtn.addEventListener('click', () => {
       renderPreview();
       return;
     }
-    const off = offsetPolyline(nominalPoints, tolRaw, closeProfileChk.checked);
+    const off = offsetPolylineXY(nominalPoints, tolRaw, closeProfileChk.checked);
     toleranceGeom = { type: 'offset', outer: off.outer, inner: off.inner };
     toleranceNote.style.display = 'block';
     toleranceNote.textContent = 'Not: Profil ofseti, keskin iç köşelerde büyük tolerans değerleriyle yaklaşık sonuç verebilir — karmaşık profillerde görsel olarak kontrol edin.';
@@ -3086,13 +3126,6 @@ downloadBtn.addEventListener('click', () => {
   // characters (colons, dashes, "NO.", spaces, asterisks, etc.), then the number.
   const ITEM_RE = /\bITEM(?![A-Za-z])\D{0,15}?(\d+(?:\.\d+)?)/i;
 
-  function stripComments(line) {
-    let out = line.replace(/\([^)]*\)/g, ' '); // Fanuc-style ( ... )
-    out = out.replace(/;.*$/, '');             // Siemens/EIA-style ; to end of line
-    out = out.replace(/\/\/.*$/, '');           // occasional // comments
-    return out;
-  }
-
   function analyze() {
     const lines = rawText4.value.split(/\r\n|\r|\n/);
 
@@ -3129,19 +3162,9 @@ downloadBtn.addEventListener('click', () => {
         rawMarkers.push({ line: lineNo, raw: rawLine.trim(), number: newNum, isNewItem: !isSameAsCurrent });
       }
 
-      const code = stripComments(rawLine);
-
-      // Tokenize into (letter, number) words. This handles spaced ("G97 S1200"),
-      // concatenated ("G97S1200M03"), and leading-zero-dropped decimals
-      // ("F.008", "F.1") — all of which show up across different controls.
-      // `raw` keeps the original digit text so tool codes like "0101" keep
-      // their leading zeros when displayed.
-      const tokens = [];
-      const tokenRe = /([A-Za-z])\s*(-?(?:\d+\.?\d*|\.\d+))/g;
-      let tok;
-      while ((tok = tokenRe.exec(code)) !== null) {
-        tokens.push({ letter: tok[1].toUpperCase(), value: parseFloat(tok[2]), raw: tok[2] });
-      }
+      // Shared with the simulator, so both tools agree on what is an address
+      // word — see LatheCore.tokenize for the macro cases it screens out.
+      const tokens = LatheCore.tokenize(rawLine);
 
       // Pass 1: apply this line's modal G-code changes first, so an S or F
       // on the same line is read using the mode that line just set —
@@ -3311,6 +3334,38 @@ const LatheCore = (function () {
     return out;
   }
 
+  // The address words a control would actually act on. Handles spaced
+  // ("G97 S1200"), run-together ("G97S1200M03") and leading-zero-dropped
+  // ("F.008") words; `raw` keeps the digits as typed so "T0101" keeps its zeros.
+  //
+  // Two things look like address words and are not:
+  //  - the inside of a macro expression: IF [#1132 GT 12] scans as "T12",
+  //    WHILE [#1 LT 3] as "T3" — so bracketed expressions are removed first;
+  //  - macro-call arguments: in G65 P7061 A29.1395 B1. T13, T13 is argument
+  //    #20 for the gauging macro, not a tool, and an X or Z there is not a
+  //    move — so on a G65/G66 line only the G and N words are kept.
+  function tokenize(rawLine) {
+    let code = stripComments(rawLine);
+    // innermost brackets first, so nested expressions come out cleanly
+    while (/\[[^\[\]]*\]/.test(code)) code = code.replace(/\[[^\[\]]*\]/g, ' ');
+    const tokens = [];
+    const re = /([A-Za-z])\s*(-?(?:\d+\.?\d*|\.\d+))/g;
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      tokens.push({ letter: m[1].toUpperCase(), value: parseFloat(m[2]), raw: m[2] });
+    }
+    if (tokens.some(t => t.letter === 'G' && (t.value === 65 || t.value === 66))) {
+      return tokens.filter(t => t.letter === 'G' || t.letter === 'N');
+    }
+    return tokens;
+  }
+
+  // G-codes whose X/Z words are not a move in the work coordinate system:
+  // G10 writes offset data, G28/G30 return to a reference point, G53 moves in
+  // machine coordinates. The tool may well travel, but not to anywhere this
+  // plot can place, so the position is left where it was.
+  const NON_MOTION_G = new Set([10, 28, 30, 53]);
+
   // Which physical tool a T code calls: on a lathe "T0101" is turret pocket 01
   // with wear offset 01, so T0101 and T0102 are the same tool and a second M06
   // between them is not a tool change. Codes of two digits or fewer are taken
@@ -3329,6 +3384,7 @@ const LatheCore = (function () {
     const tools = [];
     const items = [];
     const toolChanges = [];
+    const dwells = [];      // G04: {lineNo, sec, item, tool}
     let skippedChanges = 0;
 
     let posX = 0, posZ = 0, hasPosition = false;
@@ -3354,14 +3410,7 @@ const LatheCore = (function () {
         if (!isSameAsCurrent) { currentItem = newItemNum; items.push(currentItem); }
       }
 
-      const code = stripComments(rawLine);
-
-      const tokens = [];
-      const tokenRe = /([A-Za-z])\s*(-?(?:\d+\.?\d*|\.\d+))/g;
-      let tok;
-      while ((tok = tokenRe.exec(code)) !== null) {
-        tokens.push({ letter: tok[1].toUpperCase(), value: parseFloat(tok[2]), raw: tok[2] });
-      }
+      const tokens = tokenize(rawLine);
 
       let hasSpindleLimitLine = false;
       tokens.forEach(t => {
@@ -3403,6 +3452,17 @@ const LatheCore = (function () {
           currentF = t.value;
         }
       });
+
+      // G04 is a dwell: its X (or U) is seconds and its P is milliseconds,
+      // not a coordinate. Record the time; the tool does not move.
+      if (tokens.some(t => t.letter === 'G' && t.value === 4)) {
+        const secTok = tokens.find(t => t.letter === 'X' || t.letter === 'U');
+        const msTok = tokens.find(t => t.letter === 'P');
+        const sec = secTok ? secTok.value : (msTok ? msTok.value / 1000 : 0);
+        if (sec > 0) dwells.push({ lineNo, sec, item: currentItem, tool: currentTool });
+        return;
+      }
+      if (tokens.some(t => t.letter === 'G' && NON_MOTION_G.has(t.value))) return;
 
       let xTok = null, zTok = null, iTok = null, kTok = null, rTok = null, lTok = null;
       tokens.forEach(t => {
@@ -3472,7 +3532,7 @@ const LatheCore = (function () {
       posX = newX; posZ = newZ;
     });
 
-    return { lines, segments, lineHasMove, tools, items, toolChanges, skippedChanges, counts };
+    return { lines, segments, lineHasMove, tools, items, toolChanges, skippedChanges, dwells, counts };
   }
 
   /* ---- arc helpers ---- */
@@ -3485,16 +3545,26 @@ const LatheCore = (function () {
     return seg.r * Math.abs(delta);
   }
 
-  // Sample points along an arc — used for auto-fit bounds (so a bulging arc
-  // doesn't get clipped) and for densifying arcs into a polyline.
-  function arcSamplePoints(seg) {
+  // Sample points along an arc. With no tolerance it is a fixed 16 steps,
+  // plenty for fitting the view. Given `maxErr`, the step count is chosen so
+  // no chord strays further than that from the true arc — used wherever the
+  // points become real geometry (the nose offset, the SCR export), so the
+  // accuracy follows the decimals asked for instead of the arc's size. A fixed
+  // 16 steps is off by 0.0001 on an R0.1 corner and 0.0024 on R2.
+  function arcSamplePoints(seg, maxErr) {
     const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
     const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
     let delta = a2 - a1;
     while (delta <= -Math.PI) delta += 2 * Math.PI;
     while (delta > Math.PI) delta -= 2 * Math.PI;
     const pts = [];
-    const steps = 16;
+    let steps = 16;
+    if (maxErr > 0 && seg.r > 0) {
+      // chord error for a step of dθ is r·(1 − cos(dθ/2))
+      const c = 1 - maxErr / seg.r;
+      const dTheta = c <= -1 ? Math.PI : 2 * Math.acos(c);
+      steps = Math.min(2000, Math.max(4, Math.ceil(Math.abs(delta) / dTheta)));
+    }
     for (let i = 0; i <= steps; i++) {
       const a = a1 + delta * (i / steps);
       pts.push({ x: seg.cx + seg.r * Math.sin(a), z: seg.cz + seg.r * Math.cos(a) });
@@ -3519,7 +3589,7 @@ const LatheCore = (function () {
 
   /* ---- cutting / air / tool-change time ----
      opts: { rapidRate, toolChangeSec, unitSystem: 'inch' | 'metric' } */
-  function computeTimes(segments, toolChanges, opts) {
+  function computeTimes(segments, toolChanges, opts, dwells) {
     const rapidRate = Math.max(0.001, opts.rapidRate || 200);
     const toolChangeMin = Math.max(0, opts.toolChangeSec || 0) / 60;
     const unitSystem = opts.unitSystem || 'inch';
@@ -3541,9 +3611,20 @@ const LatheCore = (function () {
     const events = [];
     (segments || []).forEach(seg => events.push({ lineNo: seg.lineNo, seg }));
     (toolChanges || []).forEach(tc => events.push({ lineNo: tc.lineNo, tc }));
+    (dwells || []).forEach(dw => events.push({ lineNo: dw.lineNo, dw }));
     events.sort((a, b) => a.lineNo - b.lineNo);
+    let dwellMin = 0;
 
     events.forEach(ev => {
+      if (ev.dw) {
+        // a dwell is spindle time with the tool standing still: non-cutting,
+        // so it is booked with the air time
+        const t = ev.dw.sec / 60;
+        dwellMin += t;
+        airMin += t;
+        itemBucket(ev.dw.item).air += t;
+        return;
+      }
       if (ev.tc) {
         const key = ev.tc.tool || '(bilinmeyen)';
         if (!perToolChange[key]) perToolChange[key] = { min: 0, count: 0 };
@@ -3588,14 +3669,14 @@ const LatheCore = (function () {
     });
 
     return {
-      cuttingMin, airMin,
+      cuttingMin, airMin, dwellMin,
       toolChangeMin: toolChangeTotalMin,
       totalMin: cuttingMin + airMin + toolChangeTotalMin,
       unknownCount, perTool, perToolChange, perItem
     };
   }
 
-  return { ITEM_RE, stripComments, toolPocket, parse, arcLength, arcSamplePoints, segLength, formatMinutes, computeTimes };
+  return { ITEM_RE, stripComments, tokenize, toolPocket, parse, arcLength, arcSamplePoints, segLength, formatMinutes, computeTimes };
 })();
 
 /* ================= Tool: Torna Program Simülatörü ================= */
@@ -3657,6 +3738,7 @@ const LatheCore = (function () {
   let toolsFound = [];    // unique tool codes, e.g. ["T0101", "T0202"], in order of first appearance
   let itemsFound = [];    // unique item numbers, in order of first appearance
   let toolChanges5 = [];  // counted M06 tool changes: {lineNo, tool, item}
+  let dwells5 = [];       // G04 dwells: {lineNo, sec, item, tool}
   let skippedChanges5 = 0;// M06 lines that re-call the tool already in the spindle
   let offsetChains = [];  // computed per-tool offset geometry: {tool, chosen: [{x,z}, ...]}
   let offsetDir5 = 'in';  // 'in' | 'out' — which of the two computed offset sides to use
@@ -3698,41 +3780,19 @@ const LatheCore = (function () {
     itemsFound = parsed.items;
     toolChanges5 = parsed.toolChanges;
     skippedChanges5 = parsed.skippedChanges;
+    dwells5 = parsed.dwells;
     return parsed.counts;
   }
 
   /* ---- polyline offset (same bisector method as CMM → CAD's tolerance offset) ---- */
+  // The shared offset works on {x, y}; mapping z→y keeps the same handedness
+  // (its left-of-travel normal is this function's old (-dz, dx)).
   function offsetPolyline5(pts, tol, closed) {
-    const n = pts.length;
-    if (n < 2) return { outer: [], inner: [] };
-    const sub = (a, b) => ({ x: a.x - b.x, z: a.z - b.z });
-    const norm = v => { const l = Math.hypot(v.x, v.z) || 1; return { x: v.x / l, z: v.z / l }; };
-    const perp = v => ({ x: -v.z, z: v.x });
-    const outer = [], inner = [];
-    for (let i = 0; i < n; i++) {
-      let e1, e2;
-      if (closed) {
-        const iPrev = (i - 1 + n) % n, iNext = (i + 1) % n;
-        e1 = norm(sub(pts[i], pts[iPrev]));
-        e2 = norm(sub(pts[iNext], pts[i]));
-      } else if (i === 0) {
-        e2 = norm(sub(pts[1], pts[0])); e1 = e2;
-      } else if (i === n - 1) {
-        e1 = norm(sub(pts[i], pts[i - 1])); e2 = e1;
-      } else {
-        e1 = norm(sub(pts[i], pts[i - 1])); e2 = norm(sub(pts[i + 1], pts[i]));
-      }
-      const n1 = perp(e1), n2 = perp(e2);
-      let bisector = norm({ x: n1.x + n2.x, z: n1.z + n2.z });
-      if (Math.hypot(n1.x + n2.x, n1.z + n2.z) < 1e-6) bisector = n1;
-      let cosHalf = n1.x * bisector.x + n1.z * bisector.z;
-      cosHalf = Math.max(cosHalf, 0.35);
-      const mag = tol / cosHalf;
-      outer.push({ x: pts[i].x + bisector.x * mag, z: pts[i].z + bisector.z * mag });
-      inner.push({ x: pts[i].x - bisector.x * mag, z: pts[i].z - bisector.z * mag });
-    }
-    return { outer, inner };
+    const r = offsetPolylineXY(pts.map(p => ({ x: p.x, y: p.z })), tol, closed);
+    const back = q => ({ x: q.x, z: q.y });
+    return { outer: r.outer.map(back), inner: r.inner.map(back) };
   }
+
 
   /* ---- color pickers (Orijinal / Ofset) ---- */
   const ACI_HEX5 = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#7a7a7a' };
@@ -3784,6 +3844,13 @@ const LatheCore = (function () {
     });
   });
 
+  // A quarter of the last exported decimal: the offset and the SCR points are
+  // then accurate to what the precision field promises.
+  function geomTol5() {
+    const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
+    return 0.25 * Math.pow(10, -p);
+  }
+
   function computeOffsets() {
     offsetChains = [];
     let toolsWithRadius = 0;
@@ -3798,7 +3865,7 @@ const LatheCore = (function () {
       segments.filter(s => s.tool === tool).forEach(s => {
         if (pts.length === 0) pts.push({ x: s.x1, z: s.z1 });
         if (s.type === 'arcCW' || s.type === 'arcCCW') {
-          arcSamplePoints5(s).slice(1).forEach(p => pts.push(p));
+          arcSamplePoints5(s, geomTol5()).slice(1).forEach(p => pts.push(p));
         } else {
           pts.push({ x: s.x2, z: s.z2 });
         }
@@ -3834,10 +3901,11 @@ const LatheCore = (function () {
       rapidRate: parseFloat(rapidRate5.value) || 200,
       toolChangeSec,
       unitSystem: unitSystem5
-    });
+    }, dwells5);
 
     const notes = [`<b>${toolChanges5.length}</b> M06 sayıldı`];
     if (skippedChanges5 > 0) notes.push(`<b>${skippedChanges5}</b> tekrar atlandı`);
+    if (dwells5.length) notes.push(`<b>${dwells5.length}</b> G04 bekleme (${formatMinutes5(r.dwellMin)}) havaya eklendi`);
     if (r.unknownCount > 0) notes.push(`<b>${r.unknownCount}</b> hareket hesaplanamadı (hız/ilerleme modu yok)`);
     timeSummary5.style.display = 'block';
     timeSummary5.innerHTML = notes.join(' · ');
@@ -4388,7 +4456,7 @@ const LatheCore = (function () {
     segments.forEach(s => {
       if (origPts.length === 0) origPts.push({ x: s.x1, z: s.z1 });
       if (s.type === 'arcCW' || s.type === 'arcCCW') {
-        arcSamplePoints5(s).slice(1).forEach(pt => origPts.push(pt));
+        arcSamplePoints5(s, geomTol5()).slice(1).forEach(pt => origPts.push(pt));
       } else {
         origPts.push({ x: s.x2, z: s.z2 });
       }
@@ -4946,7 +5014,8 @@ const LatheCore = (function () {
   }
 
   function escapeHtml6(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // also used inside title="…", so quotes need escaping too
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function markedHtml(words, marks) {
