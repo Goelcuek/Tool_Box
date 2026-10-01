@@ -1471,7 +1471,7 @@
       <div class="tool-view" id="tool-renumber">
         <header class="tool-header">
           <h1>MAHO MillPlus N Numarası Düzenleme</h1>
-          <div class="subtitle"><code>G29 N=####</code> atlama hedefleri de güncellenir.</div>
+          <div class="subtitle"><code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleri de güncellenir.</div>
         </header>
 
         <div class="panel">
@@ -2377,7 +2377,23 @@ document.querySelectorAll('.stepper button').forEach(btn => {
 });
 
 const LEADING_N_RE = /^(\s*)N(\d+)/;
-const JUMP_REF_RE = /(?<![A-Za-z0-9_])N\s*=\s*(\d+)/g;
+// Block-number references a renumber has to carry along:
+//   G29 N=153          conditional jump to block 153
+//   G14 N1=123 N2=148  repeat blocks 123 to 148
+// Other G-codes use the same letters for something else — G149 N1=54.01 and
+// G150 N1=54.01 name a work offset — so the G-code has to be matched whole.
+// A letter right before the N means it is part of another word; a digit does
+// not — in "G14N1=123" the 4 belongs to the G-code.
+const JUMP_REF_RE = /(?<![A-Za-z_])N\s*=\s*(\d+)/g;
+const REPEAT_REF_RE = /(?<![A-Za-z_])N([12])\s*=\s*(\d+)/g;
+
+// True when the line carries exactly this G-code: G14 matches "G14 N1=" and
+// "G14N1=", never G149 or G140. Parenthesised text is ignored, so a G14
+// mentioned in a comment does not count.
+function hasGCode(line, code) {
+  const bare = line.replace(/\([^)]*\)/g, ' ');
+  return new RegExp('(?<![A-Za-z0-9_.])G0*' + code + '(?![0-9.])', 'i').test(bare);
+}
 
 function showLog(message, isWarn) {
   logText.textContent = message;
@@ -2403,7 +2419,7 @@ function renumber() {
   lines.forEach((line, i) => {
     const m = line.match(LEADING_N_RE);
     if (m) {
-      const oldNum = m[2];
+      const oldNum = String(parseInt(m[2], 10)); // N0123 and N=123 name the same block
       lineNewNum[i] = next;
       (occurrences[oldNum] = occurrences[oldNum] || []).push({ lineIndex: i, newNum: next });
       next += step;
@@ -2413,22 +2429,36 @@ function renumber() {
   const duplicated = Object.keys(occurrences).filter(k => occurrences[k].length > 1);
   const missingRefs = new Set();
 
+  // New number for an old one. When the old number was used more than once,
+  // take the occurrence nearest to the referring line — for a G14 repeat the
+  // nearest one BEFORE it, since a repeat always points back.
+  function resolve(oldTarget, i, backwardsOnly) {
+    const list = occurrences[String(parseInt(oldTarget, 10))];
+    if (!list || list.length === 0) return null;
+    const pool = backwardsOnly ? list.filter(o => o.lineIndex < i) : list;
+    const from = pool.length ? pool : list;
+    let best = from[0], bestDist = Math.abs(best.lineIndex - i);
+    for (const occ of from) {
+      const d = Math.abs(occ.lineIndex - i);
+      if (d < bestDist) { best = occ; bestDist = d; }
+    }
+    return best.newNum;
+  }
+
   const newLines = lines.map((line, i) => {
     let newLine = line;
-    if (/\bG29\b/.test(newLine)) {
+    if (hasGCode(newLine, 29)) {
       newLine = newLine.replace(JUMP_REF_RE, (full, oldTarget) => {
-        const list = occurrences[oldTarget];
-        if (!list || list.length === 0) {
-          missingRefs.add(oldTarget);
-          return full;
-        }
-        let best = list[0];
-        let bestDist = Math.abs(best.lineIndex - i);
-        for (const occ of list) {
-          const d = Math.abs(occ.lineIndex - i);
-          if (d < bestDist) { best = occ; bestDist = d; }
-        }
-        return 'N=' + best.newNum;
+        const n = resolve(oldTarget, i, false);
+        if (n === null) { missingRefs.add('G29 N=' + oldTarget); return full; }
+        return 'N=' + n;
+      });
+    }
+    if (hasGCode(newLine, 14)) {
+      newLine = newLine.replace(REPEAT_REF_RE, (full, which, oldTarget) => {
+        const n = resolve(oldTarget, i, true);
+        if (n === null) { missingRefs.add('G14 N' + which + '=' + oldTarget); return full; }
+        return 'N' + which + '=' + n;
       });
     }
     const m = newLine.match(LEADING_N_RE);
@@ -2448,7 +2478,7 @@ function renumber() {
     warn = true;
   }
   if (missingRefs.size > 0) {
-    msg += `\nÇözümlenemeyen atlama hedefi (değiştirilmedi): ` + Array.from(missingRefs).join(', ');
+    msg += `\nÇözümlenemeyen hedef (değiştirilmedi): ` + Array.from(missingRefs).join(', ');
     warn = true;
   }
   showLog(msg, warn);
