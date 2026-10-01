@@ -4790,7 +4790,8 @@ const LatheCore = (function () {
       chip.innerHTML = `<span class="pc-name" title="${escapeHtml6(f.path)}">${escapeHtml6(f.path)}</span>`;
       const x = document.createElement('button');
       x.className = 'pc-x';
-      x.title = 'Eşleşmeyi bozar';
+      const other = side === 'a' ? 'b' : 'a';
+      x.title = pair[other] ? 'Eşleşmeyi bozar' : 'Listeden çıkar';
       x.textContent = '×';
       x.addEventListener('click', e => { e.stopPropagation(); unpair(idx, side); });
       chip.appendChild(x);
@@ -4840,6 +4841,9 @@ const LatheCore = (function () {
   function unpair(idx, side) {
     const p = pairs[idx];
     if (!p || !p[side]) return;
+    // A file with no counterpart has nothing to unpair from: × removes it.
+    // (Splitting it off would just put it back in a row of its own.)
+    if (!p[side === 'a' ? 'b' : 'a']) { removeFile(idx, side); return; }
     const moved = p[side];
     p[side] = null;
     const fresh = { a: null, b: null, how: null };
@@ -4848,6 +4852,18 @@ const LatheCore = (function () {
     dropEmptyRows();
     sortPairs();
     renderPairTable();
+    if (results.length) compare();
+  }
+
+  function removeFile(idx, side) {
+    const f = pairs[idx][side];
+    const list = side === 'a' ? filesA : filesB;
+    const i = list.indexOf(f);
+    if (i >= 0) list.splice(i, 1);
+    pairs.splice(idx, 1);       // the other pairings stay as the user left them
+    renderFileList(side);
+    renderPairTable();
+    if (!pairs.length) { results = []; resultPanel6.style.display = 'none'; return; }
     if (results.length) compare();
   }
 
