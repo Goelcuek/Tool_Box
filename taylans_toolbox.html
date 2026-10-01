@@ -1459,13 +1459,13 @@
 
         <div class="panel">
           <div class="dropzone" id="dropzone">
-            <input type="file" id="fileInput" accept=".txt">
+            <input type="file" id="fileInput">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
               <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
             </svg>
             <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
-            <div class="dz-sub">.txt</div>
+            <div class="dz-sub">.pm · .txt · her uzantı</div>
           </div>
 
           <div class="file-chip" id="fileChip">
@@ -2268,12 +2268,19 @@ const logIconOk = document.querySelector('.log-icon-ok');
 const logIconWarn = document.querySelector('.log-icon-warn');
 
 let outFileName = 'yeniden_numaralandirilmis.txt';
+// The line ending the loaded file used. A textarea turns every CRLF into LF,
+// so without this a Windows .pm file would go back to the machine LF-only.
+let outEol = '\n';
 
 function loadFile(file) {
   if (!file) return;
   outFileName = file.name.replace(/(\.[^.]+)?$/, '_yeniden_numaralandirilmis$1') || 'yeniden_numaralandirilmis.txt';
   const reader = new FileReader();
-  reader.onload = e => { inputBox.value = e.target.result; };
+  reader.onload = e => {
+    const text = e.target.result;
+    outEol = /\r\n/.test(text) ? '\r\n' : (/\r(?!\n)/.test(text) ? '\r' : '\n');
+    inputBox.value = text;
+  };
   reader.readAsText(file);
   fcName.textContent = file.name;
   fileChip.classList.add('show');
@@ -2375,7 +2382,7 @@ function renumber() {
     return newLine;
   });
 
-  outputBox.value = newLines.join('\n');
+  outputBox.value = newLines.join('\n');  // shown with LF; saved with the file's own ending
   downloadBtn.disabled = false;
 
   let msg = `${lineNewNum.filter(n => n !== null).length} satır · N${startN}'dan ${step} artışla`;
@@ -2394,7 +2401,7 @@ function renumber() {
 processBtn.addEventListener('click', renumber);
 
 downloadBtn.addEventListener('click', () => {
-  const blob = new Blob([outputBox.value], { type: 'text/plain' });
+  const blob = new Blob([outputBox.value.replace(/\n/g, outEol)], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
