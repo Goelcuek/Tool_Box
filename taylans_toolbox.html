@@ -802,6 +802,23 @@
     border-radius: 10px;
   }
   .file-list:empty { display: none; }
+  .rev-row { cursor: grab; }
+  .rev-row:active { cursor: grabbing; }
+  .rev-row.dragging { opacity: 0.4; }
+  .rev-row.drop-before { box-shadow: inset 0 2px 0 var(--accent, #3a4ec8); }
+  .rev-row.drop-after { box-shadow: inset 0 -2px 0 var(--accent, #3a4ec8); }
+  .rev-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--accent, #3a4ec8);
+    border-radius: 4px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+  .rev-grip { color: var(--ink-faint); font-size: 12px; letter-spacing: -2px; user-select: none; }
+  .pi-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
   .fl-row {
     display: flex;
     align-items: center;
@@ -2032,9 +2049,16 @@
           <h1>Program Karşılaştırma</h1>
         </header>
 
-        <!-- Step 1: the two sets of files -->
+        <!-- Step 1: the files — two revisions of many files, or many revisions of one -->
         <div class="panel">
           <div class="col-label">1. Dosyaları yükleyin</div>
+          <div class="controls-row" style="margin-top:0;">
+            <div class="segmented" id="cmpModeSegmented6">
+              <button class="seg-btn active" data-mode="pairs">Çoklu dosya · İki sürüm</button>
+              <button class="seg-btn" data-mode="revs">Tek dosya · Çok revizyon</button>
+            </div>
+          </div>
+          <div id="pairsInput6">
           <div class="diff-input-grid">
             <div>
               <div class="mini-table-title"><span class="legend-dot" style="background:#8a8a8e"></span>A — Eski sürüm</div>
@@ -2080,10 +2104,34 @@
           <div class="controls-row">
             <button class="btn secondary" id="swapSidesBtn6">A ve B Listelerini Değiştir</button>
           </div>
+          </div>
+
+          <div id="revsInput6" style="display:none;">
+            <div class="dropzone compact" id="dropzone6r">
+              <input type="file" id="fileInput6r" multiple>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+                <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+              </svg>
+              <div class="dz-title"><b>Revizyonları seç</b> ya da sürükle</div>
+              <div class="dz-sub">Aynı programın tüm revizyonları</div>
+            </div>
+            <div class="controls-row" style="margin-top:10px;">
+              <button class="btn secondary" id="pickFolderBtn6r">Klasör Seç</button>
+              <input type="file" id="folderInput6r" webkitdirectory directory multiple style="display:none">
+              <button class="btn secondary" id="sortRevsBtn6">Ada Göre Sırala</button>
+              <button class="btn secondary" id="clearBtn6r">Listeyi Temizle</button>
+              <div class="spacer"></div>
+              <div class="zoom-hint" style="margin-top:0;">Sürükleyerek sıralayın · eskiden yeniye</div>
+              <span class="file-count" id="fileCount6r">0 revizyon</span>
+            </div>
+            <div class="file-list rev-list" id="fileList6r"></div>
+          </div>
         </div>
 
         <!-- Step 2: pairing -->
         <div class="panel" id="pairPanel6" style="display:none;">
+          <div id="pairSection6">
           <div class="col-label">2. Eşleştirme</div>
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
             <button class="btn secondary" id="autoPairBtn6">Yeniden Otomatik Eşleştir</button>
@@ -2092,8 +2140,9 @@
           </div>
           <div class="scan-summary" id="pairSummary6" style="display:none;"></div>
           <div class="pair-table" id="pairTable6"></div>
+          </div>
 
-          <div class="col-label" style="margin-top:22px;">Yok sayılacaklar</div>
+          <div class="col-label" id="ignoreLabel6" style="margin-top:22px;">Yok sayılacaklar</div>
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
             <label class="checkbox-field">
               <input type="checkbox" id="ignoreNChk6" checked>
@@ -2121,27 +2170,34 @@
           <div class="col-label">3. Sonuçlar</div>
           <div class="kpi-row">
             <div class="kpi">
-              <div class="kpi-label">Karşılaştırılan çift</div>
+              <div class="kpi-label" id="kpiPairsLabel6">Karşılaştırılan çift</div>
               <div class="kpi-value" id="kpiPairs6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#1f8a4c"></span>Aynı dosya</div>
+              <div class="kpi-label"><span class="legend-dot" style="background:#1f8a4c"></span><span id="kpiSameLabel6">Aynı dosya</span></div>
               <div class="kpi-value" id="kpiSame6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#b3521f"></span>Değişen dosya</div>
+              <div class="kpi-label"><span class="legend-dot" style="background:#b3521f"></span><span id="kpiDiffLabel6">Değişen dosya</span></div>
               <div class="kpi-value" id="kpiDiff6">0</div>
             </div>
             <div class="kpi">
-              <div class="kpi-label"><span class="legend-dot" style="background:#ff3b30"></span>Eşi olmayan</div>
+              <div class="kpi-label"><span class="legend-dot" id="kpiOrphanDot6" style="background:#ff3b30"></span><span id="kpiOrphanLabel6">Eşi olmayan</span></div>
               <div class="kpi-value" id="kpiOrphan6">0</div>
+            </div>
+          </div>
+
+          <div class="controls-row" id="revViewRow6" style="display:none;">
+            <div class="segmented" id="revViewSegmented6">
+              <button class="seg-btn active" data-view="seq">Ardışık · R1→R2, R2→R3</button>
+              <button class="seg-btn" data-view="base">İlk revizyona göre · R1→R2, R1→R3</button>
             </div>
           </div>
 
           <div class="cmp-results-grid">
             <div class="pair-list-wrap">
               <div class="pair-list-head">
-                <span>Dosya çiftleri</span>
+                <span id="pairListTitle6">Dosya çiftleri</span>
                 <label class="checkbox-field" style="font-size:11.5px;">
                   <input type="checkbox" id="hideSameChk6">
                   Aynı olanları gizle
@@ -4542,6 +4598,9 @@ const LatheCore = (function () {
   const diffCsvBtn6 = $('diffCsvBtn6');
 
   let filesA = [], filesB = [];   // {id, name, path, text}
+  let revFiles = [];              // one program's revisions, oldest first
+  let mode6 = 'pairs';            // 'pairs': two revisions of many files · 'revs': many revisions of one
+  let revView6 = 'seq';           // 'seq': R1→R2, R2→R3 · 'base': R1→R2, R1→R3
   let pairs = [];                 // {a, b, how} — a/b are file objects or null
   let results = [];               // per pair: {rows, added, removed, changed, identical, ignoredOnly}
   let selectedPair = -1;
@@ -4575,8 +4634,18 @@ const LatheCore = (function () {
     }
   }
 
+  function listFor(side) { return side === 'a' ? filesA : side === 'b' ? filesB : revFiles; }
+  function setList(side, arr) { if (side === 'a') filesA = arr; else if (side === 'b') filesB = arr; else revFiles = arr; }
+
+  // Revision names sort the way people write them: REV B before REV C,
+  // _R2 before _R10.
+  function naturalByName(x, y) {
+    return baseName(x.path).localeCompare(baseName(y.path), 'tr', { numeric: true, sensitivity: 'base' }) ||
+      x.path.localeCompare(y.path, 'tr', { numeric: true });
+  }
+
   async function addFiles(side, picked) {
-    const list = side === 'a' ? filesA : filesB;
+    const list = listFor(side);
     for (const { file, path } of picked) {
       let text;
       try { text = await file.text(); } catch (err) { continue; }
@@ -4584,6 +4653,12 @@ const LatheCore = (function () {
       const existing = list.findIndex(f => f.path === path);
       const rec = { id: nextFileId++, name, path, text };
       if (existing >= 0) list[existing] = rec; else list.push(rec);
+    }
+    if (side === 'r') {
+      list.sort(naturalByName);
+      renderFileList('r');
+      rebuildRevPairs();
+      return;
     }
     list.sort((x, y) => x.path.localeCompare(y.path, 'tr'));
     renderFileList(side);
@@ -4605,9 +4680,9 @@ const LatheCore = (function () {
     });
     pickFolderBtn.addEventListener('click', () => folderInput.click());
     clearBtn.addEventListener('click', () => {
-      if (side === 'a') filesA = []; else filesB = [];
+      setList(side, []);
       renderFileList(side);
-      autoPair();
+      if (side === 'r') rebuildRevPairs(); else autoPair();
     });
 
     ['dragenter', 'dragover'].forEach(evt => dropzone.addEventListener(evt, e => {
@@ -4631,9 +4706,11 @@ const LatheCore = (function () {
     });
   }
   wireSide('a');
+  wireSide('r');
   wireSide('b');
 
   function renderFileList(side) {
+    if (side === 'r') { renderRevList(); return; }
     const list = side === 'a' ? filesA : filesB;
     const box = $('fileList6' + side);
     $('fileCount6' + side).textContent = `${list.length} dosya`;
@@ -4658,6 +4735,125 @@ const LatheCore = (function () {
       box.appendChild(row);
     });
   }
+
+  /* ---------- one program, many revisions ---------- */
+  function renderRevList() {
+    const box = $('fileList6r');
+    $('fileCount6r').textContent = `${revFiles.length} revizyon`;
+    box.innerHTML = '';
+    revFiles.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.className = 'fl-row rev-row';
+      row.draggable = true;
+      row.dataset.idx = i;
+      row.innerHTML = `<span class="rev-grip">⋮⋮</span><span class="rev-tag">R${i + 1}</span>` +
+        `<span class="fl-name" title="${escapeHtml6(f.path)}">${escapeHtml6(f.path)}</span>` +
+        `<span class="fl-meta">${f.text.split(/\r\n|\r|\n/).length} satır</span>`;
+      const rm = document.createElement('button');
+      rm.className = 'fl-remove';
+      rm.title = 'Listeden çıkar';
+      rm.textContent = '×';
+      rm.addEventListener('click', () => {
+        revFiles.splice(revFiles.indexOf(f), 1);
+        renderRevList();
+        rebuildRevPairs();
+      });
+      row.appendChild(rm);
+
+      row.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/x-rev', String(i));
+        e.dataTransfer.effectAllowed = 'move';
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', e => {
+        if (!Array.from(e.dataTransfer.types).includes('text/x-rev')) return;
+        e.preventDefault();
+        const r = row.getBoundingClientRect();
+        const after = e.clientY > r.top + r.height / 2;
+        row.classList.toggle('drop-after', after);
+        row.classList.toggle('drop-before', !after);
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-before', 'drop-after'));
+      row.addEventListener('drop', e => {
+        const raw = e.dataTransfer.getData('text/x-rev');
+        const after = row.classList.contains('drop-after');
+        row.classList.remove('drop-before', 'drop-after');
+        if (raw === '') return;
+        e.preventDefault();
+        const from = parseInt(raw, 10);
+        let to = i + (after ? 1 : 0);
+        if (from === to || from + 1 === to) return;
+        const [moved] = revFiles.splice(from, 1);
+        if (from < to) to--;
+        revFiles.splice(to, 0, moved);
+        renderRevList();
+        rebuildRevPairs();
+      });
+      box.appendChild(row);
+    });
+  }
+
+  $('sortRevsBtn6').addEventListener('click', () => {
+    revFiles.sort(naturalByName);
+    renderRevList();
+    rebuildRevPairs();
+  });
+
+  // The revision list becomes the same list of pairs the rest of the tool
+  // already works on, so the diff, preview, map and export need nothing new.
+  function rebuildRevPairs() {
+    if (mode6 !== 'revs') return;
+    pairs = [];
+    for (let i = 1; i < revFiles.length; i++) {
+      const from = revView6 === 'base' ? 0 : i - 1;
+      pairs.push({ a: revFiles[from], b: revFiles[i], how: 'rev', tagA: 'R' + (from + 1), tagB: 'R' + (i + 1) });
+    }
+    pairPanel6.style.display = revFiles.length ? 'block' : 'none';
+    compareBtn6.disabled = revFiles.length < 2;
+    compareBtn6.title = revFiles.length < 2 ? 'En az iki revizyon gerekli' : '';
+    if (!pairs.length) { results = []; resultPanel6.style.display = 'none'; return; }
+    if (results.length) compare();
+  }
+
+  const revViewSegmented6 = $('revViewSegmented6');
+  revViewSegmented6.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      revViewSegmented6.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+      revView6 = btn.dataset.view;
+      const keep = selectedPair;
+      rebuildRevPairs();
+      if (results.length) selectPair(Math.min(Math.max(keep, 0), pairs.length - 1));
+    });
+  });
+
+  function setMode6(mode) {
+    mode6 = mode;
+    const revs = mode === 'revs';
+    $('cmpModeSegmented6').querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    $('pairsInput6').style.display = revs ? 'none' : '';
+    $('revsInput6').style.display = revs ? '' : 'none';
+    $('pairSection6').style.display = revs ? 'none' : '';
+    $('ignoreLabel6').textContent = revs ? '2. Yok sayılacaklar' : 'Yok sayılacaklar';
+    $('ignoreLabel6').style.marginTop = revs ? '0' : '22px';   // nothing above it in this mode
+    $('revViewRow6').style.display = revs ? '' : 'none';
+    $('pairListTitle6').textContent = revs ? 'Revizyon adımları' : 'Dosya çiftleri';
+    $('kpiPairsLabel6').textContent = revs ? 'Karşılaştırılan adım' : 'Karşılaştırılan çift';
+    $('kpiSameLabel6').textContent = revs ? 'Değişmeyen adım' : 'Aynı dosya';
+    $('kpiDiffLabel6').textContent = revs ? 'Değişen adım' : 'Değişen dosya';
+    $('kpiOrphanLabel6').textContent = revs ? 'Revizyon' : 'Eşi olmayan';
+    $('kpiOrphanDot6').style.display = revs ? 'none' : '';
+    // the two modes describe different sets of pairs: start the results afresh
+    results = [];
+    selectedPair = -1;
+    resultPanel6.style.display = 'none';
+    compareBtn6.disabled = false;
+    compareBtn6.title = '';
+    if (revs) rebuildRevPairs(); else autoPair();
+  }
+  $('cmpModeSegmented6').querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => { if (btn.dataset.mode !== mode6) setMode6(btn.dataset.mode); });
+  });
 
   swapSidesBtn6.addEventListener('click', () => {
     const t = filesA; filesA = filesB; filesB = t;
@@ -4691,6 +4887,7 @@ const LatheCore = (function () {
   const SIMILARITY_FLOOR = 0.55;
 
   function autoPair() {
+    if (mode6 !== 'pairs') return;
     const leftover = new Set(filesB.map(f => f.id));
     const byPath = new Map(), byName = new Map(), byStem = new Map();
     filesB.forEach(f => {
@@ -5098,7 +5295,7 @@ const LatheCore = (function () {
     kpiPairs6.textContent = pairedCount;
     kpiSame6.textContent = sameCount;
     kpiDiff6.textContent = diffCount;
-    kpiOrphan6.textContent = orphanCount;
+    kpiOrphan6.textContent = mode6 === 'revs' ? revFiles.length : orphanCount;
 
     resultPanel6.style.display = 'block';
     renderPairList();
@@ -5115,6 +5312,7 @@ const LatheCore = (function () {
   hideSameChk6.addEventListener('change', renderPairList);
 
   function pairTitle(p) {
+    if (p.tagA) return `${p.tagA} · ${p.a.path}  →  ${p.tagB} · ${p.b.path}`;
     if (p.a && p.b) {
       return p.a.path === p.b.path ? p.a.path : `${p.a.path}  →  ${p.b.path}`;
     }
@@ -5144,15 +5342,21 @@ const LatheCore = (function () {
       const el = document.createElement('div');
       el.className = 'pair-item' + (i === selectedPair ? ' active' : '');
       el.dataset.pair = i;
-      el.innerHTML = `<div class="pi-name" title="${escapeHtml6(pairTitle(p))}">${escapeHtml6(baseName((p.a || p.b).path))}</div>` +
-        `<div class="pi-status">${statusHtml(p, r)}</div>`;
+      el.innerHTML = p.tagA
+        ? `<div class="pi-name" title="${escapeHtml6(pairTitle(p))}">${p.tagA} → ${p.tagB}</div>` +
+          `<div class="pi-sub" title="${escapeHtml6(pairTitle(p))}">${escapeHtml6(stripExt(baseName(p.a.path)))} → ${escapeHtml6(stripExt(baseName(p.b.path)))}</div>` +
+          `<div class="pi-status">${statusHtml(p, r)}</div>`
+        : `<div class="pi-name" title="${escapeHtml6(pairTitle(p))}">${escapeHtml6(baseName((p.a || p.b).path))}</div>` +
+          `<div class="pi-status">${statusHtml(p, r)}</div>`;
       el.addEventListener('click', () => selectPair(i));
       pairList6.appendChild(el);
     });
     if (!shown) {
       const empty = document.createElement('div');
       empty.className = 'diff-empty';
-      empty.textContent = hideSame ? 'Değişen dosya yok.' : 'Dosya çifti yok.';
+      empty.textContent = mode6 === 'revs'
+        ? (hideSame ? 'Değişen adım yok.' : 'Revizyon adımı yok.')
+        : (hideSame ? 'Değişen dosya yok.' : 'Dosya çifti yok.');
       pairList6.appendChild(empty);
     }
   }
@@ -5165,8 +5369,8 @@ const LatheCore = (function () {
     if (!p || !r) return;
     previewTitle6.textContent = pairTitle(p);
     previewBadge6.innerHTML = statusHtml(p, r);
-    diffHeadA6.textContent = p.a ? 'A — ' + baseName(p.a.path) : 'A — (yok)';
-    diffHeadB6.textContent = p.b ? 'B — ' + baseName(p.b.path) : 'B — (yok)';
+    diffHeadA6.textContent = p.a ? (p.tagA || 'A') + ' — ' + baseName(p.a.path) : 'A — (yok)';
+    diffHeadB6.textContent = p.b ? (p.tagB || 'B') + ' — ' + baseName(p.b.path) : 'B — (yok)';
     renderRows();
     // Land on the first difference straight away — selecting a file is asking
     // "what changed in this one".
