@@ -581,7 +581,26 @@
     margin-top: 8px;
   }
   #previewSvg3.ruler-active { cursor: crosshair; }
-  #latheSvg5.ruler-active { cursor: crosshair; }
+  #latheSvg5.ruler-active, #latheSvg5.offset-active { cursor: crosshair; }
+  .dxf-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 22px; margin-top: 18px; }
+  .dxf-slot { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+  .dxf-tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; border: 1.5px solid currentColor; }
+  .dxf-tag.rough { color: #b3521f; border-style: dashed; }
+  .dxf-tag.finish { color: var(--ink); }
+  .dxf-name { font-size: 12.5px; font-family: var(--mono); color: var(--ink-soft); max-width: 220px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dxf-slot .fc-remove { width: 22px; height: 22px; display: none; align-items: center; justify-content: center;
+    color: var(--ink-faint); cursor: pointer; flex-shrink: 0; padding: 0; }
+  .dxf-slot.loaded .fc-remove { display: flex; }
+  .dxf-slot .fc-remove:hover { color: var(--ink); }
+  .dxf-slot .fc-remove svg { width: 11px; height: 11px; }
+  .dxf-slot.dragover .btn { outline: 2px dashed var(--blue); outline-offset: 2px; }
+  .dxf-layers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .dxf-layers:empty { display: none; }
+  .layer-chip { font: 12px var(--mono); padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  .layer-chip.off { color: var(--ink-faint); text-decoration: line-through; background: transparent; }
+  .layer-chip .lc-kind { color: var(--ink-faint); margin-right: 4px; }
   #latheSvg5 { cursor: grab; }
 
   .points-preview-grid {
@@ -1863,6 +1882,34 @@
             <div class="spacer"></div>
             <button class="btn" id="drawBtn5">Çiz / Simüle Et</button>
           </div>
+          <div class="dxf-row">
+            <div class="dxf-slot" id="dxfSlotRough5">
+              <span class="dxf-tag rough">Kaba</span>
+              <button class="btn secondary" id="dxfBtnRough5">DXF Yükle</button>
+              <input type="file" id="dxfInputRough5" accept=".dxf,.dwg" hidden>
+              <span class="dxf-name" id="dxfNameRough5"></span>
+              <button class="fc-remove" id="dxfRemoveRough5" title="Kaldır"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+            </div>
+            <div class="dxf-slot" id="dxfSlotFinish5">
+              <span class="dxf-tag finish">Finiş</span>
+              <button class="btn secondary" id="dxfBtnFinish5">DXF Yükle</button>
+              <input type="file" id="dxfInputFinish5" accept=".dxf,.dwg" hidden>
+              <span class="dxf-name" id="dxfNameFinish5"></span>
+              <button class="fc-remove" id="dxfRemoveFinish5" title="Kaldır"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+            </div>
+            <div class="spacer"></div>
+            <div class="field">
+              <label>Çizimi kaydır Z</label>
+              <input type="number" id="dxfShiftZ5" class="plain-number" value="0" step="0.1" style="width:90px;">
+            </div>
+            <div class="field">
+              <label>Çizimi kaydır X</label>
+              <input type="number" id="dxfShiftX5" class="plain-number" value="0" step="0.1" style="width:90px;">
+            </div>
+          </div>
+          <div class="zoom-hint">Çizimde yatay eksen Z, dikey eksen yarıçap</div>
+          <div class="dxf-layers" id="dxfLayers5"></div>
+          <div class="drop-note" id="dxfNote5"></div>
           <div class="scan-summary" id="drawSummary5" style="display:none;"></div>
         </div>
 
@@ -1884,12 +1931,25 @@
               <div class="legend-item"><span class="legend-dot" style="background:#8a8a8e"></span>Hızlı (G00)</div>
               <div class="legend-item"><span class="legend-dot" style="background:#0071e3"></span>Kesme (G01/G02/G03)</div>
               <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>Geçerli satır</div>
+              <div class="legend-item" id="legendRough5" style="display:none;"><span class="legend-dot" style="background:#b3521f"></span>Kaba</div>
+              <div class="legend-item" id="legendFinish5" style="display:none;"><span class="legend-dot" style="background:#17181c"></span>Finiş</div>
+              <div class="legend-item" id="legendOffset5" style="display:none;"><span class="legend-dot" id="legendOffsetDot5" style="background:#1f8a4c"></span>Ofset</div>
             </div>
           </div>
           <div class="controls-row">
             <button class="btn secondary" id="rulerToggleBtn5">Cetvel: Kapalı</button>
             <button class="btn secondary" id="rulerClearBtn5">Ölçümü Temizle</button>
             <div class="zoom-hint" style="margin-top:0;">Sürükle: kaydır · Tekerlek: yakınlaştır</div>
+          </div>
+          <div class="controls-row">
+            <button class="btn secondary" id="offsetModeBtn5">Ofset: Kapalı</button>
+            <div class="field">
+              <label>Ofset miktarı</label>
+              <input type="number" id="offsetDist5" class="plain-number" value="0.5" min="0" step="0.1" style="width:90px;">
+            </div>
+            <button class="btn secondary" id="offsetUndoBtn5" disabled>Son Ofseti Sil</button>
+            <button class="btn secondary" id="offsetClearBtn5" disabled>Ofsetleri Temizle</button>
+            <div class="zoom-hint" style="margin-top:0;">Kesme hareketine, sonra ofset tarafına tıklayın · Esc: vazgeç</div>
           </div>
           <div class="controls-row">
             <button class="btn secondary" id="insertLineBtn5">Alta Satır Ekle</button>
@@ -1909,36 +1969,12 @@
           </div>
         </div>
 
-        <!-- Step 4: tool list, nose-radius offset, export -->
-        <div class="panel" id="toolOffsetPanel5" style="display:none;">
-          <div class="col-label">4. Takımlar ve Ofset Geometrisi</div>
-          <div class="subtitle" style="margin-bottom:14px;">Uç yarıçapı girilen takımların yolu ofsetlenir. Yaylarda yaklaşıktır.</div>
-          <div class="mini-tables-grid" id="toolTableWrap" style="grid-template-columns: 1fr;">
-            <div>
-              <div class="points-table-wrap">
-                <table class="points-table" id="toolTable">
-                  <thead><tr><th>Takım</th><th>Uç Yarıçapı (R)</th></tr></thead>
-                  <tbody id="toolTbody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <div class="controls-row">
+        <!-- Step 4: export -->
+        <div class="panel" id="scrPanel5" style="display:none;">
+          <div class="col-label">4. SCR Dışa Aktarma</div>
+          <div class="controls-row" style="margin-top:0;">
             <div class="field">
-              <label>Ofset yönü</label>
-              <div class="segmented" id="offsetDirSegmented5">
-                <button class="seg-btn active" data-dir="in">İçe</button>
-                <button class="seg-btn" data-dir="out">Dışa</button>
-              </div>
-            </div>
-            <div class="spacer"></div>
-            <button class="btn" id="computeOffsetBtn5">Ofset Geometriyi Hesapla</button>
-          </div>
-          <div class="scan-summary" id="offsetSummary5" style="display:none;"></div>
-
-          <div class="controls-row" style="margin-top:18px;">
-            <div class="field">
-              <label>Orijinal yörünge renk</label>
+              <label>Takım yolu renk</label>
               <div class="color-field">
                 <span class="color-swatch" id="colorSwatchOrigLathe"></span>
                 <select id="colorSelOrigLathe" class="select-field">
@@ -1957,7 +1993,7 @@
               </div>
             </div>
             <div class="field">
-              <label>Ofset geometri renk</label>
+              <label>Ofset renk</label>
               <div class="color-field">
                 <span class="color-swatch" id="colorSwatchOffsetLathe"></span>
                 <select id="colorSelOffsetLathe" class="select-field">
@@ -3416,6 +3452,323 @@ function offsetPolylineXY(pts, tol, closed) {
 /* ================= Shared lathe-program core =================
    The simulator's parser and its time/geometry maths, kept apart from the
    view so the parsing rules live in one readable place. */
+/* ================= DXF reader (for the simulator's drawing overlay) =================
+   Reads the 2D geometry of an ASCII DXF into lines and arcs, nothing else.
+   The drawing is taken as lathe geometry: drawing X along the spindle axis
+   (program Z), drawing Y as the radius (program X / 2). Text, dimensions and
+   hatches are skipped — only what describes a contour is kept.
+
+   Handled: LINE, ARC, CIRCLE, LWPOLYLINE and POLYLINE (with bulges), SPLINE,
+   ELLIPSE, and INSERT (blocks, nested, with move/scale/rotate/mirror).
+   Entities drawn with a flipped extrusion (0,0,-1) — common in mirrored
+   drawings — are brought back to world coordinates. */
+const DxfImport = (function () {
+  const TAU = Math.PI * 2;
+
+  // Group code / value pairs. Codes are trimmed; values keep inner spaces.
+  function pairsOf(text) {
+    const lines = text.split(/\r\n|\r|\n/);
+    const out = [];
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      const code = parseInt(lines[i].trim(), 10);
+      if (Number.isNaN(code)) { i--; continue; } // tolerate a stray blank line
+      out.push({ code, value: lines[i + 1].trim() });
+    }
+    return out;
+  }
+
+  // Split a run of pairs into records that each start at a code-0 pair.
+  function records(pairs, from, to) {
+    const recs = [];
+    let cur = null;
+    for (let i = from; i < to; i++) {
+      const p = pairs[i];
+      if (p.code === 0) { cur = { type: p.value, pairs: [] }; recs.push(cur); }
+      else if (cur) cur.pairs.push(p);
+    }
+    return recs;
+  }
+
+  const num = (rec, code, dflt) => {
+    const p = rec.pairs.find(q => q.code === code);
+    return p ? parseFloat(p.value) : dflt;
+  };
+  const str = (rec, code, dflt) => {
+    const p = rec.pairs.find(q => q.code === code);
+    return p ? p.value : dflt;
+  };
+
+  function normSpan(a1, a2) { // CCW span from a1 to a2, in (0, 2π]
+    let s = a2 - a1;
+    while (s <= 1e-12) s += TAU;
+    while (s > TAU + 1e-12) s -= TAU;
+    return s;
+  }
+
+  // Bulge between two points → line or a CCW arc {cx, cy, r, a1, a2}.
+  function bulgeSeg(x1, y1, x2, y2, b) {
+    if (!b || Math.abs(b) < 1e-12) return { kind: 'line', x1, y1, x2, y2 };
+    const theta = 4 * Math.atan(b);
+    const dx = x2 - x1, dy = y2 - y1, c = Math.hypot(dx, dy);
+    if (c < 1e-12) return null;
+    const r = c / (2 * Math.sin(theta / 2));       // signed
+    const h = r * Math.cos(theta / 2);              // signed, chord midpoint → centre
+    const cx = (x1 + x2) / 2 - dy / c * h, cy = (y1 + y2) / 2 + dx / c * h;
+    const angA = Math.atan2(y1 - cy, x1 - cx), angB = Math.atan2(y2 - cy, x2 - cx);
+    return theta > 0
+      ? { kind: 'arc', cx, cy, r: Math.abs(r), a1: angA, a2: angB }
+      : { kind: 'arc', cx, cy, r: Math.abs(r), a1: angB, a2: angA };
+  }
+
+  // Smooth curve through fit points (centripetal Catmull-Rom) — close to the
+  // interpolating spline CAD draws when a file carries only fit points.
+  function throughPoints(p) {
+    if (p.length < 3) return p;
+    const out = [p[0]];
+    for (let i = 0; i < p.length - 1; i++) {
+      const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p[i + 1];
+      const t01 = Math.pow(Math.hypot(p1.x - p0.x, p1.y - p0.y), 0.5) || 1;
+      const t12 = Math.pow(Math.hypot(p2.x - p1.x, p2.y - p1.y), 0.5) || 1;
+      const t23 = Math.pow(Math.hypot(p3.x - p2.x, p3.y - p2.y), 0.5) || 1;
+      const m1 = k => (p2[k] - p1[k] + t12 * ((p1[k] - p0[k]) / t01 - (p2[k] - p0[k]) / (t01 + t12)));
+      const m2 = k => (p2[k] - p1[k] + t12 * ((p3[k] - p2[k]) / t23 - (p3[k] - p1[k]) / (t12 + t23)));
+      const ax = { x: m1('x'), y: m1('y') }, bx = { x: m2('x'), y: m2('y') };
+      for (let s = 1; s <= 16; s++) {
+        const t = s / 16, h00 = 2 * t * t * t - 3 * t * t + 1, h10 = t * t * t - 2 * t * t + t, h01 = -2 * t * t * t + 3 * t * t, h11 = t * t * t - t * t;
+        out.push({ x: h00 * p1.x + h10 * ax.x + h01 * p2.x + h11 * bx.x, y: h00 * p1.y + h10 * ax.y + h01 * p2.y + h11 * bx.y });
+      }
+    }
+    return out;
+  }
+
+  // Non-rational / rational B-spline by de Boor, sampled.
+  function sampleSpline(rec) {
+    const deg = num(rec, 71, 3);
+    const knots = rec.pairs.filter(p => p.code === 40).map(p => parseFloat(p.value));
+    const weights = rec.pairs.filter(p => p.code === 41).map(p => parseFloat(p.value));
+    const cps = [], fits = [];
+    rec.pairs.forEach(p => {
+      if (p.code === 10) cps.push({ x: parseFloat(p.value), y: 0 });
+      else if (p.code === 20 && cps.length) cps[cps.length - 1].y = parseFloat(p.value);
+      else if (p.code === 11) fits.push({ x: parseFloat(p.value), y: 0 });
+      else if (p.code === 21 && fits.length) fits[fits.length - 1].y = parseFloat(p.value);
+    });
+    if (cps.length < 2 || knots.length !== cps.length + deg + 1) return fits.length > 1 ? throughPoints(fits) : (cps.length > 1 ? cps : null);
+    const w = weights.length === cps.length ? weights : cps.map(() => 1);
+    const t0 = knots[deg], t1 = knots[knots.length - deg - 1];
+    const n = Math.max(32, cps.length * 16);
+    const pts = [];
+    for (let s = 0; s <= n; s++) {
+      const t = s === n ? t1 - 1e-12 * (t1 - t0) : t0 + (t1 - t0) * s / n;
+      let k = deg;
+      while (k < knots.length - deg - 2 && t >= knots[k + 1]) k++;
+      const d = [];
+      for (let j = 0; j <= deg; j++) {
+        const c = cps[k - deg + j], ww = w[k - deg + j];
+        d.push({ x: c.x * ww, y: c.y * ww, w: ww });
+      }
+      for (let r = 1; r <= deg; r++) {
+        for (let j = deg; j >= r; j--) {
+          const i = k - deg + j;
+          const den = knots[i + deg - r + 1] - knots[i];
+          const a = den === 0 ? 0 : (t - knots[i]) / den;
+          d[j] = { x: (1 - a) * d[j - 1].x + a * d[j].x, y: (1 - a) * d[j - 1].y + a * d[j].y, w: (1 - a) * d[j - 1].w + a * d[j].w };
+        }
+      }
+      pts.push({ x: d[deg].x / d[deg].w, y: d[deg].y / d[deg].w });
+    }
+    return pts;
+  }
+
+  // One entity record → raw geometry in its own coordinates (OCS applied).
+  function geomOf(rec, out, layer) {
+    const flip = num(rec, 230, 1) < 0; // extrusion (0,0,-1): OCS x points the other way
+    const fx = x => (flip ? -x : x);
+    const fixArc = (cx, cy, r, a1, a2) => (flip
+      ? { kind: 'arc', cx: -cx, cy, r, a1: Math.PI - a2, a2: Math.PI - a1 }
+      : { kind: 'arc', cx, cy, r, a1, a2 });
+    const push = g => { if (g) { g.layer = layer; out.push(g); } };
+    switch (rec.type) {
+      case 'LINE':
+        push({ kind: 'line', x1: num(rec, 10, 0), y1: num(rec, 20, 0), x2: num(rec, 11, 0), y2: num(rec, 21, 0) });
+        break;
+      case 'ARC':
+        push(fixArc(num(rec, 10, 0), num(rec, 20, 0), num(rec, 40, 0), num(rec, 50, 0) * Math.PI / 180, num(rec, 51, 360) * Math.PI / 180));
+        break;
+      case 'CIRCLE':
+        push(fixArc(num(rec, 10, 0), num(rec, 20, 0), num(rec, 40, 0), 0, TAU));
+        break;
+      case 'LWPOLYLINE': {
+        const verts = [];
+        rec.pairs.forEach(p => {
+          if (p.code === 10) verts.push({ x: parseFloat(p.value), y: 0, b: 0 });
+          else if (p.code === 20 && verts.length) verts[verts.length - 1].y = parseFloat(p.value);
+          else if (p.code === 42 && verts.length) verts[verts.length - 1].b = parseFloat(p.value);
+        });
+        const closed = (num(rec, 70, 0) & 1) === 1;
+        polyFrom(verts, closed, flip).forEach(push);
+        break;
+      }
+      case 'SPLINE': {
+        const pts = sampleSpline(rec);
+        if (pts) push({ kind: 'poly', pts: pts.map(p => ({ x: fx(p.x), y: p.y })) });
+        break;
+      }
+      case 'ELLIPSE': {
+        const cx = num(rec, 10, 0), cy = num(rec, 20, 0), mx = num(rec, 11, 1), my = num(rec, 21, 0);
+        const ratio = num(rec, 40, 1), t1 = num(rec, 41, 0), t2 = num(rec, 42, TAU);
+        const span = normSpan(t1, t2), n = Math.max(24, Math.ceil(span / TAU * 96));
+        const pts = [];
+        for (let s = 0; s <= n; s++) {
+          const t = t1 + span * s / n, c = Math.cos(t), sn = Math.sin(t);
+          pts.push({ x: fx(cx + mx * c - my * ratio * sn), y: cy + my * c + mx * ratio * sn });
+        }
+        push({ kind: 'poly', pts });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function polyFrom(verts, closed, flip) {
+    const out = [];
+    const n = verts.length;
+    const last = closed ? n : n - 1;
+    for (let i = 0; i < last; i++) {
+      const a = verts[i], b = verts[(i + 1) % n];
+      let g = bulgeSeg(a.x, a.y, b.x, b.y, a.b);
+      if (g && flip) {
+        g = g.kind === 'line'
+          ? { kind: 'line', x1: -g.x1, y1: g.y1, x2: -g.x2, y2: g.y2 }
+          : { kind: 'arc', cx: -g.cx, cy: g.cy, r: g.r, a1: Math.PI - g.a2, a2: Math.PI - g.a1 };
+      }
+      if (g) out.push(g);
+    }
+    return out;
+  }
+
+  // Affine transform for INSERT: p' = R·S·(p − base) + ins
+  function transformGeom(g, t) {
+    const ap = (x, y) => {
+      const px = (x - t.bx) * t.sx, py = (y - t.by) * t.sy;
+      return { x: t.ix + px * t.c - py * t.s, y: t.iy + px * t.s + py * t.c };
+    };
+    const mirrored = t.sx * t.sy < 0;
+    if (g.kind === 'line') {
+      const a = ap(g.x1, g.y1), b = ap(g.x2, g.y2);
+      return { kind: 'line', x1: a.x, y1: a.y, x2: b.x, y2: b.y, layer: g.layer };
+    }
+    if (g.kind === 'poly') return { kind: 'poly', pts: g.pts.map(p => ap(p.x, p.y)), layer: g.layer };
+    // arc
+    if (Math.abs(Math.abs(t.sx) - Math.abs(t.sy)) > 1e-9) { // non-uniform scale: an ellipse — sample it
+      const span = normSpan(g.a1, g.a2), n = Math.max(16, Math.ceil(span / TAU * 96));
+      const pts = [];
+      for (let s = 0; s <= n; s++) { const a = g.a1 + span * s / n; pts.push(ap(g.cx + g.r * Math.cos(a), g.cy + g.r * Math.sin(a))); }
+      return { kind: 'poly', pts, layer: g.layer };
+    }
+    const c = ap(g.cx, g.cy);
+    const full = normSpan(g.a1, g.a2) >= TAU - 1e-9;
+    const p1 = ap(g.cx + g.r * Math.cos(g.a1), g.cy + g.r * Math.sin(g.a1));
+    const p2 = ap(g.cx + g.r * Math.cos(g.a2), g.cy + g.r * Math.sin(g.a2));
+    let a1 = Math.atan2(p1.y - c.y, p1.x - c.x), a2 = Math.atan2(p2.y - c.y, p2.x - c.x);
+    if (mirrored) { const tmp = a1; a1 = a2; a2 = tmp; } // a reflection turns CCW into CW
+    if (full) a2 = a1 + TAU;
+    return { kind: 'arc', cx: c.x, cy: c.y, r: g.r * Math.abs(t.sx), a1, a2, layer: g.layer };
+  }
+
+  function parse(text) {
+    if (/^\s*AC10\d\d/.test(text.slice(0, 16))) {
+      const e = new Error('DWG'); e.code = 'DWG'; throw e;
+    }
+    if (text.startsWith('AutoCAD Binary DXF')) {
+      const e = new Error('BINARY'); e.code = 'BINARY'; throw e;
+    }
+    const pairs = pairsOf(text);
+    // locate sections
+    const sections = {};
+    for (let i = 0; i < pairs.length; i++) {
+      if (pairs[i].code === 0 && pairs[i].value === 'SECTION' && pairs[i + 1] && pairs[i + 1].code === 2) {
+        const name = pairs[i + 1].value;
+        let j = i + 2;
+        while (j < pairs.length && !(pairs[j].code === 0 && pairs[j].value === 'ENDSEC')) j++;
+        sections[name] = { from: i + 2, to: j };
+        i = j;
+      }
+    }
+    if (!sections.ENTITIES) { const e = new Error('NOENT'); e.code = 'NOENT'; throw e; }
+
+    // blocks: name → { bx, by, recs }
+    const blocks = {};
+    if (sections.BLOCKS) {
+      let cur = null;
+      records(pairs, sections.BLOCKS.from, sections.BLOCKS.to).forEach(rec => {
+        if (rec.type === 'BLOCK') cur = { name: str(rec, 2, ''), bx: num(rec, 10, 0), by: num(rec, 20, 0), recs: [] };
+        else if (rec.type === 'ENDBLK') { if (cur) blocks[cur.name] = cur; cur = null; }
+        else if (cur) cur.recs.push(rec);
+      });
+    }
+
+    const out = [];
+    function walk(recs, layerOverride, xf, depth) {
+      for (let i = 0; i < recs.length; i++) {
+        const rec = recs[i];
+        let layer = str(rec, 8, '0');
+        if (layer === '0' && layerOverride) layer = layerOverride;
+        if (rec.type === 'POLYLINE') {
+          const flags = num(rec, 70, 0);
+          const verts = [];
+          let j = i + 1;
+          for (; j < recs.length && recs[j].type === 'VERTEX'; j++) {
+            if (num(recs[j], 70, 0) & 16) continue; // spline frame control point
+            verts.push({ x: num(recs[j], 10, 0), y: num(recs[j], 20, 0), b: num(recs[j], 42, 0) });
+          }
+          if (j < recs.length && recs[j].type === 'SEQEND') j++;
+          i = j - 1;
+          const geoms = polyFrom(verts, (flags & 1) === 1, num(rec, 230, 1) < 0);
+          geoms.forEach(g => { g.layer = layer; out.push(xf ? transformGeom(g, xf) : g); });
+          continue;
+        }
+        if (rec.type === 'INSERT') {
+          const blk = blocks[str(rec, 2, '')];
+          if (!blk || depth > 8) continue;
+          const rot = num(rec, 50, 0) * Math.PI / 180;
+          const local = { bx: blk.bx, by: blk.by, sx: num(rec, 41, 1), sy: num(rec, 42, 1),
+            c: Math.cos(rot), s: Math.sin(rot), ix: num(rec, 10, 0), iy: num(rec, 20, 0) };
+          if (num(rec, 230, 1) < 0) { local.ix = -local.ix; local.sx = -local.sx; local.s = -local.s; }
+          const inner = [];
+          const sub = [];
+          walkInto(blk.recs, layer, depth + 1, sub);
+          sub.forEach(g => {
+            const g1 = transformGeom(g, local);
+            g1.layer = g.layer;
+            inner.push(xf ? transformGeom(g1, xf) : g1);
+          });
+          inner.forEach(g => out.push(g));
+          continue;
+        }
+        const tmp = [];
+        geomOf(rec, tmp, layer);
+        tmp.forEach(g => out.push(xf ? transformGeom(g, xf) : g));
+      }
+    }
+    function walkInto(recs, layerOverride, depth, sink) {
+      const saved = out.length;
+      walk(recs, layerOverride, null, depth);
+      out.splice(saved).forEach(g => sink.push(g));
+    }
+    walk(records(pairs, sections.ENTITIES.from, sections.ENTITIES.to), null, null, 0);
+
+    // normalise arcs to a CCW span
+    out.forEach(g => { if (g.kind === 'arc') g.a2 = g.a1 + normSpan(g.a1, g.a2); });
+    const layers = {};
+    out.forEach(g => { layers[g.layer] = (layers[g.layer] || 0) + 1; });
+    return { entities: out, layers };
+  }
+
+  return { parse, TAU };
+})();
+
 const LatheCore = (function () {
   // "ITEM" as a whole word (won't match "ITEMS"), then up to 15 non-digit
   // characters (colons, dashes, "NO.", spaces, asterisks, ...), then the number.
@@ -3797,11 +4150,15 @@ const LatheCore = (function () {
   const rulerToggleBtn5 = document.getElementById('rulerToggleBtn5');
   const rulerClearBtn5 = document.getElementById('rulerClearBtn5');
   const rulerReadout5 = document.getElementById('rulerReadout5');
-  const toolOffsetPanel5 = document.getElementById('toolOffsetPanel5');
-  const toolTbody = document.getElementById('toolTbody');
-  const offsetDirSegmented5 = document.getElementById('offsetDirSegmented5');
-  const computeOffsetBtn5 = document.getElementById('computeOffsetBtn5');
-  const offsetSummary5 = document.getElementById('offsetSummary5');
+  const scrPanel5 = document.getElementById('scrPanel5');
+  const offsetModeBtn5 = document.getElementById('offsetModeBtn5');
+  const offsetDist5 = document.getElementById('offsetDist5');
+  const offsetUndoBtn5 = document.getElementById('offsetUndoBtn5');
+  const offsetClearBtn5 = document.getElementById('offsetClearBtn5');
+  const dxfShiftZ5 = document.getElementById('dxfShiftZ5');
+  const dxfShiftX5 = document.getElementById('dxfShiftX5');
+  const dxfLayers5 = document.getElementById('dxfLayers5');
+  const dxfNote5 = document.getElementById('dxfNote5');
   const precision5 = document.getElementById('precision5');
   const colorSelOrigLathe = document.getElementById('colorSelOrigLathe');
   const colorSwatchOrigLathe = document.getElementById('colorSwatchOrigLathe');
@@ -3834,8 +4191,6 @@ const LatheCore = (function () {
   let toolChanges5 = [];  // counted M06 tool changes: {lineNo, tool, item}
   let dwells5 = [];       // G04 dwells: {lineNo, sec, item, tool}
   let skippedChanges5 = 0;// M06 lines that re-call the tool already in the spindle
-  let offsetChains = [];  // computed per-tool offset geometry: {tool, chosen: [{x,z}, ...]}
-  let offsetDir5 = 'in';  // 'in' | 'out' — which of the two computed offset sides to use
   let unitSystem5 = 'inch'; // 'inch' (SFM) | 'metric' (m/min) — for RPM-from-CSS calc
   let currentLine = 1;
   let zoomBox5 = { x: 0, y: 0, w: 400, h: 320 };
@@ -3844,8 +4199,7 @@ const LatheCore = (function () {
   let liveTimer5 = null;      // debounce handle for live re-parse while typing
   let originalText5 = '';     // program as last loaded/drawn, for "geri al"
   let dirty5 = false;         // true once the program has been edited in place
-  let offsetsComputed5 = false; // recompute offsets automatically after an edit
-  let timeComputed5 = false;    // ditto for the cutting-time tables
+  let timeComputed5 = false;    // recompute the cutting-time tables after an edit
   let rulerActive5 = false;
   let rulerPts5 = [];
   let isPanning5 = false, panStartClientX = 0, panStartClientY = 0, panStartBox5 = null, panScaleX5 = 1, panScaleY5 = 1, dragMoved5 = false;
@@ -3878,16 +4232,6 @@ const LatheCore = (function () {
     return parsed.counts;
   }
 
-  /* ---- polyline offset (same bisector method as CMM → CAD's tolerance offset) ---- */
-  // The shared offset works on {x, y}; mapping z→y keeps the same handedness
-  // (its left-of-travel normal is this function's old (-dz, dx)).
-  function offsetPolyline5(pts, tol, closed) {
-    const r = offsetPolylineXY(pts.map(p => ({ x: p.x, y: p.z })), tol, closed);
-    const back = q => ({ x: q.x, z: q.y });
-    return { outer: r.outer.map(back), inner: r.inner.map(back) };
-  }
-
-
   /* ---- color pickers (Orijinal / Ofset) ---- */
   const ACI_HEX5 = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#7a7a7a' };
   function wireColorPicker5(sel, swatch, customField, fallbackHex) {
@@ -3902,80 +4246,24 @@ const LatheCore = (function () {
   }
   wireColorPicker5(colorSelOrigLathe, colorSwatchOrigLathe, customColorOrigLatheField, '#0071e3');
   wireColorPicker5(colorSelOffsetLathe, colorSwatchOffsetLathe, customColorOffsetLatheField, '#1f8a4c');
-  colorSelOffsetLathe.addEventListener('change', () => renderToolpath());
+  colorSelOffsetLathe.addEventListener('change', () => { updateOffsetButtons5(); renderToolpath(); });
+  function offsetHex5() {
+    const v = colorSelOffsetLathe.value;
+    return (v === 'bylayer' || v === 'custom') ? '#1f8a4c' : (ACI_HEX5[v] || '#1f8a4c');
+  }
   function resolveColorValue5(sel, customInput) {
     if (sel.value === 'bylayer') return 'BYLAYER';
     if (sel.value === 'custom') return String(Math.max(1, Math.min(255, parseInt(customInput.value, 10) || 1)));
     return sel.value;
   }
 
-  /* ---- tool radius table ---- */
-  let toolRadii5 = {}; // toolCode -> radius number
-  function renderToolTable() {
-    toolTbody.innerHTML = '';
-    toolsFound.forEach(tool => {
-      const tr = document.createElement('tr');
-      const tdTool = document.createElement('td');
-      tdTool.textContent = tool;
-      const tdR = document.createElement('td');
-      const input = document.createElement('input');
-      input.type = 'number'; input.step = '0.001'; input.min = '0'; input.value = toolRadii5[tool] || 0;
-      input.className = 'plain-number'; input.style.width = '100px';
-      input.addEventListener('input', () => { toolRadii5[tool] = parseFloat(input.value) || 0; });
-      tdR.appendChild(input);
-      tr.appendChild(tdTool); tr.appendChild(tdR);
-      toolTbody.appendChild(tr);
-    });
-    toolOffsetPanel5.style.display = 'block';
-  }
-
-  offsetDirSegmented5.querySelectorAll('.seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      offsetDirSegmented5.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      offsetDir5 = btn.dataset.dir;
-      renderToolpath();
-    });
-  });
-
-  // A quarter of the last exported decimal: the offset and the SCR points are
-  // then accurate to what the precision field promises.
+  // A quarter of the last exported decimal: the SCR points are then accurate
+  // to what the precision field promises.
   function geomTol5() {
     const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
     return 0.25 * Math.pow(10, -p);
   }
 
-  function computeOffsets() {
-    offsetChains = [];
-    let toolsWithRadius = 0;
-    toolsFound.forEach(tool => {
-      const r = toolRadii5[tool] || 0;
-      if (r <= 0) return;
-      toolsWithRadius++;
-      // Build the ordered point chain for this tool's portion of the path,
-      // densifying arcs (via the same sampling used for bounds-fitting) so the
-      // bisector offset approximates a true arc offset reasonably well.
-      const pts = [];
-      segments.filter(s => s.tool === tool).forEach(s => {
-        if (pts.length === 0) pts.push({ x: s.x1, z: s.z1 });
-        if (s.type === 'arcCW' || s.type === 'arcCCW') {
-          arcSamplePoints5(s, geomTol5()).slice(1).forEach(p => pts.push(p));
-        } else {
-          pts.push({ x: s.x2, z: s.z2 });
-        }
-      });
-      if (pts.length < 2) return;
-      const { outer, inner } = offsetPolyline5(pts, r, false);
-      offsetChains.push({ tool, radius: r, chosen: offsetDir5 === 'in' ? inner : outer });
-    });
-    offsetsComputed5 = true;
-    offsetSummary5.style.display = 'block';
-    offsetSummary5.innerHTML = toolsWithRadius > 0
-      ? `<b>${toolsWithRadius}</b> takım ofsetlendi`
-      : 'Önce bir takıma uç yarıçapı girin.';
-    renderToolpath();
-  }
-  computeOffsetBtn5.addEventListener('click', computeOffsets);
 
   /* ---- cutting time ---- */
   unitSystemSegmented5.querySelectorAll('.seg-btn').forEach(btn => {
@@ -4177,8 +4465,7 @@ const LatheCore = (function () {
     if (!o.keepZoom) resetZoom5();
     lineSlider5.max = rawLines.length || 1;
     if (o.rebuildCode) renderCodePanel(); else refreshCodeLineStates5();
-    renderToolTable();
-    if (offsetsComputed5) computeOffsets(); else offsetChains = [];
+    offsetSel5 = null; // the picked segment object is gone after a re-parse
     const target = o.line != null ? o.line : currentLine;
     setCurrentLine(target, { focus: o.focus });
     if (timeComputed5) computeCuttingTime();
@@ -4265,21 +4552,51 @@ const LatheCore = (function () {
 
   const arcSamplePoints5 = LatheCore.arcSamplePoints;
 
+  function segPath5(seg) {
+    const v = latheVb, scale = v.scale;
+    const toSx = z => v.offZ + (z - v.minZ) * scale;
+    const toSy = x => v.H - (v.offX + (x - v.minX) * scale);
+    const x1 = toSx(seg.z1), y1 = toSy(seg.x1);
+    const x2 = toSx(seg.z2), y2 = toSy(seg.x2);
+    if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
+      const r = seg.r * scale;
+      const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
+      const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
+      let delta = a2 - a1;
+      while (delta <= -Math.PI) delta += 2 * Math.PI;
+      while (delta > Math.PI) delta -= 2 * Math.PI;
+      // We always take the short way around (a deliberate simplification —
+      // covers the vast majority of real corner/blend arcs; a true major
+      // arc >180° would need the G02/G03 label to disambiguate, which isn't
+      // handled here yet). Given that, the sweep direction is NOT a free
+      // choice — it's fixed by delta's sign relative to the given center.
+      // The display flips the radius axis (toSy) so +X reads as "up" on
+      // screen, which also flips the apparent rotational sense versus raw
+      // SVG's y-down convention — hence the inversion below.
+      const largeArc = 0;
+      const sweep = delta > 0 ? 0 : 1;
+      return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} ${sweep} ${x2} ${y2}`;
+    }
+    return `M ${x1} ${y1} L ${x2} ${y2}`;
+  }
+
   function renderToolpath() {
     const W = 400, H = 320, PAD = 26;
     latheSvg5.setAttribute('viewBox', `${zoomBox5.x} ${zoomBox5.y} ${zoomBox5.w} ${zoomBox5.h}`);
     latheSvg5.innerHTML = '';
-    if (segments.length === 0) return;
+    offsetPreview5 = null;
+    const drawings = { rough: dxfGeoms5('rough'), finish: dxfGeoms5('finish') };
+    if (segments.length === 0 && !drawings.rough.length && !drawings.finish.length) return;
 
     const allX = [], allZ = [];
-    segments.forEach(s => {
+    segments.concat(userOffsets5).forEach(s => {
       if (s.type === 'arcCW' || s.type === 'arcCCW') {
         arcSamplePoints5(s).forEach(p => { allX.push(p.x); allZ.push(p.z); });
       } else {
         allX.push(s.x1, s.x2); allZ.push(s.z1, s.z2);
       }
     });
-    offsetChains.forEach(oc => oc.chosen.forEach(p => { allX.push(p.x); allZ.push(p.z); }));
+    drawings.rough.concat(drawings.finish).forEach(g => dxfPoints5(g).forEach(p => { allX.push(p.x); allZ.push(p.z); }));
     let minX = Math.min(...allX), maxX = Math.max(...allX);
     let minZ = Math.min(...allZ), maxZ = Math.max(...allZ);
     if (minX === maxX) { minX -= 1; maxX += 1; }
@@ -4306,30 +4623,16 @@ const LatheCore = (function () {
 
     if (minX <= 0 && maxX >= 0) latheSvg5.appendChild(strokedEl('line', { x1: 0, y1: toSy(0), x2: W, y2: toSy(0), stroke: '#e5e5ea', 'stroke-width': 1 }));
 
-    function segPath(seg) {
-      const x1 = toSx(seg.z1), y1 = toSy(seg.x1);
-      const x2 = toSx(seg.z2), y2 = toSy(seg.x2);
-      if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
-        const r = seg.r * scale;
-        const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
-        const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
-        let delta = a2 - a1;
-        while (delta <= -Math.PI) delta += 2 * Math.PI;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        // We always take the short way around (a deliberate simplification —
-        // covers the vast majority of real corner/blend arcs; a true major
-        // arc >180° would need the G02/G03 label to disambiguate, which isn't
-        // handled here yet). Given that, the sweep direction is NOT a free
-        // choice — it's fixed by delta's sign relative to the given center.
-        // The display flips the radius axis (toSy) so +X reads as "up" on
-        // screen, which also flips the apparent rotational sense versus raw
-        // SVG's y-down convention — hence the inversion below.
-        const largeArc = 0;
-        const sweep = delta > 0 ? 0 : 1;
-        return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} ${sweep} ${x2} ${y2}`;
-      }
-      return `M ${x1} ${y1} L ${x2} ${y2}`;
-    }
+    const segPath = segPath5;
+
+    // part drawings underneath everything
+    ['rough', 'finish'].forEach(kind => {
+      const st = DXF_STYLE5[kind];
+      drawings[kind].forEach(g => {
+        latheSvg5.appendChild(strokedEl('path', { d: dxfPath5(g), fill: 'none', stroke: st.color, 'stroke-width': st.width,
+          'stroke-dasharray': st.dash, 'stroke-linecap': 'round', 'pointer-events': 'none' }));
+      });
+    });
 
     // future segments first (underneath), then past, then current on top
     const future = segments.filter(s => s.lineNo > currentLine);
@@ -4339,9 +4642,10 @@ const LatheCore = (function () {
     function addClickable(seg) {
       // A wide, invisible path under the visible line makes it much easier to
       // click — a 1-2px line is a tiny, hard-to-hit target otherwise.
-      const hit = strokedEl('path', { d: segPath(seg), fill: 'none', stroke: 'transparent', 'stroke-width': 12, 'pointer-events': 'stroke', style: 'cursor:pointer' });
+      const hit = strokedEl('path', { d: segPath(seg), fill: 'none', stroke: 'transparent', 'stroke-width': 12, 'pointer-events': 'stroke', style: 'cursor:pointer', class: 'hit5', 'data-line': seg.lineNo });
       hit.addEventListener('click', e => {
         if (dragMoved5) { dragMoved5 = false; return; } // this was a drag-pan, not an intentional click
+        if (offsetMode5) { handleOffsetClick5(e, seg); return; }
         if (rulerActive5) {
           const pt = latheSvg5.createSVGPoint();
           pt.x = e.clientX; pt.y = e.clientY;
@@ -4376,14 +4680,16 @@ const LatheCore = (function () {
       addClickable(seg);
     });
 
-    // offset geometry (the actual surface each tool produces, per its nose radius)
-    const offsetHex = (colorSelOffsetLathe.value === 'bylayer' || colorSelOffsetLathe.value === 'custom') ? '#1f8a4c' : (ACI_HEX5[colorSelOffsetLathe.value] || '#1f8a4c');
-    offsetChains.forEach(oc => {
-      if (oc.chosen.length < 2) return;
-      let d = `M ${toSx(oc.chosen[0].z)} ${toSy(oc.chosen[0].x)}`;
-      for (let i = 1; i < oc.chosen.length; i++) d += ` L ${toSx(oc.chosen[i].z)} ${toSy(oc.chosen[i].x)}`;
-      latheSvg5.appendChild(strokedEl('path', { d, fill: 'none', stroke: offsetHex, 'stroke-width': 1.8 }));
+    // user offsets, the picked segment, and the live preview while choosing a side
+    const offsetHex = offsetHex5();
+    userOffsets5.forEach(o => {
+      latheSvg5.appendChild(strokedEl('path', { d: segPath(o), fill: 'none', stroke: offsetHex, 'stroke-width': 1.8, 'pointer-events': 'none' }));
     });
+    if (offsetSel5) {
+      latheSvg5.appendChild(strokedEl('path', { d: segPath(offsetSel5), fill: 'none', stroke: '#ff9500', 'stroke-width': 3.2, 'stroke-linecap': 'round', 'pointer-events': 'none' }));
+      offsetPreview5 = strokedEl('path', { d: '', fill: 'none', stroke: offsetHex, 'stroke-width': 1.6, 'stroke-dasharray': '4,3', 'pointer-events': 'none' });
+      latheSvg5.appendChild(offsetPreview5);
+    }
 
     const { pos } = positionAtLine(currentLine);
     if (pos) {
@@ -4408,17 +4714,18 @@ const LatheCore = (function () {
     editedLines5 = new Set();
     dirty5 = false;
     revertEditsBtn5.disabled = true;
-    offsetsComputed5 = false;
     timeComputed5 = false;
     showDrawSummary5(counts);
     renderCodePanel();
     simPanel5.style.display = 'block';
     lineSlider5.max = rawLines.length || 1;
     resetZoom5();
-    offsetChains = [];
+    userOffsets5 = [];
+    offsetSel5 = null;
+    updateOffsetButtons5();
     rulerPts5 = [];
     rulerReadout5.textContent = '';
-    renderToolTable();
+    scrPanel5.style.display = 'block';
     cutTimePanel5.style.display = 'block';
     timeSummary5.style.display = 'none';
     timeResultsGrid5.style.display = 'none';
@@ -4447,6 +4754,8 @@ const LatheCore = (function () {
     playBtn5.textContent = '❚❚ Duraklat';
   }
   diameterModeChk5.addEventListener('change', () => {
+    userOffsets5 = []; // built on the old X scale
+    updateOffsetButtons5();
     if (simPanel5.style.display !== 'none') refreshFromProgram({ keepZoom: false });
   });
   playBtn5.addEventListener('click', () => { playTimer ? stopPlayback() : startPlayback(); });
@@ -4464,6 +4773,7 @@ const LatheCore = (function () {
     rulerActive5 = !rulerActive5;
     rulerToggleBtn5.textContent = rulerActive5 ? 'Cetvel: Açık' : 'Cetvel: Kapalı';
     latheSvg5.classList.toggle('ruler-active', rulerActive5);
+    if (rulerActive5 && offsetMode5) setOffsetMode5(false);
   });
   rulerClearBtn5.addEventListener('click', () => {
     rulerPts5 = [];
@@ -4498,9 +4808,10 @@ const LatheCore = (function () {
 
   /* ---- ruler point placement (click on empty canvas area; segment clicks are handled per-hit-path) ---- */
   latheSvg5.addEventListener('click', e => {
-    if (!rulerActive5 || !latheVb) return;
+    if ((!rulerActive5 && !offsetMode5) || !latheVb) return;
     if (dragMoved5) { dragMoved5 = false; return; }
-    if (e.target !== latheSvg5) return; // a hit-path's own click handler deals with clicks on segments
+    if (e.target.classList && e.target.classList.contains('hit5')) return; // the hit-path's own handler deals with it
+    if (offsetMode5) { handleOffsetClick5(e, null); return; }
     const pt = latheSvg5.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
     const ctm = latheSvg5.getScreenCTM();
@@ -4538,6 +4849,233 @@ const LatheCore = (function () {
   }
 
 
+  /* ---- part drawings (DXF): rough and finish contours under the toolpath ---- */
+  const DXF_STYLE5 = {
+    rough: { color: '#b3521f', dash: '5,3', width: 1.3 },
+    finish: { color: '#17181c', dash: 'none', width: 1.3 }
+  };
+  const dxf5 = { rough: null, finish: null }; // {name, entities, layers, hidden: Set}
+  const DXF_ERR5 = {
+    DWG: 'DWG doğrudan okunamıyor — AutoCAD’de “Farklı Kaydet → DXF” ile kaydedip yükleyin.',
+    BINARY: 'İkili DXF okunamıyor — ASCII DXF olarak kaydedin.',
+    NOENT: 'DXF içinde çizim bölümü yok.',
+    EMPTY: 'Çizgi, yay veya polyline bulunamadı.'
+  };
+
+  // DXF from R2007 on is UTF-8; older files are in the Windows code page.
+  function decodeDxf5(buf) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+    catch (e) { return new TextDecoder('windows-1254').decode(buf); }
+  }
+  function loadDxf5(kind, file) {
+    if (!file) return;
+    dxfNote5.textContent = '';
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const res = DxfImport.parse(decodeDxf5(e.target.result));
+        if (!res.entities.length) { const err = new Error('EMPTY'); err.code = 'EMPTY'; throw err; }
+        dxf5[kind] = { name: file.name, entities: res.entities, layers: res.layers, hidden: new Set() };
+      } catch (err) {
+        dxfNote5.textContent = `${file.name}: ${DXF_ERR5[err.code] || 'Dosya okunamadı.'}`;
+      }
+      updateDxfUi5();
+      renderToolpath();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  [['rough', 'Rough'], ['finish', 'Finish']].forEach(([kind, cap]) => {
+    const slot = document.getElementById('dxfSlot' + cap + '5');
+    const input = document.getElementById('dxfInput' + cap + '5');
+    document.getElementById('dxfBtn' + cap + '5').addEventListener('click', () => input.click());
+    input.addEventListener('change', () => { loadDxf5(kind, input.files[0]); input.value = ''; });
+    document.getElementById('dxfRemove' + cap + '5').addEventListener('click', () => {
+      dxf5[kind] = null; dxfNote5.textContent = '';
+      updateDxfUi5(); renderToolpath();
+    });
+    ['dragenter', 'dragover'].forEach(evt => slot.addEventListener(evt, e => { e.preventDefault(); slot.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(evt => slot.addEventListener(evt, e => { e.preventDefault(); slot.classList.remove('dragover'); }));
+    slot.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadDxf5(kind, f); });
+  });
+  [dxfShiftZ5, dxfShiftX5].forEach(inp => inp.addEventListener('input', () => renderToolpath()));
+
+  function updateDxfUi5() {
+    [['rough', 'Rough'], ['finish', 'Finish']].forEach(([kind, cap]) => {
+      const d = dxf5[kind];
+      document.getElementById('dxfSlot' + cap + '5').classList.toggle('loaded', !!d);
+      document.getElementById('dxfName' + cap + '5').textContent = d ? d.name : '';
+      document.getElementById('legend' + cap + '5').style.display = d ? '' : 'none';
+    });
+    // layer switches, only when a drawing has more than one layer
+    dxfLayers5.innerHTML = '';
+    ['rough', 'finish'].forEach(kind => {
+      const d = dxf5[kind];
+      if (!d || Object.keys(d.layers).length < 2) return;
+      Object.keys(d.layers).sort().forEach(layer => {
+        const b = document.createElement('button');
+        b.className = 'layer-chip' + (d.hidden.has(layer) ? ' off' : '');
+        b.title = `${d.layers[layer]} öğe`;
+        const k = document.createElement('span');
+        k.className = 'lc-kind';
+        k.textContent = kind === 'rough' ? 'Kaba' : 'Finiş';
+        b.appendChild(k);
+        b.appendChild(document.createTextNode(layer));
+        b.addEventListener('click', () => {
+          if (d.hidden.has(layer)) d.hidden.delete(layer); else d.hidden.add(layer);
+          b.classList.toggle('off', d.hidden.has(layer));
+          renderToolpath();
+        });
+        dxfLayers5.appendChild(b);
+      });
+    });
+  }
+
+  // Shift fields are in program units: X is a diameter when the program's is.
+  function dxfShift5() {
+    const z = parseFloat(dxfShiftZ5.value) || 0, x = parseFloat(dxfShiftX5.value) || 0;
+    return { z, x: diameterModeChk5.checked ? x / 2 : x };
+  }
+  // Visible drawing geometry in model coordinates: drawing x → Z, drawing y → X (radius).
+  // Arc angles carry over as is — atan2(y−cy, x−cx) is the model's atan2(x−cx, z−cz).
+  function dxfGeoms5(kind) {
+    const d = dxf5[kind];
+    if (!d) return [];
+    const sh = dxfShift5();
+    return d.entities.filter(g => !d.hidden.has(g.layer)).map(g => {
+      if (g.kind === 'line') return { kind: 'line', z1: g.x1 + sh.z, x1: g.y1 + sh.x, z2: g.x2 + sh.z, x2: g.y2 + sh.x };
+      if (g.kind === 'arc') return { kind: 'arc', cz: g.cx + sh.z, cx: g.cy + sh.x, r: g.r, a1: g.a1, a2: g.a2 };
+      return { kind: 'poly', pts: g.pts.map(p => ({ z: p.x + sh.z, x: p.y + sh.x })) };
+    });
+  }
+  function dxfPoints5(g) {
+    if (g.kind === 'line') return [{ x: g.x1, z: g.z1 }, { x: g.x2, z: g.z2 }];
+    if (g.kind === 'poly') return g.pts;
+    const pts = [], n = 32;
+    for (let i = 0; i <= n; i++) {
+      const a = g.a1 + (g.a2 - g.a1) * i / n;
+      pts.push({ x: g.cx + g.r * Math.sin(a), z: g.cz + g.r * Math.cos(a) });
+    }
+    return pts;
+  }
+  // Arcs are CCW in the drawing; with +X drawn upward that is SVG sweep 0.
+  function dxfPath5(g) {
+    const v = latheVb;
+    const sx = z => v.offZ + (z - v.minZ) * v.scale;
+    const sy = x => v.H - (v.offX + (x - v.minX) * v.scale);
+    if (g.kind === 'line') return `M ${sx(g.z1)} ${sy(g.x1)} L ${sx(g.z2)} ${sy(g.x2)}`;
+    if (g.kind === 'poly') return g.pts.map((p, i) => `${i ? 'L' : 'M'} ${sx(p.z)} ${sy(p.x)}`).join(' ');
+    const R = g.r * v.scale;
+    const at = a => `${sx(g.cz + g.r * Math.cos(a))} ${sy(g.cx + g.r * Math.sin(a))}`;
+    const span = g.a2 - g.a1;
+    if (span >= 2 * Math.PI - 1e-9) return `M ${at(g.a1)} A ${R} ${R} 0 0 0 ${at(g.a1 + Math.PI)} A ${R} ${R} 0 0 0 ${at(g.a1)}`;
+    return `M ${at(g.a1)} A ${R} ${R} 0 ${span > Math.PI ? 1 : 0} 0 ${at(g.a2)}`;
+  }
+
+  /* ---- segment offset: pick a cutting move, then click the side ---- */
+  let offsetMode5 = false;
+  let offsetSel5 = null;     // picked segment, waiting for the side click
+  let userOffsets5 = [];     // segment-shaped copies: {type, x1,z1,x2,z2, cx,cz,r, lineNo, dist}
+  let offsetPreview5 = null; // dashed preview path while the side is being chosen
+
+  // A line moves along its normal toward q; an arc stays concentric and grows
+  // or shrinks depending on whether q is outside or inside it.
+  function offsetSegment5(seg, q, dist) {
+    if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
+      const inside = Math.hypot(q.x - seg.cx, q.z - seg.cz) < seg.r;
+      const r = inside ? seg.r - dist : seg.r + dist;
+      if (r <= 1e-9) return null;
+      const k = r / seg.r;
+      return { type: seg.type, cx: seg.cx, cz: seg.cz, r, lineNo: seg.lineNo, dist,
+        x1: seg.cx + (seg.x1 - seg.cx) * k, z1: seg.cz + (seg.z1 - seg.cz) * k,
+        x2: seg.cx + (seg.x2 - seg.cx) * k, z2: seg.cz + (seg.z2 - seg.cz) * k };
+    }
+    const dz = seg.z2 - seg.z1, dx = seg.x2 - seg.x1, len = Math.hypot(dz, dx);
+    if (len < 1e-12) return null;
+    const side = dz * (q.x - seg.x1) - dx * (q.z - seg.z1) > 0 ? 1 : -1; // +1: left of travel
+    const oz = -dx / len * dist * side, ox = dz / len * dist * side;
+    return { type: 'linear', lineNo: seg.lineNo, dist,
+      x1: seg.x1 + ox, z1: seg.z1 + oz, x2: seg.x2 + ox, z2: seg.z2 + oz };
+  }
+
+  function modelPointFromEvent5(e) {
+    if (!latheVb) return null;
+    const pt = latheSvg5.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = latheSvg5.getScreenCTM();
+    if (!ctm) return null;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: latheVb.minX + (latheVb.H - p.y - latheVb.offX) / latheVb.scale, z: latheVb.minZ + (p.x - latheVb.offZ) / latheVb.scale };
+  }
+
+  function describeOffset5(o) {
+    const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
+    const xs = v => (diameterModeChk5.checked ? v * 2 : v).toFixed(p);
+    const g = { linear: 'G01', arcCW: 'G02', arcCCW: 'G03' }[o.type];
+    let t = `Satır ${o.lineNo} · ${o.dist} ofset · ${g}  X${xs(o.x1)} Z${o.z1.toFixed(p)} → X${xs(o.x2)} Z${o.z2.toFixed(p)}`;
+    if (o.type !== 'linear') t += `  R${o.r.toFixed(p)}`;
+    return t;
+  }
+
+  function handleOffsetClick5(e, seg) {
+    if (!offsetSel5) {
+      if (!seg) return;
+      if (seg.type === 'rapid') { rulerReadout5.textContent = 'Hızlı hareket ofsetlenmez — bir kesme hareketi seçin.'; return; }
+      offsetSel5 = seg;
+      rulerReadout5.textContent = `Satır ${seg.lineNo} seçildi — ofset tarafına tıklayın`;
+      renderToolpath();
+      return;
+    }
+    const dist = parseFloat(offsetDist5.value);
+    if (!(dist > 0)) { rulerReadout5.textContent = 'Ofset miktarı sıfırdan büyük olmalı.'; return; }
+    const q = modelPointFromEvent5(e);
+    if (!q) return;
+    const o = offsetSegment5(offsetSel5, q, dist);
+    if (!o) { rulerReadout5.textContent = 'Yay yarıçapı ofsetten küçük — içe ofsetlenemez.'; return; }
+    userOffsets5.push(o);
+    offsetSel5 = null;
+    rulerReadout5.textContent = describeOffset5(o);
+    updateOffsetButtons5();
+    renderToolpath();
+  }
+
+  function setOffsetMode5(on) {
+    offsetMode5 = on;
+    offsetSel5 = null;
+    offsetModeBtn5.textContent = on ? 'Ofset: Açık' : 'Ofset: Kapalı';
+    latheSvg5.classList.toggle('offset-active', on);
+    if (on && rulerActive5) rulerToggleBtn5.click();
+    rulerReadout5.textContent = on ? 'Bir kesme hareketi seçin…' : '';
+    renderToolpath();
+  }
+  function updateOffsetButtons5() {
+    offsetUndoBtn5.disabled = offsetClearBtn5.disabled = userOffsets5.length === 0;
+    document.getElementById('legendOffset5').style.display = userOffsets5.length ? '' : 'none';
+    document.getElementById('legendOffsetDot5').style.background = offsetHex5();
+  }
+  offsetModeBtn5.addEventListener('click', () => setOffsetMode5(!offsetMode5));
+  offsetUndoBtn5.addEventListener('click', () => {
+    userOffsets5.pop();
+    rulerReadout5.textContent = '';
+    updateOffsetButtons5(); renderToolpath();
+  });
+  offsetClearBtn5.addEventListener('click', () => {
+    userOffsets5 = [];
+    rulerReadout5.textContent = '';
+    updateOffsetButtons5(); renderToolpath();
+  });
+  latheSvg5.addEventListener('mousemove', e => {
+    if (!offsetMode5 || !offsetSel5 || !offsetPreview5 || (isPanning5 && dragMoved5)) return;
+    const dist = parseFloat(offsetDist5.value), q = modelPointFromEvent5(e);
+    const o = q && dist > 0 ? offsetSegment5(offsetSel5, q, dist) : null;
+    offsetPreview5.setAttribute('d', o ? segPath5(o) : '');
+  });
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !offsetSel5) return;
+    offsetSel5 = null;
+    rulerReadout5.textContent = 'Bir kesme hareketi seçin…';
+    renderToolpath();
+  });
+
   /* ---- export ---- */
   function buildScr5() {
     const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
@@ -4563,14 +5101,14 @@ const LatheCore = (function () {
       lines.push('');
     }
 
-    // Offset geometry — one connected line per tool that has a radius entered.
-    if (offsetChains.length > 0) {
+    // User offsets — one line each (arcs densified the same way).
+    if (userOffsets5.length > 0) {
       lines.push('CECOLOR');
       lines.push(resolveColorValue5(colorSelOffsetLathe, customColorOffsetLathe));
-      offsetChains.forEach(oc => {
-        if (oc.chosen.length < 2) return;
+      userOffsets5.forEach(o => {
+        const pts = o.type === 'linear' ? [{ x: o.x1, z: o.z1 }, { x: o.x2, z: o.z2 }] : arcSamplePoints5(o, geomTol5());
         lines.push('_line');
-        oc.chosen.forEach(pt => lines.push(`${fmt(pt.z)},${fmt(pt.x)}`));
+        pts.forEach(pt => lines.push(`${fmt(pt.z)},${fmt(pt.x)}`));
         lines.push('');
       });
     }
