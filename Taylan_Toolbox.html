@@ -580,7 +580,9 @@
     color: var(--ink-faint);
     margin-top: 8px;
   }
+  #previewSvg3 { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
   #previewSvg3.ruler-active { cursor: crosshair; }
+  #previewSvg3.panning { cursor: grabbing; }
   #latheSvg5.ruler-active, #latheSvg5.offset-active { cursor: crosshair; }
   .dxf-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 22px; margin-top: 18px; }
   .dxf-slot { display: flex; align-items: center; gap: 8px; min-height: 36px; }
@@ -1671,6 +1673,7 @@
             <button class="btn secondary" id="rulerToggleBtn3">Cetvel: Kapalı</button>
             <button class="btn secondary" id="rulerClearBtn3">Ölçümü Temizle</button>
             <button class="btn secondary" id="zoomResetBtn3">Yakınlaştırmayı Sıfırla</button>
+            <div class="zoom-hint" style="margin-top:0; align-self:center;">Sürükle: kaydır · Tekerlek: yakınlaştır</div>
             <div class="field">
               <label>Tolerans değeri</label>
               <input type="number" id="toleranceValue" class="plain-number" value="0.004" step="0.0001" min="0">
@@ -2660,7 +2663,9 @@ function offsetPolylineXY(pts, tol, closed) {
   let rulerActive = false;
   let exportShape = 'point'; // 'point' | 'line' | 'spline' — how Nominal/Aktüel are drawn in the exported .scr
   let rulerPts = [];
-  let vb = null; // last preview view-box transform state, for ruler math
+  let vb = null; // last preview transform (bounds/scale, zoom folded in), for ruler + pan math
+  let viewRoot3 = null, renderedBox3 = null, rulerHover3 = null, renderQueued3 = false;
+  let isPanning3 = false, dragMoved3 = false, panStart3 = null;
   let zoomBox = { x: 0, y: 0, w: 400, h: 320 }; // current viewBox window (for scroll-wheel zoom)
   function resetZoom() { zoomBox = { x: 0, y: 0, w: 400, h: 320 }; }
   let scrFileBase = 'nominal_aktuel';
@@ -2978,9 +2983,10 @@ function offsetPolylineXY(pts, tol, closed) {
   /* ---- preview ---- */
   function renderPreview() {
     const W = 400, H = 320, PAD = 26;
-    previewSvg3.setAttribute('viewBox', `${zoomBox.x} ${zoomBox.y} ${zoomBox.w} ${zoomBox.h}`);
+    previewSvg3.setAttribute('viewBox', `0 0 ${W} ${H}`);
     previewSvg3.innerHTML = '';
     previewLegend3.innerHTML = '';
+    viewRoot3 = null; rulerHover3 = null;
 
     const nomHex = previewHex(colorSelNom, '#1d1d1f');
     const actHex = previewHex(colorSelAct, '#0071e3');
@@ -3010,22 +3016,20 @@ function offsetPolylineXY(pts, tol, closed) {
     if (minX === maxX) { minX -= 1; maxX += 1; }
     if (minY === maxY) { minY -= 1; maxY += 1; }
     const rangeX = maxX - minX, rangeY = maxY - minY;
-    const scale = Math.min((W - PAD * 2) / rangeX, (H - PAD * 2) / rangeY);
-    const offX = (W - rangeX * scale) / 2;
-    const offY = (H - rangeY * scale) / 2;
+    const fit = Math.min((W - PAD * 2) / rangeX, (H - PAD * 2) / rangeY);
+    const offX0 = (W - rangeX * fit) / 2, offY0 = (H - rangeY * fit) / 2;
+    // The zoom box is folded into the transform rather than the viewBox:
+    // geometry is written at screen size, so points, labels and lines keep
+    // their size and deep zoom keeps full precision.
+    const zb = zoomBox, k = W / zb.w;
+    const scale = fit * k;
+    const offX = (offX0 - zb.x) * k, offY = H - (H - offY0 - zb.y) * k;
     vb = { minX, minY, scale, offX, offY, W, H };
+    renderedBox3 = { ...zb };
 
     const toSx = x => offX + (x - minX) * scale;
     const toSy = y => H - (offY + (y - minY) * scale);
-
-    // Zoom is implemented by shrinking/growing the SVG viewBox, which means
-    // any size specified in user-space units (stroke width, circle radius,
-    // font size) visually grows when zoomed in and shrinks when zoomed out.
-    // `non-scaling-stroke` keeps line thickness constant on screen; for
-    // filled circles and text (which aren't strokes) we scale the value
-    // ourselves by the same ratio so points don't balloon into overlapping
-    // blobs when zoomed in, or shrink to invisible dots when zoomed out.
-    const screenScale = zoomBox.w / W;
+    const inView = (sx, sy) => sx > -W && sx < 2 * W && sy > -H && sy < 2 * H;
 
     const ns = 'http://www.w3.org/2000/svg';
     function el(tag, attrs) {
@@ -3036,56 +3040,131 @@ function offsetPolylineXY(pts, tol, closed) {
     function strokedEl(tag, attrs) {
       return el(tag, Object.assign({ 'vector-effect': 'non-scaling-stroke' }, attrs));
     }
+    const root = el('g', {});
+    previewSvg3.appendChild(root);
+    viewRoot3 = root;
 
-    if (minX <= 0 && maxX >= 0) previewSvg3.appendChild(strokedEl('line', { x1: toSx(0), y1: 0, x2: toSx(0), y2: H, stroke: '#e5e5ea', 'stroke-width': 1 }));
-    if (minY <= 0 && maxY >= 0) previewSvg3.appendChild(strokedEl('line', { x1: 0, y1: toSy(0), x2: W, y2: toSy(0), stroke: '#e5e5ea', 'stroke-width': 1 }));
+    const ax = toSx(0), ay = toSy(0);
+    if (ax > -W && ax < 2 * W) root.appendChild(strokedEl('line', { x1: ax, y1: -H, x2: ax, y2: 2 * H, stroke: '#e5e5ea', 'stroke-width': 1 }));
+    if (ay > -H && ay < 2 * H) root.appendChild(strokedEl('line', { x1: -W, y1: ay, x2: 2 * W, y2: ay, stroke: '#e5e5ea', 'stroke-width': 1 }));
+
+    // polyline through points, each piece clipped to a margin around the view
+    function polyPath(arr, closed) {
+      if (arr.length < 2) return '';
+      const pts = closed ? arr.concat([arr[0]]) : arr;
+      let d = '', penX = null, penY = null;
+      for (let i = 1; i < pts.length; i++) {
+        const c = clipSeg3(toSx(pts[i - 1].x), toSy(pts[i - 1].y), toSx(pts[i].x), toSy(pts[i].y), W, H);
+        if (!c) continue;
+        if (penX === null || Math.abs(c[0] - penX) > 1e-9 || Math.abs(c[1] - penY) > 1e-9) d += `M ${c[0]} ${c[1]} `;
+        d += `L ${c[2]} ${c[3]} `;
+        penX = c[2]; penY = c[3];
+      }
+      return d;
+    }
 
     // tolerance geometry (drawn first, underneath points)
     if (toleranceGeom) {
-      function pathFor(arr) {
-        if (arr.length < 2) return '';
-        let d = `M ${toSx(arr[0].x)} ${toSy(arr[0].y)}`;
-        for (let i = 1; i < arr.length; i++) d += ` L ${toSx(arr[i].x)} ${toSy(arr[i].y)}`;
-        if (closeProfileChk.checked) d += ' Z';
-        return d;
-      }
-      const dOuter = pathFor(toleranceGeom.outer), dInner = pathFor(toleranceGeom.inner);
-      if (dOuter) previewSvg3.appendChild(strokedEl('path', { d: dOuter, fill: 'none', stroke: tolHex, 'stroke-width': 1.2, 'stroke-dasharray': '3,2' }));
-      if (dInner) previewSvg3.appendChild(strokedEl('path', { d: dInner, fill: 'none', stroke: tolHex, 'stroke-width': 1.2, 'stroke-dasharray': '3,2' }));
+      const dOuter = polyPath(toleranceGeom.outer, closeProfileChk.checked), dInner = polyPath(toleranceGeom.inner, closeProfileChk.checked);
+      if (dOuter) root.appendChild(strokedEl('path', { d: dOuter, fill: 'none', stroke: tolHex, 'stroke-width': 1.2, 'stroke-dasharray': '3,2' }));
+      if (dInner) root.appendChild(strokedEl('path', { d: dInner, fill: 'none', stroke: tolHex, 'stroke-width': 1.2, 'stroke-dasharray': '3,2' }));
     }
 
     // nominal / actual connecting lines — preview always shows a straight-line
     // connection for visual clarity, independent of the export shape choice below.
     function connectLine(arr, color) {
-      if (arr.length < 2) return;
-      let d = `M ${toSx(arr[0].x)} ${toSy(arr[0].y)}`;
-      for (let i = 1; i < arr.length; i++) d += ` L ${toSx(arr[i].x)} ${toSy(arr[i].y)}`;
-      previewSvg3.appendChild(strokedEl('path', { d, fill: 'none', stroke: color, 'stroke-width': 1.3, opacity: 0.6 }));
+      const d = polyPath(arr, false);
+      if (d) root.appendChild(strokedEl('path', { d, fill: 'none', stroke: color, 'stroke-width': 1.3, opacity: 0.6 }));
     }
     connectLine(nominalPoints, nomHex);
     connectLine(actualPoints, actHex);
 
-    // points — radius and label size scaled by the current zoom ratio so
-    // their on-screen size stays constant instead of growing/shrinking with zoom.
+    // points and their numbers, at a fixed size on screen
     function drawPts(arr, color) {
       arr.forEach((p, i) => {
-        previewSvg3.appendChild(el('circle', { cx: toSx(p.x), cy: toSy(p.y), r: 3 * screenScale, fill: color }));
-        const t = el('text', { x: toSx(p.x) + 5 * screenScale, y: toSy(p.y) - 5 * screenScale, 'font-size': 8.5 * screenScale, fill: color, 'font-family': 'sans-serif' });
+        const sx = toSx(p.x), sy = toSy(p.y);
+        if (!inView(sx, sy)) return;
+        root.appendChild(el('circle', { cx: sx, cy: sy, r: 3, fill: color }));
+        const t = el('text', { x: sx + 5, y: sy - 5, 'font-size': 8.5, fill: color, 'font-family': 'sans-serif' });
         t.textContent = i + 1;
-        previewSvg3.appendChild(t);
+        root.appendChild(t);
       });
     }
     drawPts(nominalPoints, nomHex);
     drawPts(actualPoints, actHex);
 
     // ruler overlay
-    if (rulerPts.length >= 1) {
-      rulerPts.forEach(p => previewSvg3.appendChild(strokedEl('circle', { cx: toSx(p.x), cy: toSy(p.y), r: 4.5 * screenScale, fill: 'none', stroke: '#b3521f', 'stroke-width': 1.6 })));
-    }
+    rulerPts.forEach(p => { if (inView(toSx(p.x), toSy(p.y))) root.appendChild(strokedEl('circle', { cx: toSx(p.x), cy: toSy(p.y), r: 4.5, fill: 'none', stroke: '#b3521f', 'stroke-width': 1.6 })); });
     if (rulerPts.length === 2) {
       const [p1, p2] = rulerPts;
-      previewSvg3.appendChild(strokedEl('line', { x1: toSx(p1.x), y1: toSy(p1.y), x2: toSx(p2.x), y2: toSy(p2.y), stroke: '#b3521f', 'stroke-width': 1.4, 'stroke-dasharray': '4,3' }));
+      const c = clipSeg3(toSx(p1.x), toSy(p1.y), toSx(p2.x), toSy(p2.y), W, H);
+      if (c) root.appendChild(strokedEl('line', { x1: c[0], y1: c[1], x2: c[2], y2: c[3], stroke: '#b3521f', 'stroke-width': 1.4, 'stroke-dasharray': '4,3' }));
     }
+    if (rulerActive) {
+      rulerHover3 = el('path', { d: '', fill: 'none', stroke: '#b3521f', 'stroke-width': 1.4, 'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none' });
+      root.appendChild(rulerHover3);
+    }
+  }
+
+  // Segment clipped to a margin around the view (Liang–Barsky); null if outside.
+  function clipSeg3(x1, y1, x2, y2, W, H) {
+    const dx = x2 - x1, dy = y2 - y1;
+    let t0 = 0, t1 = 1;
+    for (const [pp, q] of [[-dx, x1 + W], [dx, 2 * W - x1], [-dy, y1 + H], [dy, 2 * H - y1]]) {
+      if (pp === 0) { if (q < 0) return null; continue; }
+      const r = q / pp;
+      if (pp < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+      else { if (r < t0) return null; if (r < t1) t1 = r; }
+    }
+    return [x1 + dx * t0, y1 + dy * t0, x1 + dx * t1, y1 + dy * t1];
+  }
+
+  function queueRender3() {
+    if (renderQueued3) return;
+    renderQueued3 = true;
+    requestAnimationFrame(() => { renderQueued3 = false; renderPreview(); });
+  }
+  function svgPoint3(e) {
+    const pt = previewSvg3.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = previewSvg3.getScreenCTM();
+    return ctm ? { p: pt.matrixTransform(ctm.inverse()), pxToView: ctm.a ? 1 / ctm.a : 1 } : null;
+  }
+
+  /* ---- ruler snapping: measured points first, then the nearest point on the
+     nominal / actual lines or the tolerance outlines, otherwise the clicked point ---- */
+  function snapAt3(svgX, svgY, pxToView) {
+    const x = vb.minX + (svgX - vb.offX) / vb.scale;
+    const y = vb.minY + (vb.H - svgY - vb.offY) / vb.scale;
+    const tol = 10 * pxToView / vb.scale;
+    let best = null, bestD = tol;
+    const tryPt = (px, py, kind) => {
+      const d = Math.hypot(px - x, py - y);
+      if (d < bestD) { bestD = d; best = { x: px, y: py, kind }; }
+    };
+    [...nominalPoints, ...actualPoints].forEach(p => tryPt(p.x, p.y, 'end'));
+    if (!best) {
+      const along = (arr, closed) => {
+        const n = arr.length;
+        for (let i = 1; i < n + (closed && n > 2 ? 1 : 0); i++) {
+          const a = arr[i - 1], b = arr[i % n];
+          const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+          const t = L > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L)) : 0;
+          tryPt(a.x + dx * t, a.y + dy * t, 'on');
+        }
+      };
+      along(nominalPoints, false);
+      along(actualPoints, false);
+      if (toleranceGeom) { along(toleranceGeom.outer, closeProfileChk.checked); along(toleranceGeom.inner, closeProfileChk.checked); }
+    }
+    return best || { x, y, kind: 'free' };
+  }
+  function snapMarker3(sn, pxToView) {
+    const sx = vb.offX + (sn.x - vb.minX) * vb.scale, sy = vb.H - (vb.offY + (sn.y - vb.minY) * vb.scale);
+    const r = 5 * pxToView;
+    if (sn.kind === 'end') return `M ${sx - r} ${sy - r} h ${2 * r} v ${2 * r} h ${-2 * r} Z`;
+    if (sn.kind === 'on') return `M ${sx - r} ${sy} L ${sx} ${sy - r} L ${sx + r} ${sy} L ${sx} ${sy + r} Z`;
+    return '';
   }
 
   /* ---- ruler ---- */
@@ -3093,6 +3172,7 @@ function offsetPolylineXY(pts, tol, closed) {
     rulerActive = !rulerActive;
     rulerToggleBtn3.textContent = rulerActive ? 'Cetvel: Açık' : 'Cetvel: Kapalı';
     previewSvg3.classList.toggle('ruler-active', rulerActive);
+    renderPreview(); // adds / drops the snap marker
   });
   rulerClearBtn3.addEventListener('click', () => {
     rulerPts = [];
@@ -3101,26 +3181,12 @@ function offsetPolylineXY(pts, tol, closed) {
   });
 
   previewSvg3.addEventListener('click', e => {
+    if (dragMoved3) { dragMoved3 = false; return; } // that was a pan
     if (!rulerActive || !vb) return;
-    const pt = previewSvg3.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    const ctm = previewSvg3.getScreenCTM();
-    if (!ctm) return;
-    const svgP = pt.matrixTransform(ctm.inverse());
-
-    const toSx = x => vb.offX + (x - vb.minX) * vb.scale;
-    const toSy = y => vb.H - (vb.offY + (y - vb.minY) * vb.scale);
-
-    // snap to nearest nominal/actual point within a small pixel radius
-    const candidates = [...nominalPoints, ...actualPoints];
-    let snapped = null, bestDist = 10; // svg-unit threshold
-    candidates.forEach(p => {
-      const d = Math.hypot(toSx(p.x) - svgP.x, toSy(p.y) - svgP.y);
-      if (d < bestDist) { bestDist = d; snapped = p; }
-    });
-    const dataX = vb.minX + (svgP.x - vb.offX) / vb.scale;
-    const dataY = vb.minY + (vb.H - svgP.y - vb.offY) / vb.scale;
-    const clicked = snapped || { x: dataX, y: dataY };
+    const sp = svgPoint3(e);
+    if (!sp) return;
+    const sn = snapAt3(sp.p.x, sp.p.y, sp.pxToView);
+    const clicked = { x: sn.x, y: sn.y };
 
     if (rulerPts.length >= 2) rulerPts = [];
     rulerPts.push(clicked);
@@ -3135,31 +3201,55 @@ function offsetPolylineXY(pts, tol, closed) {
     }
     renderPreview();
   });
+  previewSvg3.addEventListener('mousemove', e => {
+    if (!rulerActive || !rulerHover3 || !vb || (isPanning3 && dragMoved3)) return;
+    const sp = svgPoint3(e);
+    if (sp) rulerHover3.setAttribute('d', snapMarker3(snapAt3(sp.p.x, sp.p.y, sp.pxToView), sp.pxToView));
+  });
+  previewSvg3.addEventListener('mouseleave', () => { if (rulerHover3) rulerHover3.setAttribute('d', ''); });
 
-  /* ---- scroll-wheel zoom (cursor-centered), persists across re-renders ---- */
+  /* ---- drag panning (left button anywhere, middle button too) ----
+     While dragging only the drawing's group moves; it is redrawn once on release. */
+  previewSvg3.addEventListener('mousedown', e => {
+    if (e.button !== 0 && e.button !== 1) return;
+    e.preventDefault();
+    const ctm = previewSvg3.getScreenCTM();
+    isPanning3 = true;
+    dragMoved3 = false;
+    panStart3 = { cx: e.clientX, cy: e.clientY, box: { ...zoomBox }, perPx: ctm && ctm.a ? zoomBox.w / 400 / ctm.a : 1 };
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isPanning3) return;
+    const dx = e.clientX - panStart3.cx, dy = e.clientY - panStart3.cy;
+    if (Math.abs(dx) + Math.abs(dy) > 4) dragMoved3 = true;
+    if (!dragMoved3) return;
+    previewSvg3.classList.add('panning');
+    zoomBox = { x: panStart3.box.x - dx * panStart3.perPx, y: panStart3.box.y - dy * panStart3.perPx, w: panStart3.box.w, h: panStart3.box.h };
+    if (viewRoot3 && renderedBox3 && renderedBox3.w === zoomBox.w) {
+      const k = 400 / zoomBox.w;
+      viewRoot3.setAttribute('transform', `translate(${(renderedBox3.x - zoomBox.x) * k} ${(renderedBox3.y - zoomBox.y) * k})`);
+    } else queueRender3();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!isPanning3) return;
+    isPanning3 = false;
+    previewSvg3.classList.remove('panning');
+    if (dragMoved3) renderPreview();
+  });
+
+  /* ---- scroll-wheel zoom (cursor-centred), up to 100 000× ---- */
   previewSvg3.addEventListener('wheel', e => {
     e.preventDefault();
-    const pt = previewSvg3.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    const ctm = previewSvg3.getScreenCTM();
-    if (!ctm) return;
-    const svgP = pt.matrixTransform(ctm.inverse()); // cursor position in current viewBox space
-
-    const factor = e.deltaY < 0 ? 0.88 : 1.12; // scroll up = zoom in, scroll down = zoom out
-    const newW = zoomBox.w * factor;
-    const newH = zoomBox.h * factor;
-    if (newW < 8 || newW > 4000) return; // clamp: don't zoom past useful limits
-
-    // keep the point under the cursor fixed while scaling
-    const relX = (svgP.x - zoomBox.x) / zoomBox.w;
-    const relY = (svgP.y - zoomBox.y) / zoomBox.h;
-    zoomBox = {
-      x: svgP.x - relX * newW,
-      y: svgP.y - relY * newH,
-      w: newW,
-      h: newH
-    };
-    renderPreview(); // re-render so point/label sizes recompute for the new zoom level, not just the viewBox crop
+    const sp = svgPoint3(e);
+    if (!sp) return;
+    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
+    const newW = zoomBox.w * factor, newH = zoomBox.h * factor;
+    if (newW < 400 / 100000 || newW > 4000) return;
+    // keep the point under the cursor fixed (sp is in view units, 0..400)
+    const relX = sp.p.x / 400, relY = sp.p.y / 320;
+    const bx = zoomBox.x + relX * zoomBox.w, by = zoomBox.y + relY * zoomBox.h;
+    zoomBox = { x: bx - relX * newW, y: by - relY * newH, w: newW, h: newH };
+    queueRender3();
   }, { passive: false });
 
   zoomResetBtn3.addEventListener('click', () => {
