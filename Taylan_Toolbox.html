@@ -1879,6 +1879,10 @@
               <input type="checkbox" id="diameterModeChk5" checked>
               X değerleri çap olarak programlanmış (yarıçap için X/2 çizilir)
             </label>
+            <label class="checkbox-field">
+              <input type="checkbox" id="verticalChk5" checked>
+              Dikey torna (Z yukarı)
+            </label>
             <div class="spacer"></div>
             <button class="btn" id="drawBtn5">Çiz / Simüle Et</button>
           </div>
@@ -1907,7 +1911,7 @@
               <input type="number" id="dxfShiftX5" class="plain-number" value="0" step="0.1" style="width:90px;">
             </div>
           </div>
-          <div class="zoom-hint">Çizimde yatay eksen Z, dikey eksen yarıçap</div>
+          <div class="zoom-hint" id="dxfAxisHint5"></div>
           <div class="dxf-layers" id="dxfLayers5"></div>
           <div class="drop-note" id="dxfNote5"></div>
           <div class="scan-summary" id="drawSummary5" style="display:none;"></div>
@@ -4135,6 +4139,8 @@ const LatheCore = (function () {
   const fcRemove5 = document.getElementById('fcRemove5');
   const rawText5 = document.getElementById('rawText5');
   const diameterModeChk5 = document.getElementById('diameterModeChk5');
+  const verticalChk5 = document.getElementById('verticalChk5');
+  const dxfAxisHint5 = document.getElementById('dxfAxisHint5');
   const drawBtn5 = document.getElementById('drawBtn5');
   const drawSummary5 = document.getElementById('drawSummary5');
   const simPanel5 = document.getElementById('simPanel5');
@@ -4552,16 +4558,44 @@ const LatheCore = (function () {
 
   const arcSamplePoints5 = LatheCore.arcSamplePoints;
 
+  /* ---- plot plane: h to the right, v up ----
+     Horizontal lathe: h = Z, v = X (radius). Vertical lathe: h = X, v = Z.
+     Program geometry goes through plotOf5; part drawings are already in
+     plot coordinates (drawing x → h, y → v), so they never turn with it. */
+  function plotOf5(x, z) { return verticalChk5.checked ? { h: x, v: z } : { h: z, v: x }; }
+  function modelOfPlot5(h, v) { return verticalChk5.checked ? { x: h, z: v } : { x: v, z: h }; }
+  function plotToScreen5(h, v) {
+    const b = latheVb;
+    return [b.offH + (h - b.minH) * b.scale, b.H - (b.offV + (v - b.minV) * b.scale)];
+  }
+  function screenOf5(x, z) { const q = plotOf5(x, z); return plotToScreen5(q.h, q.v); }
+  function modelOfScreen5(sx, sy) {
+    const b = latheVb;
+    return modelOfPlot5(b.minH + (sx - b.offH) / b.scale, b.minV + (b.H - sy - b.offV) / b.scale);
+  }
+  function updateAxisHint5() {
+    dxfAxisHint5.textContent = verticalChk5.checked
+      ? 'Çizimde yatay eksen yarıçap, dikey eksen Z'
+      : 'Çizimde yatay eksen Z, dikey eksen yarıçap';
+  }
+  try { const v = localStorage.getItem('toolbox.latheVertical'); if (v != null) verticalChk5.checked = v === '1'; } catch (e) { /* storage off */ }
+  updateAxisHint5();
+  verticalChk5.addEventListener('change', () => {
+    try { localStorage.setItem('toolbox.latheVertical', verticalChk5.checked ? '1' : '0'); } catch (e) { /* storage off */ }
+    updateAxisHint5();
+    resetZoom5();
+    renderToolpath();
+  });
+
   function segPath5(seg) {
-    const v = latheVb, scale = v.scale;
-    const toSx = z => v.offZ + (z - v.minZ) * scale;
-    const toSy = x => v.H - (v.offX + (x - v.minX) * scale);
-    const x1 = toSx(seg.z1), y1 = toSy(seg.x1);
-    const x2 = toSx(seg.z2), y2 = toSy(seg.x2);
+    const [x1, y1] = screenOf5(seg.x1, seg.z1);
+    const [x2, y2] = screenOf5(seg.x2, seg.z2);
     if (seg.type === 'arcCW' || seg.type === 'arcCCW') {
-      const r = seg.r * scale;
-      const a1 = Math.atan2(seg.x1 - seg.cx, seg.z1 - seg.cz);
-      const a2 = Math.atan2(seg.x2 - seg.cx, seg.z2 - seg.cz);
+      const r = seg.r * latheVb.scale;
+      // angles in the plot plane, so the sweep follows however the axes are laid out
+      const c = plotOf5(seg.cx, seg.cz), p1 = plotOf5(seg.x1, seg.z1), p2 = plotOf5(seg.x2, seg.z2);
+      const a1 = Math.atan2(p1.v - c.v, p1.h - c.h);
+      const a2 = Math.atan2(p2.v - c.v, p2.h - c.h);
       let delta = a2 - a1;
       while (delta <= -Math.PI) delta += 2 * Math.PI;
       while (delta > Math.PI) delta -= 2 * Math.PI;
@@ -4570,7 +4604,7 @@ const LatheCore = (function () {
       // arc >180° would need the G02/G03 label to disambiguate, which isn't
       // handled here yet). Given that, the sweep direction is NOT a free
       // choice — it's fixed by delta's sign relative to the given center.
-      // The display flips the radius axis (toSy) so +X reads as "up" on
+      // The display flips the vertical axis so +v reads as "up" on
       // screen, which also flips the apparent rotational sense versus raw
       // SVG's y-down convention — hence the inversion below.
       const largeArc = 0;
@@ -4588,28 +4622,25 @@ const LatheCore = (function () {
     const drawings = { rough: dxfGeoms5('rough'), finish: dxfGeoms5('finish') };
     if (segments.length === 0 && !drawings.rough.length && !drawings.finish.length) return;
 
-    const allX = [], allZ = [];
+    const allH = [], allV = [];
+    const addModel = (x, z) => { const q = plotOf5(x, z); allH.push(q.h); allV.push(q.v); };
     segments.concat(userOffsets5).forEach(s => {
       if (s.type === 'arcCW' || s.type === 'arcCCW') {
-        arcSamplePoints5(s).forEach(p => { allX.push(p.x); allZ.push(p.z); });
+        arcSamplePoints5(s).forEach(p => addModel(p.x, p.z));
       } else {
-        allX.push(s.x1, s.x2); allZ.push(s.z1, s.z2);
+        addModel(s.x1, s.z1); addModel(s.x2, s.z2);
       }
     });
-    drawings.rough.concat(drawings.finish).forEach(g => dxfPoints5(g).forEach(p => { allX.push(p.x); allZ.push(p.z); }));
-    let minX = Math.min(...allX), maxX = Math.max(...allX);
-    let minZ = Math.min(...allZ), maxZ = Math.max(...allZ);
-    if (minX === maxX) { minX -= 1; maxX += 1; }
-    if (minZ === maxZ) { minZ -= 1; maxZ += 1; }
-    const rangeX = maxX - minX, rangeZ = maxZ - minZ;
-    const scale = Math.min((W - PAD * 2) / rangeZ, (H - PAD * 2) / rangeX);
-    const offZ = (W - rangeZ * scale) / 2, offX = (H - rangeX * scale) / 2;
-
-    // Z horizontal (screen X), X/radius vertical (screen Y, flipped so +X is up)
-    const toSx = z => offZ + (z - minZ) * scale;
-    const toSy = x => H - (offX + (x - minX) * scale);
+    drawings.rough.concat(drawings.finish).forEach(g => dxfPoints5(g).forEach(q => { allH.push(q.h); allV.push(q.v); }));
+    let minH = Math.min(...allH), maxH = Math.max(...allH);
+    let minV = Math.min(...allV), maxV = Math.max(...allV);
+    if (minH === maxH) { minH -= 1; maxH += 1; }
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    const rangeH = maxH - minH, rangeV = maxV - minV;
+    const scale = Math.min((W - PAD * 2) / rangeH, (H - PAD * 2) / rangeV);
+    const offH = (W - rangeH * scale) / 2, offV = (H - rangeV * scale) / 2;
     const screenScale = zoomBox5.w / W;
-    latheVb = { minX, minZ, scale, offX, offZ, W, H };
+    latheVb = { minH, minV, scale, offH, offV, W, H };
 
     const ns = 'http://www.w3.org/2000/svg';
     function el(tag, attrs) {
@@ -4621,7 +4652,13 @@ const LatheCore = (function () {
       return el(tag, Object.assign({ 'vector-effect': 'non-scaling-stroke' }, attrs));
     }
 
-    if (minX <= 0 && maxX >= 0) latheSvg5.appendChild(strokedEl('line', { x1: 0, y1: toSy(0), x2: W, y2: toSy(0), stroke: '#e5e5ea', 'stroke-width': 1 }));
+    // spindle axis (X = 0)
+    if (verticalChk5.checked) {
+      if (minH <= 0 && maxH >= 0) { const [ax] = plotToScreen5(0, 0); latheSvg5.appendChild(strokedEl('line', { x1: ax, y1: 0, x2: ax, y2: H, stroke: '#e5e5ea', 'stroke-width': 1 })); }
+    } else if (minV <= 0 && maxV >= 0) {
+      const [, ay] = plotToScreen5(0, 0);
+      latheSvg5.appendChild(strokedEl('line', { x1: 0, y1: ay, x2: W, y2: ay, stroke: '#e5e5ea', 'stroke-width': 1 }));
+    }
 
     const segPath = segPath5;
 
@@ -4693,16 +4730,18 @@ const LatheCore = (function () {
 
     const { pos } = positionAtLine(currentLine);
     if (pos) {
-      latheSvg5.appendChild(el('circle', { cx: toSx(pos.z), cy: toSy(pos.x), r: 4 * screenScale, fill: '#ff3b30' }));
+      const [px, py] = screenOf5(pos.x, pos.z);
+      latheSvg5.appendChild(el('circle', { cx: px, cy: py, r: 4 * screenScale, fill: '#ff3b30' }));
     }
 
     // ruler overlay
     if (rulerPts5.length >= 1) {
-      rulerPts5.forEach(p => latheSvg5.appendChild(strokedEl('circle', { cx: toSx(p.z), cy: toSy(p.x), r: 4.5 * screenScale, fill: 'none', stroke: '#b3521f', 'stroke-width': 1.6 })));
+      rulerPts5.forEach(p => { const [cx, cy] = screenOf5(p.x, p.z); latheSvg5.appendChild(strokedEl('circle', { cx, cy, r: 4.5 * screenScale, fill: 'none', stroke: '#b3521f', 'stroke-width': 1.6 })); });
     }
     if (rulerPts5.length === 2) {
       const [p1, p2] = rulerPts5;
-      latheSvg5.appendChild(strokedEl('line', { x1: toSx(p1.z), y1: toSy(p1.x), x2: toSx(p2.z), y2: toSy(p2.x), stroke: '#b3521f', 'stroke-width': 1.4, 'stroke-dasharray': '4,3' }));
+      const [ax, ay] = screenOf5(p1.x, p1.z), [bx, by] = screenOf5(p2.x, p2.z);
+      latheSvg5.appendChild(strokedEl('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: '#b3521f', 'stroke-width': 1.4, 'stroke-dasharray': '4,3' }));
     }
   }
 
@@ -4821,18 +4860,15 @@ const LatheCore = (function () {
   });
 
   function placeRulerPoint(svgX, svgY) {
-    const toSx = z => latheVb.offZ + (z - latheVb.minZ) * latheVb.scale;
-    const toSy = x => latheVb.H - (latheVb.offX + (x - latheVb.minX) * latheVb.scale);
     const candidates = [];
     segments.forEach(s => { candidates.push({ x: s.x1, z: s.z1 }, { x: s.x2, z: s.z2 }); });
     let snapped = null, bestDist = 10;
     candidates.forEach(p => {
-      const d = Math.hypot(toSx(p.z) - svgX, toSy(p.x) - svgY);
+      const [sx, sy] = screenOf5(p.x, p.z);
+      const d = Math.hypot(sx - svgX, sy - svgY);
       if (d < bestDist) { bestDist = d; snapped = p; }
     });
-    const dataX = latheVb.minX + (latheVb.H - svgY - latheVb.offX) / latheVb.scale;
-    const dataZ = latheVb.minZ + (svgX - latheVb.offZ) / latheVb.scale;
-    const clicked = snapped || { x: dataX, z: dataZ };
+    const clicked = snapped || modelOfScreen5(svgX, svgY);
 
     if (rulerPts5.length >= 2) rulerPts5 = [];
     rulerPts5.push(clicked);
@@ -4931,41 +4967,40 @@ const LatheCore = (function () {
   }
 
   // Shift fields are in program units: X is a diameter when the program's is.
+  // Returned as a plot-plane vector.
   function dxfShift5() {
     const z = parseFloat(dxfShiftZ5.value) || 0, x = parseFloat(dxfShiftX5.value) || 0;
-    return { z, x: diameterModeChk5.checked ? x / 2 : x };
+    return plotOf5(diameterModeChk5.checked ? x / 2 : x, z);
   }
-  // Visible drawing geometry in model coordinates: drawing x → Z, drawing y → X (radius).
-  // Arc angles carry over as is — atan2(y−cy, x−cx) is the model's atan2(x−cx, z−cz).
+  // Visible drawing geometry in plot coordinates (drawing x → h, y → v);
+  // DXF arc angles are already measured that way.
   function dxfGeoms5(kind) {
     const d = dxf5[kind];
     if (!d) return [];
     const sh = dxfShift5();
     return d.entities.filter(g => !d.hidden.has(g.layer)).map(g => {
-      if (g.kind === 'line') return { kind: 'line', z1: g.x1 + sh.z, x1: g.y1 + sh.x, z2: g.x2 + sh.z, x2: g.y2 + sh.x };
-      if (g.kind === 'arc') return { kind: 'arc', cz: g.cx + sh.z, cx: g.cy + sh.x, r: g.r, a1: g.a1, a2: g.a2 };
-      return { kind: 'poly', pts: g.pts.map(p => ({ z: p.x + sh.z, x: p.y + sh.x })) };
+      if (g.kind === 'line') return { kind: 'line', h1: g.x1 + sh.h, v1: g.y1 + sh.v, h2: g.x2 + sh.h, v2: g.y2 + sh.v };
+      if (g.kind === 'arc') return { kind: 'arc', ch: g.cx + sh.h, cv: g.cy + sh.v, r: g.r, a1: g.a1, a2: g.a2 };
+      return { kind: 'poly', pts: g.pts.map(p => ({ h: p.x + sh.h, v: p.y + sh.v })) };
     });
   }
   function dxfPoints5(g) {
-    if (g.kind === 'line') return [{ x: g.x1, z: g.z1 }, { x: g.x2, z: g.z2 }];
+    if (g.kind === 'line') return [{ h: g.h1, v: g.v1 }, { h: g.h2, v: g.v2 }];
     if (g.kind === 'poly') return g.pts;
     const pts = [], n = 32;
     for (let i = 0; i <= n; i++) {
       const a = g.a1 + (g.a2 - g.a1) * i / n;
-      pts.push({ x: g.cx + g.r * Math.sin(a), z: g.cz + g.r * Math.cos(a) });
+      pts.push({ h: g.ch + g.r * Math.cos(a), v: g.cv + g.r * Math.sin(a) });
     }
     return pts;
   }
-  // Arcs are CCW in the drawing; with +X drawn upward that is SVG sweep 0.
+  // Arcs are CCW in the drawing; with +v drawn upward that is SVG sweep 0.
   function dxfPath5(g) {
-    const v = latheVb;
-    const sx = z => v.offZ + (z - v.minZ) * v.scale;
-    const sy = x => v.H - (v.offX + (x - v.minX) * v.scale);
-    if (g.kind === 'line') return `M ${sx(g.z1)} ${sy(g.x1)} L ${sx(g.z2)} ${sy(g.x2)}`;
-    if (g.kind === 'poly') return g.pts.map((p, i) => `${i ? 'L' : 'M'} ${sx(p.z)} ${sy(p.x)}`).join(' ');
-    const R = g.r * v.scale;
-    const at = a => `${sx(g.cz + g.r * Math.cos(a))} ${sy(g.cx + g.r * Math.sin(a))}`;
+    const pt = (h, v) => plotToScreen5(h, v).join(' ');
+    if (g.kind === 'line') return `M ${pt(g.h1, g.v1)} L ${pt(g.h2, g.v2)}`;
+    if (g.kind === 'poly') return g.pts.map((p, i) => `${i ? 'L' : 'M'} ${pt(p.h, p.v)}`).join(' ');
+    const R = g.r * latheVb.scale;
+    const at = a => pt(g.ch + g.r * Math.cos(a), g.cv + g.r * Math.sin(a));
     const span = g.a2 - g.a1;
     if (span >= 2 * Math.PI - 1e-9) return `M ${at(g.a1)} A ${R} ${R} 0 0 0 ${at(g.a1 + Math.PI)} A ${R} ${R} 0 0 0 ${at(g.a1)}`;
     return `M ${at(g.a1)} A ${R} ${R} 0 ${span > Math.PI ? 1 : 0} 0 ${at(g.a2)}`;
@@ -5004,7 +5039,7 @@ const LatheCore = (function () {
     const ctm = latheSvg5.getScreenCTM();
     if (!ctm) return null;
     const p = pt.matrixTransform(ctm.inverse());
-    return { x: latheVb.minX + (latheVb.H - p.y - latheVb.offX) / latheVb.scale, z: latheVb.minZ + (p.x - latheVb.offZ) / latheVb.scale };
+    return modelOfScreen5(p.x, p.y);
   }
 
   function describeOffset5(o) {
@@ -5080,6 +5115,8 @@ const LatheCore = (function () {
   function buildScr5() {
     const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
     const fmt = v => v.toFixed(p);
+    // drawn the way the plot shows it (Z,X horizontal lathe; X,Z vertical)
+    const scrPt = pt => { const q = plotOf5(pt.x, pt.z); return `${fmt(q.h)},${fmt(q.v)}`; };
     const lines = [];
 
     // Original toolpath — one connected line through every point in program
@@ -5097,7 +5134,7 @@ const LatheCore = (function () {
       lines.push('CECOLOR');
       lines.push(resolveColorValue5(colorSelOrigLathe, customColorOrigLathe));
       lines.push('_line');
-      origPts.forEach(pt => lines.push(`${fmt(pt.z)},${fmt(pt.x)}`));
+      origPts.forEach(pt => lines.push(scrPt(pt)));
       lines.push('');
     }
 
@@ -5108,7 +5145,7 @@ const LatheCore = (function () {
       userOffsets5.forEach(o => {
         const pts = o.type === 'linear' ? [{ x: o.x1, z: o.z1 }, { x: o.x2, z: o.z2 }] : arcSamplePoints5(o, geomTol5());
         lines.push('_line');
-        pts.forEach(pt => lines.push(`${fmt(pt.z)},${fmt(pt.x)}`));
+        pts.forEach(pt => lines.push(scrPt(pt)));
         lines.push('');
       });
     }
