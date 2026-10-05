@@ -6816,14 +6816,26 @@ const LatheCore = (function () {
    stays in the program as written, so the control stops on it, and the
    line is marked "!! KONTROL". */
 const ProgConvert = (function () {
+  // family decides the route: iso → siemens, iso → iso, siemens → iso
   const SOURCES = [
-    { id: 'mazak', name: 'Mazak EIA/ISO' },
-    { id: 'fanuc', name: 'Fanuc / Haas ISO' }
+    { id: 'mazak', name: 'Mazak EIA/ISO', family: 'iso' },
+    { id: 'fanuc', name: 'Fanuc / Haas ISO', family: 'iso' },
+    { id: 'siemens840d', name: 'Siemens 840D', family: 'siemens' }
   ];
   const TARGETS = [
-    { id: 'siemens840d', name: 'Siemens 840D', writer: 'siemens', mainExt: '.MPF' },
-    { id: 'iso', name: 'Fanuc / Mazak / Haas ISO', writer: 'iso', mainExt: '' }
+    { id: 'siemens840d', name: 'Siemens 840D', family: 'siemens', writer: 'siemens', mainExt: '.MPF' },
+    { id: 'mazak', name: 'Mazak EIA/ISO', family: 'iso', writer: 'iso', mainExt: '.EIA' },
+    { id: 'iso', name: 'Fanuc / Haas ISO', family: 'iso', writer: 'iso', mainExt: '.NC' }
   ];
+  const routeOf = (sourceId, targetId) => {
+    const s = SOURCES.find(x => x.id === sourceId), t = TARGETS.find(x => x.id === targetId);
+    if (!s || !t) return null;
+    if (s.family === 'iso' && t.family === 'siemens') return 'iso-siemens';
+    if (s.family === 'iso' && t.family === 'iso') return 'iso-iso';
+    if (s.family === 'siemens' && t.family === 'iso') return 'siemens-iso';
+    return null; // 840D → 840D: not yet
+  };
+  const targetsFor = sourceId => TARGETS.filter(t => routeOf(sourceId, t.id));
 
   const HEADER = `// "//" ile başlayan satırlar açıklamadır. Şablonlardaki her satır programa
 // olduğu gibi yazılır; {T} gibi yer tutucular doldurulur. Bir şablon boş
@@ -6843,7 +6855,7 @@ M9 = M9 | M52
 
 [G KODLARI]
 // Siemens'te karşılığı olmayan ya da gereksiz Mazak G kodları
-G61.1 =
+G61.1 = CYCLE832(0.001,1,1)
 G5.1 =
 G49 =
 G67 =
@@ -6853,7 +6865,7 @@ G21 = G710
 [METİN]
 // Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
 MAZAK - VARI-AXIS I700-I800 => HERMLE  VARI-AXIS
-TEI_MAIN =>
+_MAIN *) =>
 LOKASYON ISLENECEK =>
 
 [BAŞLANGIÇ]
@@ -6896,8 +6908,29 @@ IPTAL
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 MSG (" *** {N}. DELIK *** ")
 
-[MAKRO P9862]
-// G65 P9862 takım ölçümü — {harf}: G65 satırındaki değer (S, R, Y, Z, E, T, B)
+[EĞİK DÜZLEM]
+// G68.2 X Y Z I J K (+ G53.1) — {X} {Y} {Z} {I} {J} {K}: G68.2 satırındaki değerler.
+// Aynı düzlem art arda yeniden seçilirse tekrar yazılmaz.
+R20 = 0
+CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{I},({J}+ R20),{K},0,0,0,-1,,100)
+
+[EĞİK DÜZLEM İPTALİ]
+// G68.2'den sonra gelmeyen G69
+CYCLE800()
+
+[MAKRO P9862 B1]
+// G65 P9862 B1 — yalnız boy ölçümü · {S}: G65 satırındaki S
+R80={S} ;(* CUTTING TOOL SPEED *)
+R91=0 ;(* TOOL PRE LENGTH *)
+R108=10.500 ;( TOOL LENGTH FOR CHECK ) !! KONTROL: takım boyu
+R109=0.100 ;( TOOL LENGTH TOLERANCE)
+R213=0 ;( TOOL PROB REVISION )
+CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2006_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
+L_M54
+M01
+
+[MAKRO P9862 B3]
+// G65 P9862 B3 — boy ve çap ölçümü · {harf}: G65 satırındaki değer (S, R, Y, Z, E, T)
 S750 M3
 G0 C0
 R80={S} ;(* CUTTING TOOL SPEED *)
@@ -6911,7 +6944,7 @@ R98={E} ;(*RADIUS TOLERANCE*)
 R108=10.500 ;( TOOL LENGTH FOR CHECK ) !! KONTROL: takım boyu
 R109=0.100 ;( TOOL LENGTH TOLERANCE)
 R213=0 ;( TOOL PROB REVISION )
-CALL"/_N_CUS_DIR/_N_TEI_BLUM_DIR/_N_SUB2000_SPF"
+CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2000_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
 M5
 D1
 
@@ -6922,9 +6955,166 @@ DOSYA = L{P}.SPF
 SON = M17
 `;
 
+  const HERMLE_TO_VARIAXIS = `// Hermle C52 (Siemens 840D sl) → Mazak Variaxis
+${HEADER}
+[M KODLARI]
+// Siemens = Mazak   ·   boş: sil   ·   | : alt alta satırlar
+M25 =
+M27 =
+M51 =
+M52 =
+
+[G KODLARI]
+G70 = G20
+G700 = G20
+G71 = G21
+G710 = G21
+G54 = G54.1 P1
+G500 =
+
+[METİN]
+// Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
+HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800
+
+[KOMUTLAR]
+// Siemens komutu ya da alt program adı = Mazak satırları (| alt alta, boş: sil)
+L_M54 = G91 G28 Z0. | G90
+IPTAL = G69 (* IPTAL *)
+STOPRE =
+TRANS =
+TRAFOOF = G49
+TRAORI = G43.4 (!! KONTROL: 5 eksen dönüşümü)
+
+[TAKIM DEĞİŞTİRME]
+// T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan)
+#989={T} (* TAKIM NO *)
+T[#989] M06
+
+[TAKIM NUMARALARI]
+// Siemens takım adı = Mazak takım numarası
+TK1346_SPOTDRILL = 3
+
+[SABİT NOKTA]
+// G75 (sabit nokta) satırının yerine
+G91 G28 Z0.
+G90
+
+[EĞİK DÜZLEM]
+// CYCLE800(...) — {X0} {Y0} {Z0} {A} {B} {C}: CYCLE800 değerleri
+M46 M43
+G69
+G0
+G68.2 P1 X{X0} Y{Y0} Z{Z0} I{A} J{B} K{C}
+G53.1
+M47 M44
+
+[EĞİK DÜZLEM İPTALİ]
+// CYCLE800() ya da CYCLE800(,"0",...)
+G69
+
+[YÜKSEK HIZ]
+// CYCLE832(tolerans, ...) — {TOL}: tolerans
+G61.1
+
+[YÜKSEK HIZ İPTALİ]
+// CYCLE832() ya da CYCLE832(,0)
+G64
+
+[DÖNER EKSEN]
+// A/B/C hareketi olan satır kilit aç / kilitle arasına alınır — {SATIR}: çevrilen satır
+M46 M43
+{SATIR}
+M47 M44
+
+[ÇAĞRI SUB2000]
+// CALL ".../_N_SUB2000_SPF" — {Rnn}: çağrıdan önce verilen R parametresi
+G65 P9862 B3. T[#989] E{R98} R{R92*2} S{R80} Y{R97} Z{R96}
+
+[ÇAĞRI SUB2006]
+G65 P9862 B1. T[#989] S{R80}
+
+[R PARAMETRELERİ]
+// Rn → #(TABAN+n)
+TABAN = 500
+
+[ALT PROGRAM]
+// L1234 P3 → M98 P1234 L3 — dosya adı, çağrı ve alt program sonu
+DOSYA = O{P}.EIA
+ÇAĞRI = M98 P{P} L{L}
+SON = M99
+`;
+
+  function genericFromSiemens(targetId) {
+    const tgt = TARGETS.find(x => x.id === targetId) || TARGETS[1];
+    const mazak = targetId === 'mazak';
+    return `// Siemens 840D → ${tgt.name} — genel makine
+${HEADER}
+[M KODLARI]
+// Siemens = hedef   ·   boş: sil   ·   | : alt alta satırlar
+
+[G KODLARI]
+G70 = G20
+G700 = G20
+G71 = G21
+G710 = G21
+G500 =
+
+[METİN]
+// Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
+
+[KOMUTLAR]
+// Siemens komutu ya da alt program adı = hedef satırları (| alt alta, boş: sil)
+STOPRE =
+TRANS =
+TRAFOOF = G49
+TRAORI = G43.4 H{T} (!! KONTROL: 5 eksen dönüşümü)
+
+[TAKIM DEĞİŞTİRME]
+// T.. M6 — {T}: takım numarası
+T{T} M6${mazak ? '' : '\nG43 H{T}'}
+
+[TAKIM NUMARALARI]
+// Siemens takım adı = takım numarası (T="AD" kullanan programlar için)
+
+[SABİT NOKTA]
+// G75 (sabit nokta) satırının yerine
+G91 G28 Z0
+G90
+
+[EĞİK DÜZLEM]
+// CYCLE800(...) — {X0} {Y0} {Z0} {A} {B} {C}: CYCLE800 değerleri
+G68.2 X{X0} Y{Y0} Z{Z0} I{A} J{B} K{C}
+G53.1
+
+[EĞİK DÜZLEM İPTALİ]
+G69
+
+[YÜKSEK HIZ]
+// CYCLE832(tolerans, ...) — {TOL}: tolerans
+${mazak ? 'G61.1' : 'G05.1 Q1'}
+
+[YÜKSEK HIZ İPTALİ]
+${mazak ? 'G64' : 'G05.1 Q0'}
+
+[DÖNER EKSEN]
+// A/B/C hareketi olan satırı sarmak için; {SATIR}: çevrilen satır. Boş: olduğu gibi
+
+[R PARAMETRELERİ]
+// Rn → #(TABAN+n)
+TABAN = 500
+
+[ALT PROGRAM]
+// L1234 P3 → M98 P1234 L3
+DOSYA = O{P}${tgt.mainExt}
+ÇAĞRI = M98 P{P} L{L}
+SON = M99
+`;
+  }
+
   // A starting point for any machine of a source/target pair; the user
   // copies it to a machine profile and fills in that machine's habits.
   function genericRules(sourceId, targetId) {
+    if (sourceId === 'siemens840d') return genericFromSiemens(targetId);
     const src = (SOURCES.find(x => x.id === sourceId) || SOURCES[0]).name;
     const tgt = TARGETS.find(x => x.id === targetId) || TARGETS[0];
     const mazakM = sourceId !== 'mazak' ? '' : tgt.writer === 'iso' ? `// Variaxis döner eksen kilitleri — hedefte otomatikse baştaki // işaretini kaldırın
@@ -7022,8 +7212,11 @@ SON = M17
 
   // Machines that come with the tool. Edits to them are kept as overrides;
   // "Varsayılana Dön" brings these back.
-  const PROFILES = [{ id: 'hermle-c52', name: 'Hermle C52 (TEI)', source: 'mazak', target: 'siemens840d', rules: DEFAULT_RULES }];
-  SOURCES.forEach(sr => TARGETS.forEach(tg => PROFILES.push({
+  const PROFILES = [
+    { id: 'hermle-c52', name: 'Hermle C52', source: 'mazak', target: 'siemens840d', rules: DEFAULT_RULES },
+    { id: 'variaxis-from-hermle', name: 'Mazak Variaxis (Hermle C52 programlarından)', source: 'siemens840d', target: 'mazak', rules: HERMLE_TO_VARIAXIS }
+  ];
+  SOURCES.forEach(sr => targetsFor(sr.id).forEach(tg => PROFILES.push({
     id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
   })));
 
@@ -7064,11 +7257,32 @@ SON = M17
       const r = l.match(/^(.*?)=>(.*)$/);
       if (r && r[1].trim()) text2.push({ find: r[1].trim(), repl: r[2].trim() });
     });
-    const macros = new Map();
+    // [MAKRO P9862] or, per argument, [MAKRO P9862 B1]
+    const macros = [];
     Object.keys(sections).forEach(k => {
-      const r = k.match(/^MAKRO\s+P?(\d+)$/);
-      if (r) macros.set(String(parseInt(r[1], 10)), trimBlock(sections[k]));
+      const r = k.match(/^MAKRO\s+P?(\d+)((?:\s+[A-Z]\s*-?[\d.]+)*)$/);
+      if (!r) return;
+      const conds = (r[2].match(/[A-Z]\s*-?[\d.]+/g) || []).map(c => ({ letter: c[0], value: parseFloat(c.slice(1)) }));
+      macros.push({ p: String(parseInt(r[1], 10)), conds, tpl: trimBlock(sections[k]) });
     });
+    const tplOf = name => trimBlock(sections[name]);
+    const mapLines = arr => {
+      const m = new Map();
+      (arr || []).forEach(l => {
+        const r = l.match(/^\s*([^=\s][^=]*?)\s*=(.*)$/);
+        if (!r) return;
+        const rhs = r[2].trim();
+        m.set(r[1].trim().toUpperCase(), rhs ? rhs.split('|').map(x => x.trim()).filter(Boolean) : []);
+      });
+      return m;
+    };
+    const calls = new Map();
+    Object.keys(sections).forEach(k => {
+      const r = k.match(/^CAGRI\s+(\S+)$/);
+      if (r) calls.set(r[1].toUpperCase(), trimBlock(sections[k]));
+    });
+    let rbase = 500;
+    (sections['R PARAMETRELERI'] || []).forEach(l => { const r = l.match(/TABAN\s*=\s*(\d+)/i); if (r) rbase = parseInt(r[1], 10); });
     const sub = { file: 'L{P}.SPF', call: 'L{P} P{L}', end: 'M17' };
     (sections['ALT PROGRAM'] || []).forEach(l => {
       const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
@@ -7088,6 +7302,16 @@ SON = M17
       mid: trimBlock(sections['ARA DONUS']),
       end: trimBlock(sections['PROGRAM SONU']),
       holeMsg: trimBlock(sections['DELIK MESAJI']),
+      plane: tplOf('EGIK DUZLEM'),
+      planeOff: tplOf('EGIK DUZLEM IPTALI'),
+      hsc: tplOf('YUKSEK HIZ'),
+      hscOff: tplOf('YUKSEK HIZ IPTALI'),
+      fixedPoint: tplOf('SABIT NOKTA'),
+      rotary: tplOf('DONER EKSEN'),
+      cmds: mapLines(sections['KOMUTLAR']),
+      toolNames: mapLines(sections['TAKIM NUMARALARI']),
+      calls,
+      rbase,
       macros,
       sub
     };
@@ -7098,7 +7322,7 @@ SON = M17
   function splitLine(raw) {
     let s = raw.replace(/\s+$/, '');
     const comments = [];
-    s = s.replace(/\([^)]*\)?/g, m => { comments.push(m.endsWith(')') ? m : m + ')'); return ' '; });
+    s = s.replace(/\([^)]*\)?/g, m => { if (!/^\(\s*!!\s*KONTROL/i.test(m)) comments.push(m.endsWith(')') ? m : m + ')'); return ' '; });
     let n = null;
     const nm = s.match(/^\s*(N\d+)\s*/i);
     if (nm) { n = nm[1].toUpperCase(); s = s.slice(nm[0].length); }
@@ -7169,7 +7393,7 @@ SON = M17
 
     const st = {
       abs: true, outAbs: true, motion: 0, pos: { X: null, Y: null, Z: null },
-      tool: null, toolChanges: 0, cycle: null, retract98: true, traori: false, holes: 0, F: null, S: null
+      tool: null, toolChanges: 0, cycle: null, retract98: true, traori: false, holes: 0, F: null, S: null, plane: null
     };
     const forget = () => { st.pos = { X: null, Y: null, Z: null }; };
 
@@ -7229,6 +7453,15 @@ SON = M17
       return null;
     }
     const near = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-9;
+    // is the G69 on line i only the reset before another G68.2 (nothing moves in between)?
+    function planeFollows(i) {
+      for (let j = i + 1; j < srcLines.length; j++) {
+        const { words } = wordsOf(splitLine(srcLines[j]).code, true);
+        if (words.some(w => w.letter === 'G' && Math.abs(w.value - 68.2) < 1e-9)) return true;
+        if (words.some(w => 'XYZABC'.includes(w.letter) || (w.letter === 'M' && [6, 30, 2, 98, 99].includes(w.value)) || (w.letter === 'G' && [28, 65].includes(w.value)))) return false;
+      }
+      return false;
+    }
 
     for (let i = 0; i < srcLines.length; i++) {
       const raw = srcLines[i];
@@ -7314,7 +7547,9 @@ SON = M17
       // ---- G65 macro call ----
       if (has(ws, 'G', 65)) {
         const pW = get(ws, 'P');
-        const tpl = pW && R.macros.get(String(parseInt(pW.raw, 10)));
+        const cands = pW ? R.macros.filter(mc => mc.p === String(parseInt(pW.raw, 10)) && mc.conds.every(c => get(ws, c.letter) && Math.abs(get(ws, c.letter).value - c.value) < 1e-9)) : [];
+        cands.sort((a, b) => b.conds.length - a.conds.length);
+        const tpl = cands.length ? cands[0].tpl : null;
         if (tpl) {
           const vals = {};
           ws.forEach(w => { if (w.letter !== 'G' && w.letter !== 'P') vals[w.letter] = w.raw; });
@@ -7370,6 +7605,39 @@ SON = M17
           if (fl) flags.push(fl);
         }
         changed = true;
+      }
+
+      // ---- tilted working plane ----
+      const g682 = ws.find(w => w.letter === 'G' && Math.abs(w.value - 68.2) < 1e-9);
+      if (g682 && (R.plane.length || !SIE)) {
+        if (R.plane.length) {
+          const vals = {};
+          'XYZIJK'.split('').forEach(l => { const w = get(ws, l); vals[l] = fmt(w ? w.value : 0); });
+          const key = JSON.stringify(vals);
+          if (st.plane !== key) {
+            emitTpl(i, R.plane, vals);
+            if (['I', 'J', 'K'].some(l => vals[l] !== '0')) out[out.length - 1].flag = 'eğik düzlem açıları makinenin eksen açılarına göre kontrol edilmeli';
+            st.plane = key;
+          }
+          if (comments.length) emit(i, withComments('', comments), 'changed');
+          forget();
+          continue;
+        }
+      }
+      if (ws.some(w => w.letter === 'G' && Math.abs(w.value - 53.1) < 1e-9) && R.plane.length) {
+        ws = ws.filter(w => !(w.letter === 'G' && Math.abs(w.value - 53.1) < 1e-9)); // the plane template orients the tool
+        changed = true;
+        if (!ws.length) { if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
+      }
+      const g69 = ws.find(w => w.letter === 'G' && w.value === 69);
+      if (g69 && R.plane.length) {
+        ws = ws.filter(w => w !== g69);
+        changed = true;
+        if (!planeFollows(i)) { // a real cancel, not the reset before the next G68.2
+          if (R.planeOff.length) { emitTpl(i, R.planeOff, {}); if (!ws.length && comments.length) { out[out.length - 1].text = withComments(out[out.length - 1].text, comments); comments = []; } }
+          st.plane = null;
+        }
+        if (!ws.length) { if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
       }
 
       // ---- modal G state of the source ----
@@ -7439,7 +7707,8 @@ SON = M17
           if (st.retract98 && c.init == null) fl.push('G98 dönüş yüksekliği bilinmiyor');
           if (!st.abs) fl.push('G91 ile delme döngüsü');
           const rtp = st.retract98 && c.init != null ? c.init : c.R;
-          const P = [fmt(rtp), fmt(c.R), '0', fmt(c.Z)];
+          // RFP + SDIS = the Fanuc R point; above zero it is written as surface 0 plus safety distance
+          const P = c.R > 0 ? [fmt(rtp), '0', fmt(c.R), fmt(c.Z)] : [fmt(rtp), fmt(c.R), '0', fmt(c.Z)];
           let call;
           if (c.g === 81) call = `CYCLE81(${P.join(',')})`;
           else if (c.g === 82) call = `CYCLE82(${P.join(',')},,${fmt((c.P || 0) / 1000)})`;
@@ -7474,6 +7743,7 @@ SON = M17
 
       // ---- word-by-word ----
       const newWs = [];
+      let dropQ = false;
       ws.forEach(w => {
         if (w.letter === 'G') {
           const key = codeKey('G', w.raw);
@@ -7481,6 +7751,7 @@ SON = M17
             const rep = R.g.get(key);
             if (SIE && w.value === 49 && st.traori) { newWs.push({ text: 'TRAFOOF' }); st.traori = false; changed = true; return; }
             if (rep.length) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
+            if (Math.abs(w.value - 5.1) < 1e-9) dropQ = true; // G05.1 Q1: the Q belongs to the G
             changed = true; return;
           }
           if (!SIE) { newWs.push(w); return; }
@@ -7510,7 +7781,7 @@ SON = M17
         if (SIE && w.letter === 'D' && ws.some(x => x.letter === 'G' && (x.value === 41 || x.value === 42))) { changed = true; return; }
         newWs.push(w);
       });
-      ws = newWs;
+      ws = dropQ ? newWs.filter(w => w.letter !== 'Q') : newWs;
 
       // dwell: Mazak P milliseconds / X seconds → Siemens F seconds
       if (SIE && has(ws, 'G', 4)) {
@@ -7581,6 +7852,456 @@ SON = M17
     return { lines: out, srcLines, notes, calls };
   }
 
+  /* ---------- Siemens 840D → ISO (Mazak / Fanuc / Haas) ----------
+     The other direction: 840D syntax read back into a Fanuc-type program.
+     Comments, R parameters (→ #TABAN+n), labels and GOTOF/GOTOB, MCALL
+     CYCLE81–85 (→ G81–G85), CR= (→ R), G4 F, SUPA, T="name" through the tool
+     number table. What is machine-specific — named subprogram calls like
+     L_M54, CALL paths, CYCLE800 / CYCLE832, G75 — comes from the rules. */
+  const CYCLE800_ARGS = ['FR', 'TC', 'ST', 'MODE', 'X0', 'Y0', 'Z0', 'A', 'B', 'C', 'X1', 'Y1', 'Z1', 'DIR', 'FR_I', 'DMODE'];
+
+  function splitArgs(s) { // top-level commas; quotes and brackets kept whole
+    const out = [];
+    let depth = 0, q = false, cur = '';
+    for (const ch of s) {
+      if (ch === '"') q = !q;
+      else if (!q && ch === '(') depth++;
+      else if (!q && ch === ')') depth--;
+      if (!q && depth === 0 && ch === ',') { out.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  }
+  // arithmetic over numbers and known R parameters; null when anything else is involved
+  function evalExpr(expr, rvals) {
+    const src = String(expr).replace(/\s+/g, '');
+    let i = 0;
+    const factor = () => {
+      const c = src[i];
+      if (c === '+') { i++; return factor(); }
+      if (c === '-') { i++; const v = factor(); return v == null ? null : -v; }
+      if (c === '(') { i++; const v = sum(); if (src[i] !== ')') return null; i++; return v; }
+      const f = src.slice(i).match(/^(SIN|COS|TAN|SQRT|ABS)\(/i);
+      if (f) {
+        i += f[0].length;
+        const v = sum();
+        if (src[i] !== ')' || v == null) return null;
+        i++;
+        const k = f[1].toUpperCase(), rad = v * Math.PI / 180;
+        return k === 'SIN' ? Math.sin(rad) : k === 'COS' ? Math.cos(rad) : k === 'TAN' ? Math.tan(rad) : k === 'SQRT' ? Math.sqrt(v) : Math.abs(v);
+      }
+      const r = src.slice(i).match(/^R(\d+)/i);
+      if (r) { i += r[0].length; return rvals.has(r[1]) ? rvals.get(r[1]) : null; }
+      const m = src.slice(i).match(/^(\d+\.?\d*|\.\d+)/);
+      if (!m) return null;
+      i += m[0].length;
+      return parseFloat(m[0]);
+    };
+    const prod = () => {
+      let v = factor();
+      while (v != null && (src[i] === '*' || src[i] === '/')) { const op = src[i++]; const w = factor(); if (w == null) return null; v = op === '*' ? v * w : v / w; }
+      return v;
+    };
+    const sum = () => {
+      let v = prod();
+      while (v != null && (src[i] === '+' || src[i] === '-')) { const op = src[i++]; const w = prod(); if (w == null) return null; v = op === '+' ? v + w : v - w; }
+      return v;
+    };
+    if (!src) return null;
+    const v = sum();
+    return v != null && i === src.length && isFinite(v) ? v : null;
+  }
+  const fanucCond = (expr, base) => fanucExpr(String(expr).trim().replace(/^\((.*)\)$/, '$1'), base);
+  const fanucExpr = (expr, base) => String(expr)
+    .replace(/\bR(\d+)\b/gi, (m, n) => '#' + (base + parseInt(n, 10)))
+    .replace(/==/g, ' EQ ').replace(/<>/g, ' NE ').replace(/>=/g, ' GE ').replace(/<=/g, ' LE ').replace(/>/g, ' GT ').replace(/</g, ' LT ')
+    .replace(/\(/g, '[').replace(/\)/g, ']').replace(/\s+/g, ' ').trim();
+  // {T}, {X0}, {R80}, {R92*2}: names first, then arithmetic over R parameters
+  function fillExpr(tpl, vals, rvals) {
+    const missing = [];
+    const out = tpl.replace(/\{([^{}]+)\}/g, (m, k) => {
+      const key = k.trim();
+      if (vals[key] != null && vals[key] !== '') return vals[key];
+      const v = evalExpr(key, rvals);
+      if (v != null) return fmt(v);
+      missing.push(key); return '';
+    });
+    return { out, missing };
+  }
+  function splitSie(raw) {
+    const s = raw.replace(/\s+$/, '');
+    let q = false, cut = -1;
+    for (let k = 0; k < s.length; k++) { if (s[k] === '"') q = !q; else if (s[k] === ';' && !q) { cut = k; break; } }
+    // a "!! KONTROL" note from an earlier conversion is not carried over: the line is checked again here
+    let comment = cut >= 0 ? s.slice(cut + 1).replace(/\s*!!\s*KONTROL:.*$/i, '').trim() : null;
+    if (comment === '' && cut >= 0 && /!!\s*KONTROL/i.test(s.slice(cut))) comment = null;
+    let code = cut >= 0 ? s.slice(0, cut) : s;
+    let n = null;
+    const nm = code.match(/^\s*N(\d+)\s*/i);
+    if (nm) { n = nm[1]; code = code.slice(nm[0].length); }
+    let label = null;
+    const lm = code.match(/^\s*([A-Z_][A-Z0-9_]*):(?!=)\s*/i);
+    if (lm) { label = lm[1].toUpperCase(); code = code.slice(lm[0].length); }
+    return { n, label, code: code.trim(), comment };
+  }
+  // a Siemens comment as a Fanuc one: inner brackets can't nest in ( )
+  function isoComment(c) {
+    if (c == null) return null;
+    const t = c.trim();
+    if (!t) return null;
+    if (/^\([^()]*\)$/.test(t)) return t;
+    return '(' + t.replace(/^\(|\)$/g, '').replace(/\(/g, '[').replace(/\)/g, ']').trim() + ')';
+  }
+  const ADDR_RE = /^[A-Z]{1,2}\s*=?\s*-?[\d.]/i;
+
+  function convertFromSiemens(src, opts) {
+    const R = opts.rules;
+    const base = R.rbase;
+    const srcLines = src.split(/\r\n|\r|\n/);
+    if (srcLines.length && srcLines[srcLines.length - 1] === '') srcLines.pop();
+    const parts = srcLines.map(splitSie);
+    const out = [];
+    const notes = [];
+    const emit = (i, text, kind, flag, extra) => out.push(Object.assign({ text, src: i, kind, flag: flag || '' }, extra || {}));
+    const withC = (code, c) => [code, c].filter(Boolean).join(' ');
+
+    // R parameters set to plain numbers and never read by the program itself
+    // are arguments for a cycle or a CALL that the rules turn into one Mazak
+    // line; their assignments go when every call in the program has a rule.
+    const rConst = new Map(), rRead = new Set();
+    let unmappedCall = false;
+    const isCycleLine = c => /^(MCALL\s+)?CYCLE\d+\s*\(|^CALL\s*"/i.test(c);
+    parts.forEach(p => {
+      const a = p.code.match(/^R(\d+)\s*=\s*(.+)$/i);
+      if (a) { const v = evalExpr(a[2], new Map()); rConst.set(a[1], v != null ? v : NaN); } // plain numbers and (0.500/2)-style constants
+      const body = a ? a[2] : p.code;
+      if (!isCycleLine(p.code)) (body.match(/\bR(\d+)\b/gi) || []).forEach(r => rRead.add(r.slice(1)));
+      const call = p.code.match(/^CALL\s*"([^"]*)"/i);
+      if (call && !R.calls.has(callName(call[1]))) unmappedCall = true;
+      const bare = p.code.match(/^([A-Z_][A-Z0-9_]*)(\s+P\s*\d+)?$/i);
+      if (bare && (!ADDR_RE.test(p.code) || /^L\d+$/i.test(bare[1])) && !R.cmds.has(bare[1].toUpperCase()) && !/^(MCALL|STOPRE|ENDWHILE|ELSE|ENDIF|RET|M17)$/i.test(bare[1])) unmappedCall = true;
+    });
+    const dropR = new Set();
+    if (!unmappedCall) rConst.forEach((v, k) => { if (!isNaN(v) && !rRead.has(k)) dropR.add(k); });
+    const rvals = new Map();
+
+    // GOTO targets: labels and block numbers that something jumps to
+    const targets = new Set();
+    parts.forEach(p => { const g = p.code.match(/GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)/i); if (g) targets.add(g[1].toUpperCase()); });
+
+    const st = { abs: true, pos: { X: null, Y: null, Z: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0, rotaryOK: true };
+    const toolNo = v => {
+      if (v == null) return null;
+      const name = String(v).replace(/^"|"$/g, '');
+      if (/^\d+$/.test(name)) return String(parseInt(name, 10));
+      return R.toolNames.has(name.toUpperCase()) ? R.toolNames.get(name.toUpperCase())[0] : null;
+    };
+    const tplOut = (i, tpl, vals, flagFor) => {
+      tpl.forEach(t => {
+        const f = fillExpr(t, vals, rvals);
+        emit(i, f.out, 'template', f.missing.length ? (flagFor || 'şablonda değer yok') + ': ' + f.missing.join(', ') : '');
+      });
+    };
+    // next tool change before anything moves? then a lone T is only the selection for it
+    const m6Follows = i => {
+      for (let j = i + 1; j < parts.length; j++) {
+        const c = parts[j].code;
+        if (/\bM0*6\b/i.test(c)) return true;
+        if (/\b[XYZABC]\s*=?\s*-?[\d.(]/i.test(c) || /^(MCALL|CYCLE|CALL)/i.test(c)) return false;
+      }
+      return false;
+    };
+    function cycleLine(c, xyWords) {
+      // first position of a cycle: the full ISO cycle block
+      const g = { 81: 'G81', 82: 'G82', 83: c.vari === 0 ? 'G73' : 'G83', 84: 'G84', 85: 'G85' }[c.no];
+      const w = [c.retract, g].concat(xyWords).concat([`Z${fmt(c.dp)}`, `R${fmt(c.r)}`]);
+      if (c.q != null) w.push(`Q${fmt(c.q)}`);
+      if (c.p != null) w.push(`P${Math.round(c.p)}`);
+      if (c.f != null) w.push('F' + c.f);
+      return w.join(' ');
+    }
+
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      let comment = isoComment(p.comment);
+      if (comment) {
+        // comment rules work on the text inside the brackets
+        let cc = comment, drop = false;
+        R.text.forEach(r => { if (cc.includes(r.find)) { if (!r.repl) drop = true; else cc = cc.split(r.find).join(r.repl); } });
+        comment = drop ? null : cc;
+      }
+      const lab = p.label && targets.has(p.label) ? p.label : (p.n && targets.has('N' + p.n) ? 'N' + p.n : null);
+      const extra = lab ? { gotoLabel: lab } : null;
+      let code = p.code;
+      const first = out.length;
+      const done = () => { if (lab && out.length > first) out[first].gotoLabel = lab; else if (lab) emit(i, '', 'changed', '', extra); };
+
+      if (!code) {
+        if (p.comment != null && !comment && !p.label) continue; // rules removed the only comment
+        if (p.label && !comment && !lab) continue;                 // a label nothing jumps to
+        emit(i, comment || '', p.label && !comment ? 'changed' : (comment === (p.comment ? isoComment(p.comment) : null) ? 'same' : 'changed'));
+        done(); continue;
+      }
+
+      // ---- R parameters ----
+      const asg = code.match(/^R(\d+)\s*=\s*(.+)$/i);
+      if (asg) {
+        const v = evalExpr(asg[2], rvals);
+        if (v != null) rvals.set(asg[1], v); else rvals.delete(asg[1]);
+        if (dropR.has(asg[1])) { done(); continue; }
+        emit(i, withC(`#${base + parseInt(asg[1], 10)}=${fanucExpr(asg[2].trim(), base)}`, comment), 'changed');
+        done(); continue;
+      }
+      // ---- messages, control flow ----
+      const msg = code.match(/^MSG\s*\((.*)\)$/i);
+      if (msg) {
+        const t = msg[1].replace(/^\s*"|"\s*$/g, '').trim();
+        if (t || comment) emit(i, withC(t ? isoComment(t) : '', comment), 'changed');
+        done(); continue;
+      }
+      let ctl = null;
+      if ((ctl = code.match(/^IF\s+(.+?)\s+GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) {
+        emit(i, withC(`IF [${fanucCond(ctl[1], base)}] GOTO{{${ctl[2].toUpperCase()}}}`, comment), 'changed', 'makro satırı — koşulu ve #değişkenleri kontrol edin');
+        done(); continue;
+      }
+      if ((ctl = code.match(/^GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) { emit(i, withC(`GOTO{{${ctl[1].toUpperCase()}}}`, comment), 'changed'); done(); continue; }
+      if ((ctl = code.match(/^WHILE\s+(.+)$/i))) { st.whileDepth++; emit(i, withC(`WHILE [${fanucCond(ctl[1], base)}] DO${st.whileDepth}`, comment), 'changed', 'makro satırı — koşulu kontrol edin'); done(); continue; }
+      if (/^ENDWHILE$/i.test(code)) { emit(i, withC(`END${Math.max(1, st.whileDepth)}`, comment), 'changed'); st.whileDepth = Math.max(0, st.whileDepth - 1); done(); continue; }
+      if (/^(IF|ELSE|ENDIF|FOR|ENDFOR|REPEAT|UNTIL|LOOP|ENDLOOP|DEF|CASE)\b/i.test(code)) { emit(i, withC(code, comment), 'same', 'bu Siemens yapısı çevrilmedi'); done(); continue; }
+
+      // ---- drilling cycles ----
+      if (/^MCALL$/i.test(code)) {
+        if (st.cycle) { emit(i, withC('G80', comment), 'changed'); if (st.cycle.retZ != null) st.pos.Z = st.cycle.retZ; st.cycle = null; }
+        else if (comment) emit(i, comment, 'changed');
+        done(); continue;
+      }
+      const cyc = code.match(/^(MCALL\s+)?CYCLE(8[1-5])\s*\((.*)\)$/i);
+      if (cyc) {
+        const a = splitArgs(cyc[3]).map(x => (x === '' ? null : evalExpr(x, rvals)));
+        const no = parseInt(cyc[2], 10);
+        const [rtp, rfp, sdis, dp, dpr] = a;
+        const fl = [];
+        const rPoint = (rfp != null ? rfp : 0) + (sdis != null ? sdis : 0);
+        const depth = dp != null ? dp : (dpr != null && rfp != null ? rfp - dpr : null);
+        if (depth == null) fl.push('döngü derinliği okunamadı');
+        const c = { no, r: rPoint, dp: depth, f: st.F, q: null, p: null, vari: 1 };
+        if (no === 82) c.p = a[5] != null ? a[5] * 1000 : null;
+        if (no === 83) {
+          const fdep = a[5], fdpr = a[6], dam = a[7];
+          const firstDepth = fdep != null ? rPoint - fdep : fdpr;
+          c.q = dam > 0 ? dam : firstDepth;
+          c.vari = a[11] != null ? a[11] : 1;
+          if (dam > 0 && firstDepth != null && Math.abs(firstDepth - dam) > 1e-9) fl.push('ilk kademe ve sonraki kademeler farklı — Q tek değer');
+        }
+        if (no === 84) {
+          const pit = a[8], sst = a[10];
+          if (pit != null && sst != null) c.f = fmt(pit * sst);
+          fl.push('kılavuz çekme — F, S ve senkron mod (M29) kontrol edilmeli');
+        }
+        if (no === 85 && a[6] != null) c.f = fmt(a[6]);
+        // the retract height: G98 back to where it started, G99 to the R point
+        const zNow = st.pos.Z;
+        if (rtp != null && Math.abs(rtp - rPoint) < 1e-9) c.retract = 'G99';
+        else {
+          c.retract = 'G98';
+          if (rtp != null && (zNow == null || rtp > zNow + 1e-9)) { emit(i, `G0 Z${fmt(rtp)}`, 'added'); st.pos.Z = rtp; }
+        }
+        c.retZ = c.retract === 'G99' ? rPoint : st.pos.Z;
+        c.flag = fl.join('; ');
+        if (cyc[1]) { st.cycle = c; if (comment) emit(i, comment, 'changed'); }
+        else { // a single call drills where the tool stands
+          const xy = ['X', 'Y'].filter(l => st.pos[l] != null).map(l => l + fmt(st.pos[l]));
+          if (xy.length < 2) fl.push('delik konumu bilinmiyor');
+          emit(i, withC(cycleLine(c, xy), comment), 'changed', fl.join('; '));
+          emit(i, 'G80', 'added');
+        }
+        done(); continue;
+      }
+      // ---- tilted plane, high-speed settings ----
+      const c800 = code.match(/^CYCLE800\s*\((.*)\)$/i);
+      if (c800) {
+        const args = splitArgs(c800[1]);
+        const reset = args.every(x => x === '') || (args[1] || '').replace(/"/g, '') === '0';
+        if (reset) {
+          if (R.planeOff.length) tplOut(i, R.planeOff, {}); else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
+        } else if (R.plane.length) {
+          const vals = {};
+          CYCLE800_ARGS.forEach((k, n) => { const v = args[n] != null && args[n] !== '' ? evalExpr(args[n], rvals) : 0; vals[k] = v == null ? null : fmt(v); });
+          tplOut(i, R.plane, vals, 'CYCLE800 değeri');
+          if (['A', 'B', 'C'].some(k => vals[k] !== '0')) out[out.length - 1].flag = 'CYCLE800 açıları kaynak makinenin eksenlerine göre — eğik düzlem açılarını kontrol edin';
+        } else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
+        if (comment && out.length > first) out[out.length - 1].text = withC(out[out.length - 1].text, comment);
+        done(); continue;
+      }
+      const c832 = code.match(/^CYCLE832\s*\((.*)\)$/i);
+      if (c832) {
+        const args = splitArgs(c832[1]);
+        const tpl = args.every(x => x === '') || evalExpr(args[1] || '0', rvals) === 0 ? R.hscOff : R.hsc;
+        if (tpl.length) tplOut(i, tpl, { TOL: args[0] || '' });
+        else emit(i, withC(code, comment), 'same', 'CYCLE832 için kural yok');
+        done(); continue;
+      }
+      if (/^CYCLE\d+\s*\(|^(POCKET|SLOT|HOLES|LONGHOLE|CYCLE)\w*\s*\(/i.test(code)) { emit(i, withC(code, comment), 'same', 'bu Siemens döngüsü çevrilmedi'); done(); continue; }
+      // ---- calls ----
+      const call = code.match(/^CALL\s*"([^"]*)"$/i);
+      if (call) {
+        const tpl = R.calls.get(callName(call[1]));
+        if (tpl) { tplOut(i, tpl, { T: toolNo(st.tool) || '' }); if (comment) emit(i, comment, 'changed'); }
+        else emit(i, withC(code, comment), 'same', `CALL ${callName(call[1])} için kural yok`);
+        done(); continue;
+      }
+      const bare = code.match(/^([A-Z_][A-Z0-9_]*)(?:\s+P\s*(\d+))?$/i);
+      if (bare && (!ADDR_RE.test(code) || /^L\d+$/i.test(bare[1]))) {
+        const name = bare[1].toUpperCase();
+        if (R.cmds.has(name)) {
+          const lines = R.cmds.get(name);
+          lines.forEach((l, k) => { const f = fillExpr(l, { T: toolNo(st.tool) || '' }, rvals); emit(i, withC(f.out, k === lines.length - 1 ? comment : null), 'template', f.missing.length ? 'değer yok: ' + f.missing.join(', ') : ''); });
+          if (!lines.length && comment) emit(i, comment, 'changed');
+          st.pos = { X: null, Y: null, Z: null };
+        } else if (/^(M17|RET)$/i.test(name)) {
+          emit(i, withC(R.sub.end, comment), 'changed');
+        } else if (/^L\d+$/.test(name)) {
+          const P = String(parseInt(name.slice(1), 10)), L = bare[2] || null;
+          const callTpl = R.sub.call.split(/\s+/).filter(tok => !(/\{L\}/.test(tok) && !L)).join(' ');
+          emit(i, withC(fill(callTpl, { P, L }).out, comment), 'changed');
+          st.pos = { X: null, Y: null, Z: null };
+        } else if (/^STOPRE$/i.test(name)) {
+          if (comment) emit(i, comment, 'changed');
+        } else {
+          emit(i, withC(code, comment), 'same', `${name} için kural yok (alt program ya da komut)`);
+        }
+        done(); continue;
+      }
+
+      // ---- ordinary blocks, word by word ----
+      const toks = code.match(/[A-Z]+\s*=\s*"[^"]*"|[A-Z]+\s*=\s*\([^)]*\)|[A-Z]+\s*=\s*[^\s]+|[A-Z]+\([^)]*\)|[A-Z]+\s*-?[\d.]+|\S+/gi) || [];
+      const ws = [], before = [], after = [], flags = [];
+      let toolChange = false, tWord = null, motion = null, dwell = false, fixed = false;
+      toks.forEach(tk => {
+        const t = tk.replace(/\s+/g, '');
+        let m;
+        if ((m = t.match(/^G(\d+(?:\.\d+)?)$/i))) {
+          const g = parseFloat(m[1]);
+          const key = 'G' + String(g);
+          if (R.g.has(key)) { const rep = R.g.get(key); if (rep.length) { ws.push(rep[0]); rep.slice(1).forEach(x => after.push(x)); } return; }
+          if ([0, 1, 2, 3].includes(g)) { motion = g; ws.push('G' + m[1]); return; }
+          if (g === 90) st.abs = true;
+          if (g === 91) st.abs = false;
+          if (g === 4) { dwell = true; ws.push('G4'); return; }
+          if (g === 75) { fixed = true; return; }
+          if (g === 153) { ws.push('G53'); return; }
+          if (g === 500) return;
+          if (g >= 505 && g <= 599) { ws.push(`G54.1 P${g - 500}`); return; }
+          if ([17, 18, 19, 40, 41, 42, 54, 55, 56, 57, 60, 64, 9, 90, 91, 94, 95, 96, 97, 53].includes(g)) { ws.push('G' + m[1]); return; }
+          flags.push(`G${m[1]} çevrilmedi`); ws.push('G' + m[1]); return;
+        }
+        if ((m = t.match(/^M0*(\d+)$/i))) {
+          const key = 'M' + parseInt(m[1], 10);
+          if (parseInt(m[1], 10) === 6) { toolChange = true; return; }
+          if (parseInt(m[1], 10) === 17) { ws.push(R.sub.end); return; }
+          if (R.m.has(key)) { const rep = R.m.get(key); if (rep.length) { ws.push(rep[0]); rep.slice(1).forEach(x => after.push(x)); } return; }
+          ws.push(t.toUpperCase()); return;
+        }
+        if ((m = t.match(/^T=?(.+)$/i))) { tWord = m[1]; return; }
+        if ((m = t.match(/^D(\d+)$/i))) { if (parseInt(m[1], 10) === 0) ws.push('G49'); return; }
+        if (/^SUPA$/i.test(t)) { ws.push('G53'); return; }
+        if ((m = t.match(/^CR=(.+)$/i))) { const v = evalExpr(m[1], rvals); ws.push('R' + (v != null ? fmt(v) : '[' + fanucExpr(m[1], base) + ']')); return; }
+        if ((m = t.match(/^([A-Z])=?(AC|IC)\((.*)\)$/i))) { flags.push(`${m[2]}() çevrilmedi`); ws.push(t); return; }
+        if ((m = t.match(/^([XYZABCIJKFSHPLQ])=?(.+)$/i))) {
+          const letter = m[1].toUpperCase();
+          let raw = m[2];
+          if (/=/.test(t) || /R\d|[()]/i.test(raw)) {
+            const v = evalExpr(raw.replace(/^\(|\)$/g, '') === raw ? raw : raw, rvals);
+            raw = v != null ? fmt(v) : '[' + fanucExpr(raw.replace(/^\((.*)\)$/, '$1'), base) + ']';
+          }
+          if (letter === 'F' && dwell) { ws.push('X' + raw); return; }
+          if (letter === 'F') st.F = raw;
+          if (letter === 'S') st.S = raw;
+          ws.push(letter + raw);
+          return;
+        }
+        flags.push(`"${t}" çevrilmedi`);
+        ws.push(t);
+      });
+
+      if (tWord != null) st.tool = tWord;
+      if (fixed) {
+        // G75 (fixed point) → the rules' safe-height block
+        if (R.fixedPoint.length) tplOut(i, R.fixedPoint, {}); else emit(i, withC(code, comment), 'same', 'G75 için kural yok');
+        st.pos = { X: null, Y: null, Z: null };
+        if (comment && out.length > first) out[out.length - 1].text = withC(out[out.length - 1].text, comment);
+        done(); continue;
+      }
+      if (toolChange) {
+        const T = toolNo(st.tool);
+        if (ws.length) emit(i, ws.join(' '), 'changed');
+        tplOut(i, R.tool.length ? R.tool : ['T{T} M6'], { T: T || '' }, `takım numarası yok (${st.tool || '?'}) — TAKIM NUMARALARI'na ekleyin`);
+        if (comment) emit(i, comment, 'changed');
+        st.pos = { X: null, Y: null, Z: null };
+        done(); continue;
+      }
+      if (tWord != null && !ws.length) {
+        if (!m6Follows(i)) { const T = toolNo(tWord); emit(i, withC('T' + (T || tWord), comment), 'changed', T ? '' : `takım numarası yok (${tWord})`); }
+        else if (comment) emit(i, comment, 'changed');
+        done(); continue;
+      }
+      if (tWord != null) { const T = toolNo(tWord); ws.push('T' + (T || tWord)); if (!T) flags.push(`takım numarası yok (${tWord})`); }
+
+      // positions inside an MCALL: the first one carries the whole ISO cycle
+      const axes = ws.filter(x => /^[XYZ][-\d.[#]/.test(x));
+      if (st.cycle && axes.length) {
+        const c = st.cycle;
+        const xy = ws.filter(x => /^[XY]/.test(x));
+        if (ws.some(x => /^Z/.test(x))) flags.push('MCALL içinde Z hareketi');
+        const rest = ws.filter(x => !/^[XYZ]/.test(x) && !/^G0?[0-3]$/.test(x));
+        const line = c.started ? xy.join(' ') : cycleLine(c, xy);
+        emit(i, withC([line].concat(rest).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
+        c.started = true;
+        xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs) st.pos[x[0]] = v; });
+        done(); continue;
+      }
+      // track where the tool is (for the cycle retract height)
+      ws.forEach(x => { const mm = x.match(/^([XYZ])(-?[\d.]+)$/); if (mm) st.pos[mm[1]] = st.abs ? parseFloat(mm[2]) : (st.pos[mm[1]] != null ? st.pos[mm[1]] + parseFloat(mm[2]) : null); });
+
+      const text = withC(ws.join(' '), comment);
+      const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase();
+      const rotaryMove = ws.some(x => /^[ABC][-\d.[#]/.test(x));
+      if (rotaryMove && R.rotary.length) {
+        R.rotary.forEach(t => emit(i, t.includes('{SATIR}') ? t.replace('{SATIR}', text) : t, t.includes('{SATIR}') ? 'changed' : 'template', t.includes('{SATIR}') ? flags.join('; ') : ''));
+      } else if (text || flags.length) {
+        emit(i, text, same && !comment === !p.comment ? 'same' : 'changed', flags.join('; '));
+      }
+      after.forEach(x => emit(i, x, 'added'));
+      done();
+    }
+    if (st.cycle) emit(parts.length - 1, 'G80', 'added', 'program açık bir MCALL ile bitiyor');
+
+    // block numbers, then GOTO targets filled in with the number their label got
+    const labelN = new Map();
+    let n = 0;
+    out.forEach(o => {
+      n += 10;
+      o.n = opts.renumber || o.gotoLabel ? 'N' + n : null;
+      if (o.gotoLabel) labelN.set(o.gotoLabel, String(n));
+      if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
+      else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '').replace(/\)\s*$/, '') || 'şablon';
+    });
+    out.forEach(o => {
+      o.text = o.text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, lab) => {
+        if (labelN.has(lab)) return labelN.get(lab);
+        o.flag = o.flag || 'atlama hedefi bulunamadı';
+        return '?';
+      });
+    });
+    return { lines: out, srcLines, notes, calls: [] };
+  }
+  // "/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2006_SPF" → SUB2006
+  function callName(path) {
+    const last = String(path).split('/').pop();
+    return last.replace(/^_N_/i, '').replace(/_(SPF|MPF)$/i, '').replace(/\.(SPF|MPF)$/i, '').toUpperCase();
+  }
+
   const lineText = o => (o.n ? o.n + (o.text ? ' ' + o.text : '') : o.text);
 
   /* ---------- a set of files: main program + subprograms ---------- */
@@ -7588,12 +8309,26 @@ SON = M17
   function convertSet(files, options) {
     const rules = parseRules(options.rulesText || DEFAULT_RULES);
     const target = TARGETS.find(t => t.id === options.target) || TARGETS[0];
+    const route = routeOf(options.source || 'mazak', target.id) || 'iso-siemens';
     const writer = target.writer;
     const common = { rules, writer, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
-    if (writer === 'iso') {
+    if (route === 'siemens-iso') {
+      // every file one program: .SPF (or a file ending in M17/RET) is a subprogram named by its L number
+      const programs = files.map(f => {
+        const base = f.name.replace(/\.[^.]+$/, '');
+        const isSub = /\.SPF$/i.test(f.name) || /\b(M17|RET)\b/i.test(f.text.replace(/;.*$/gm, ''));
+        const num = (base.match(/^L?(\d+)$/i) || [])[1];
+        const outName = isSub && num ? fill(rules.sub.file, { P: String(parseInt(num, 10)) }).out : base + target.mainExt;
+        const result = convertFromSiemens(f.text, Object.assign({ isSub }, common));
+        if (isSub && !num) result.notes.push(`${f.name}: alt program adı numara değil — Mazak'ta bir program numarası verin ve çağrıları KOMUTLAR'a ekleyin.`);
+        return { srcName: f.name, outName, isSub, number: num || null, result };
+      });
+      return { programs, missing: [], rules, target, route };
+    }
+    if (route === 'iso-iso') {
       // same dialect: every file stays one program under its own name
       const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: false, number: null, result: convertProgram(f.text, Object.assign({ isSub: false }, common)) }));
-      return { programs, missing: [], rules, target };
+      return { programs, missing: [], rules, target, route };
     }
     const progs = [];
     files.forEach(f => {
@@ -7629,10 +8364,10 @@ SON = M17
     });
     const have = new Set(out.filter(o => o.isSub).map(o => o.number));
     const missing = [...called].filter(n => !have.has(n));
-    return { programs: out, missing, rules, target };
+    return { programs: out, missing, rules, target, route };
   }
 
-  return { SOURCES, TARGETS, PROFILES, DEFAULT_RULES, genericRules, parseRules, convertProgram, convertSet, lineText };
+  return { SOURCES, TARGETS, PROFILES, DEFAULT_RULES, routeOf, targetsFor, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -7684,9 +8419,15 @@ SON = M17
   const defaultRulesOf = m => (m.builtin ? builtin(m.id).rules : ProgConvert.genericRules(srcSel7.value, tgtSel7.value));
 
   ProgConvert.SOURCES.forEach(x => srcSel7.add(new Option(x.name, x.id)));
-  ProgConvert.TARGETS.forEach(x => tgtSel7.add(new Option(x.name, x.id)));
   srcSel7.value = store.selected.source; if (!srcSel7.value) srcSel7.selectedIndex = 0;
-  tgtSel7.value = store.selected.target; if (!tgtSel7.value) tgtSel7.selectedIndex = 0;
+  // only the targets this source can be converted to
+  function fillTargets(want) {
+    const keep = want || (store.targetBySource || {})[srcSel7.value] || tgtSel7.value;
+    tgtSel7.innerHTML = '';
+    ProgConvert.targetsFor(srcSel7.value).forEach(x => tgtSel7.add(new Option(x.name, x.id)));
+    tgtSel7.value = keep; if (!tgtSel7.value) tgtSel7.selectedIndex = 0;
+  }
+  fillTargets(store.selected.target);
 
   function fillMachines(selectId) {
     const list = profilesFor(srcSel7.value, tgtSel7.value);
@@ -7698,6 +8439,7 @@ SON = M17
   }
   function showMachine() {
     const m = machine();
+    store.targetBySource = Object.assign(store.targetBySource || {}, { [srcSel7.value]: tgtSel7.value });
     store.selected = { source: srcSel7.value, target: tgtSel7.value, machine: Object.assign(store.selected.machine, { [pairKey()]: machineSel7.value }) };
     saveStore();
     rulesText7.value = m ? m.rules : '';
@@ -7713,7 +8455,8 @@ SON = M17
     const m = machine();
     rulesState7.textContent = m && rulesText7.value !== defaultRulesOf(m) ? 'Varsayılandan farklı' : '';
   }
-  [srcSel7, tgtSel7].forEach(sel => sel.addEventListener('change', () => { fillMachines(); if (result) run(); }));
+  srcSel7.addEventListener('change', () => { fillTargets(); fillMachines(); if (result) run(); });
+  tgtSel7.addEventListener('change', () => { fillMachines(); if (result) run(); });
   machineSel7.addEventListener('change', () => { showMachine(); if (result) run(); });
 
   let rulesTimer = null;
@@ -7797,10 +8540,10 @@ SON = M17
     if (!f) return;
     let data;
     try { data = JSON.parse(await f.text()); } catch (e) { alert('Dosya okunamadı: geçerli bir makine dosyası değil.'); return; }
-    const okSrc = ProgConvert.SOURCES.some(x => x.id === data.source), okTgt = ProgConvert.TARGETS.some(x => x.id === data.target);
+    const okSrc = ProgConvert.SOURCES.some(x => x.id === data.source), okTgt = ProgConvert.routeOf(data.source, data.target) != null;
     if (data.format !== 'toolbox-makine' || typeof data.rules !== 'string' || !okSrc || !okTgt) { alert('Bu bir makine dosyası değil ya da kaynak/hedef bu sürümde yok.'); return; }
     const p = addMachine(String(data.name || 'İçe aktarılan makine'), data.source, data.target, data.rules);
-    srcSel7.value = data.source; tgtSel7.value = data.target;
+    srcSel7.value = data.source; fillTargets(data.target);
     fillMachines(p.id);
     if (result) run();
   });
@@ -7833,7 +8576,7 @@ SON = M17
       const row = document.createElement('div');
       row.className = 'fl-row';
       const role = result && result.programs.filter(pg => pg.srcName === f.name || pg.srcName.startsWith(f.name + ' ['));
-      const tag = role && role.length ? role.map(pg => (pg.isSub ? 'Alt program → ' : result.target.writer === 'iso' ? '→ ' : 'Ana program → ') + pg.outName).join(' · ') : '';
+      const tag = role && role.length ? role.map(pg => (pg.isSub ? 'Alt program → ' : result.route === 'iso-iso' ? '→ ' : 'Ana program → ') + pg.outName).join(' · ') : '';
       row.innerHTML = `<span class="fl-name"></span><span class="fl-meta"></span><button class="fl-remove" title="Kaldır">×</button>`;
       row.querySelector('.fl-name').textContent = f.name;
       row.querySelector('.fl-meta').textContent = (tag ? tag + ' · ' : '') + f.text.split(/\r\n|\r|\n/).length + ' satır';
@@ -7859,6 +8602,7 @@ SON = M17
   function run() {
     if (!files.length) return;
     result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
+      source: srcSel7.value,
       target: tgtSel7.value,
       rulesText: rulesText7.value,
       renumber: optRenum.checked,
@@ -7903,7 +8647,7 @@ SON = M17
       item.className = 'pair-item' + (k === current ? ' active' : '');
       item.innerHTML = `<div class="pi-name"></div><div class="pi-sub"></div><div class="pi-status"></div>`;
       item.querySelector('.pi-name').textContent = pg.outName;
-      item.querySelector('.pi-sub').textContent = (pg.isSub ? 'alt program · ' : result.target.writer === 'iso' ? '' : 'ana program · ') + pg.srcName;
+      item.querySelector('.pi-sub').textContent = (pg.isSub ? 'alt program · ' : result.route === 'iso-iso' ? '' : 'ana program · ') + pg.srcName;
       item.querySelector('.pi-status').innerHTML =
         `<span class="st st-chg">${s.changed} değişen</span>` + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : `<span class="st st-same">KONTROL yok</span>`);
       item.addEventListener('click', () => { current = k; renderProgList(); renderPreview(); });
