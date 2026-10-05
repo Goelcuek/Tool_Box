@@ -1373,6 +1373,8 @@
   .rules-box summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); }
   .rules-box textarea { margin-top: 10px; height: 460px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
   .conv-head { grid-template-columns: 46px 1fr 46px 1fr; }
+  .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
+  .rules-state { font-weight: 500; font-size: 12px; color: var(--amber); margin-left: 6px; }
   .diff-row.conv-row .side-b.added { background: #e8f0fb; }
   .diff-row.conv-row.flagged .side-b { background: #fdecea; }
   .diff-row.conv-row.flagged .dnum.side-b { color: #b3261e; font-weight: 700; }
@@ -2319,12 +2321,12 @@
       <div class="tool-view" id="tool-convert" style="display:none">
         <header class="tool-header">
           <h1>Program Dönüştürücü</h1>
-          <div class="subtitle">Mazak EIA/ISO → Siemens 840D. Çevrilemeyen satırlar programda kalır ve <code>!! KONTROL</code> ile işaretlenir.</div>
+          <div class="subtitle">Kaynak kontrol, hedef kontrol ve makine seçin. Çevrilemeyen satırlar programda kalır ve <code>!! KONTROL</code> ile işaretlenir.</div>
         </header>
 
         <!-- Step 1: files -->
         <div class="panel">
-          <div class="col-label">1. Mazak programlarını yükleyin</div>
+          <div class="col-label">1. Programları yükleyin</div>
           <div class="dropzone compact" id="dropzone7">
             <input type="file" id="fileInput7" multiple>
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2342,10 +2344,28 @@
           <div class="file-list" id="fileList7"></div>
         </div>
 
-        <!-- Step 2: rules -->
+        <!-- Step 2: what to convert to, and for which machine -->
         <div class="panel">
-          <div class="col-label">2. Kurallar</div>
+          <div class="col-label">2. Dönüşüm</div>
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
+            <div class="field">
+              <label>Kaynak kontrol</label>
+              <select id="srcSel7" class="select-field"></select>
+            </div>
+            <div class="conv-arrow">→</div>
+            <div class="field">
+              <label>Hedef kontrol</label>
+              <select id="tgtSel7" class="select-field"></select>
+            </div>
+            <div class="field">
+              <label>Makine</label>
+              <select id="machineSel7" class="select-field"></select>
+            </div>
+            <button class="btn secondary" id="newMachineBtn7">Yeni Makine</button>
+            <button class="btn secondary" id="renameMachineBtn7">Adını Değiştir</button>
+            <button class="btn secondary" id="deleteMachineBtn7">Sil</button>
+          </div>
+          <div class="controls-row" style="flex-wrap:wrap;">
             <label class="checkbox-field"><input type="checkbox" id="renumChk7" checked> 10'ar yeniden numarala</label>
             <label class="checkbox-field"><input type="checkbox" id="suppressChk7" checked> Değişmeyen X/Y/Z'yi yazma</label>
             <label class="checkbox-field"><input type="checkbox" id="holeChk7" checked> Delik mesajı</label>
@@ -2353,12 +2373,15 @@
             <button class="btn" id="convertBtn7">Dönüştür</button>
           </div>
           <details class="rules-box" id="rulesBox7">
-            <summary>Makine kuralları ve şablonlar</summary>
+            <summary>Makine kuralları ve şablonlar — <span id="rulesFor7"></span> <span class="rules-state" id="rulesState7"></span></summary>
             <textarea id="rulesText7" spellcheck="false"></textarea>
-            <div class="controls-row" style="margin-top:10px;">
+            <div class="controls-row" style="margin-top:10px; flex-wrap:wrap;">
               <button class="btn secondary" id="rulesResetBtn7">Varsayılana Dön</button>
+              <button class="btn secondary" id="exportBtn7">Dışa Aktar</button>
+              <button class="btn secondary" id="importBtn7">İçe Aktar</button>
+              <input type="file" id="importInput7" accept=".json,application/json" hidden>
               <div class="spacer"></div>
-              <div class="zoom-hint" style="margin-top:0;">Değişiklikler bu tarayıcıda saklanır</div>
+              <div class="zoom-hint" style="margin-top:0;">Bu tarayıcıda saklanır · başka bilgisayara Dışa/İçe Aktar ile</div>
             </div>
           </details>
         </div>
@@ -2396,7 +2419,7 @@
                 <button class="btn" id="downloadBtn7">Bu Dosyayı İndir</button>
               </div>
               <div class="diff-wrap">
-                <div class="diff-head conv-head"><div></div><div>Mazak</div><div></div><div>Siemens 840D</div></div>
+                <div class="diff-head conv-head"><div></div><div id="convHeadA7"></div><div></div><div id="convHeadB7"></div></div>
                 <div class="diff-body" id="convBody7"></div>
               </div>
             </div>
@@ -6772,24 +6795,42 @@ const LatheCore = (function () {
   });
 })();
 
-/* ================= Mazak (EIA/ISO) → Siemens 840D converter core =================
-   Works on the text of Mazak programs; knows nothing about the page.
+/* ================= Program converter core =================
+   Works on program text; knows nothing about the page.
 
-   What is fixed here is what any Mazak → 840D conversion needs: comments,
-   block numbers, macro variables, subprogram calls, drilling cycles, arcs
-   given by R, dwell, machine coordinates. What depends on the shop and the
-   machine — M codes, the start / tool change / zero point / end blocks, the
-   tool probe macro — comes from an editable rules text, so a Hermle with
-   other habits needs a rules edit, not a code change.
+   Three choices make a conversion:
+     source  — the dialect the program is written in (SOURCES)
+     target  — the control it is going to (TARGETS); its `writer` decides
+               what the code does: 'siemens' rewrites into 840D syntax,
+               'iso' keeps the Fanuc-type dialect and only applies the rules
+     machine — a profile (PROFILES, or one the user made): the rules text
+               with that machine's M codes and start / tool change / zero
+               point / end templates, probe macros and so on
+   A new control is a new writer here; a new machine is only a new profile.
+
+   For Siemens output the code handles what any Fanuc-type → 840D
+   conversion needs: comments, block numbers, macro variables, subprogram
+   calls, drilling cycles, arcs given by R, dwell, machine coordinates.
 
    Nothing that cannot be translated safely is guessed or commented out: it
    stays in the program as written, so the control stops on it, and the
    line is marked "!! KONTROL". */
-const MazakSiemens = (function () {
-  const DEFAULT_RULES = `// Program Dönüştürücü kuralları — Mazak EIA → Siemens 840D (Hermle C52)
-// "//" ile başlayan satırlar açıklamadır. Şablonlardaki her satır programa
-// olduğu gibi yazılır; {T} gibi yer tutucular doldurulur.
+const ProgConvert = (function () {
+  const SOURCES = [
+    { id: 'mazak', name: 'Mazak EIA/ISO' },
+    { id: 'fanuc', name: 'Fanuc / Haas ISO' }
+  ];
+  const TARGETS = [
+    { id: 'siemens840d', name: 'Siemens 840D', writer: 'siemens', mainExt: '.MPF' },
+    { id: 'iso', name: 'Fanuc / Mazak / Haas ISO', writer: 'iso', mainExt: '' }
+  ];
 
+  const HEADER = `// "//" ile başlayan satırlar açıklamadır. Şablonlardaki her satır programa
+// olduğu gibi yazılır; {T} gibi yer tutucular doldurulur. Bir şablon boş
+// bırakılırsa o bölüm şablonsuz, satır satır çevrilir.
+`;
+  const DEFAULT_RULES = `// Mazak Variaxis → Hermle C52 (Siemens 840D sl)
+${HEADER}
 [M KODLARI]
 // Mazak = Siemens   ·   boş: sil   ·   | : alt alta satırlar
 M0 = M1
@@ -6881,6 +6922,111 @@ DOSYA = L{P}.SPF
 SON = M17
 `;
 
+  // A starting point for any machine of a source/target pair; the user
+  // copies it to a machine profile and fills in that machine's habits.
+  function genericRules(sourceId, targetId) {
+    const src = (SOURCES.find(x => x.id === sourceId) || SOURCES[0]).name;
+    const tgt = TARGETS.find(x => x.id === targetId) || TARGETS[0];
+    const mazakM = sourceId !== 'mazak' ? '' : tgt.writer === 'iso' ? `// Variaxis döner eksen kilitleri — hedefte otomatikse baştaki // işaretini kaldırın
+// M43 =
+// M44 =
+// M46 =
+// M47 =
+` : `// Variaxis döner eksen kilitleri — 840D makinelerde genelde otomatik
+M43 =
+M44 =
+M46 =
+M47 =
+`;
+    if (tgt.writer === 'iso') {
+      return `// ${src} → ${tgt.name} — genel makine
+${HEADER}
+[M KODLARI]
+// Kaynak = Hedef   ·   boş: sil   ·   | : alt alta satırlar
+${mazakM}
+[G KODLARI]
+// Kaynak = Hedef   ·   boş: sil
+
+[METİN]
+// Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
+
+[BAŞLANGIÇ]
+// İlk takımdan önceki G28 referans bloğunun yerine (boş: olduğu gibi kalır)
+
+[TAKIM DEĞİŞTİRME]
+// T.. M06 — {T}: takım numarası (boş: olduğu gibi kalır)
+
+[İŞ PARÇASI SIFIRI]
+// G54.1 Pn / G54–G59 — {G}: kaynaktaki sıfır noktası kodu (boş: olduğu gibi kalır)
+
+[ARA DÖNÜŞ]
+// İki takım arasındaki G28 referans bloğunun yerine
+
+[PROGRAM SONU]
+// Son takımdan sonraki G28 referans bloğunun yerine
+
+[DELİK MESAJI]
+// Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
+`;
+    }
+    return `// ${src} → ${tgt.name} — genel makine
+${HEADER}
+[M KODLARI]
+// Kaynak = Hedef   ·   boş: sil   ·   | : alt alta satırlar
+${mazakM}
+[G KODLARI]
+// Siemens'te karşılığı olmayan ya da gereksiz G kodları
+G61.1 =
+G5.1 =
+G49 =
+G67 =${sourceId === 'fanuc' ? '\nG187 =' : ''}
+G20 = G700
+G21 = G710
+
+[METİN]
+// Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
+
+[BAŞLANGIÇ]
+// İlk takımdan önceki G28 referans bloğunun yerine
+SUPA G0 Z0 D0 ;!! KONTROL: makinenin güvenli başlangıç konumu
+
+[TAKIM DEĞİŞTİRME]
+// T.. M06 — {T}: takım numarası
+T{T}
+M6
+D1
+
+[İŞ PARÇASI SIFIRI]
+// G54.1 Pn / G54–G57 — {G}: G54, G55 … (P5 ve sonrası G505 …)
+{G}
+
+[ARA DÖNÜŞ]
+// İki takım arasındaki G28 referans bloğunun yerine
+SUPA G0 Z0 D0 ;!! KONTROL: takım değiştirme konumu
+
+[PROGRAM SONU]
+// Son takımdan sonraki G28 referans bloğunun yerine
+SUPA G0 Z0 D0
+SUPA G0 X0 Y0 ;!! KONTROL: park konumu
+
+[DELİK MESAJI]
+// Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
+
+[ALT PROGRAM]
+// M98 P{P} L{L} — alt program dosya adı, çağrısı ve sonu
+DOSYA = L{P}.SPF
+ÇAĞRI = L{P} P{L}
+SON = M17
+`;
+  }
+
+  // Machines that come with the tool. Edits to them are kept as overrides;
+  // "Varsayılana Dön" brings these back.
+  const PROFILES = [{ id: 'hermle-c52', name: 'Hermle C52 (TEI)', source: 'mazak', target: 'siemens840d', rules: DEFAULT_RULES }];
+  SOURCES.forEach(sr => TARGETS.forEach(tg => PROFILES.push({
+    id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
+  })));
+
   /* ---------- rules ---------- */
   function sectionKey(s) {
     return s.toLocaleUpperCase('tr').replace(/İ/g, 'I').replace(/Ş/g, 'S').replace(/Ğ/g, 'G')
@@ -6960,12 +7106,14 @@ SON = M17
   }
   // address words; `raw` keeps the number as typed
   const WORD_RE = /([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/gi;
-  function wordsOf(code) {
+  const WORD_RE_LOOSE = /([A-Z])\s*(\[[^\]]*\]|#\d+|[-+]?(?:\d+\.?\d*|\.\d+))/gi; // also T[#989], X#100
+  function wordsOf(code, loose) {
+    const re = loose ? WORD_RE_LOOSE : WORD_RE;
     const words = [];
-    let m, rest = code;
-    WORD_RE.lastIndex = 0;
-    while ((m = WORD_RE.exec(code)) !== null) words.push({ letter: m[1].toUpperCase(), raw: m[2], value: parseFloat(m[2]) });
-    rest = code.replace(WORD_RE, '').trim();
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) words.push({ letter: m[1].toUpperCase(), raw: m[2], value: parseFloat(m[2]) });
+    const rest = code.replace(re, '').trim();
     return { words, clean: rest === '' };
   }
   const joinWords = ws => ws.map(w => w.text != null ? w.text : w.letter + w.raw).join(' ');
@@ -6987,10 +7135,11 @@ SON = M17
   }
 
   /* ---------- one program ---------- */
-  // src: text · opts: {rules, isSub, renumber, suppress, holeMsg}
+  // src: text · opts: {rules, writer: 'siemens' | 'iso', isSub, renumber, suppress, holeMsg}
   // returns {lines: [{n, text, src, kind, flag}], srcLines, notes, calls}
   function convertProgram(src, opts) {
     const R = opts.rules;
+    const SIE = opts.writer !== 'iso'; // Siemens 840D output; otherwise the same ISO dialect, other machine
     const srcLines = src.split(/\r\n|\r|\n/);
     if (srcLines.length && srcLines[srcLines.length - 1] === '') srcLines.pop();
     const out = [];
@@ -7033,7 +7182,7 @@ SON = M17
         emit(i, f.out, kind || 'template', k);
       });
     };
-    const withComments = (code, comments) => [code, comments.length ? ';' + comments.join(' ') : ''].filter(Boolean).join(' ');
+    const withComments = (code, comments) => [code, comments.length ? (SIE ? ';' : '') + comments.join(' ') : ''].filter(Boolean).join(' ');
     const applyText = comments => {
       const res = [];
       comments.forEach(c => {
@@ -7084,7 +7233,11 @@ SON = M17
     for (let i = 0; i < srcLines.length; i++) {
       const raw = srcLines[i];
       const t = raw.trim();
-      if (t === '%' || /^O\d+$/i.test(splitLine(t).code)) continue; // tape mark, program number: the file name carries it
+      if (t === '%' || /^O\d+$/i.test(splitLine(t).code)) {
+        // Siemens: the file name carries the program number; ISO keeps both
+        if (!SIE) out.push({ text: t, src: i, kind: 'same', flag: '', noN: true });
+        continue;
+      }
       const p = splitLine(raw);
       const label = p.n && opts.renumber && (parseInt(p.n.slice(1), 10) % 10 !== 0 || gotoTargets.has(String(parseInt(p.n.slice(1), 10)))) ? p.n : null;
       if (label) srcLabel.set(i, label);
@@ -7105,11 +7258,13 @@ SON = M17
           g28 = g28 || hj.g28; units = units.concat(hj.units);
           j++;
         }
+        let tpl = [], kind = '';
         if (g28) {
-          let tpl, kind;
           if (st.toolChanges === 0) { tpl = R.start; kind = 'start'; }
           else if (machiningAfter(j)) { tpl = R.mid; kind = 'mid'; }
           else { tpl = R.end; kind = 'end'; }
+        }
+        if (tpl.length) { // an empty template: the lines are converted one by one instead
           emitTpl(i, tpl, {});
           if (units.length && kind === 'start') notes.push(`Başlangıç bloğundaki ${units.join(' ')} yazılmadı — makine bu birimde açılmalı.`);
           // what the block left modal on the Mazak
@@ -7126,8 +7281,9 @@ SON = M17
         }
       }
 
-      // ---- macro variables ----
+      // ---- macro variables (Siemens: constants filled in, the rest as R parameters) ----
       let code = p.code;
+      if (SIE) {
       const asg = code.match(/^#(\d+)\s*=\s*(.*)$/);
       if (asg && !nonConst.has(asg[1])) { vars.set(asg[1], asg[2].trim()); continue; }
       code = code.replace(/\[\s*#(\d+)\s*\]|#(\d+)/g, (m, a, b) => {
@@ -7145,9 +7301,10 @@ SON = M17
         emit(i, withComments(sie.replace(/\s+/g, ' ').trim(), comments), 'changed', 'makro satırı — R parametrelerini ve koşulu kontrol edin');
         continue;
       }
+      }
 
-      const parsed = wordsOf(code);
-      if (!parsed.clean) { emit(i, withComments(code, comments), 'same', 'tanınmayan söz dizimi'); continue; }
+      const parsed = wordsOf(code, !SIE);
+      if (!parsed.clean) { emit(i, withComments(code, comments), 'same', SIE ? 'tanınmayan söz dizimi' : ''); continue; }
       let ws = parsed.words;
       const after = [];   // lines to write after this one
       const before = [];  // lines to write before it
@@ -7166,20 +7323,22 @@ SON = M17
           forget();
           continue;
         }
-        emit(i, withComments(code, comments), 'same', `G65 P${pW ? pW.raw : '?'} makrosu için kural yok`);
+        emit(i, withComments(code, comments), 'same', SIE ? `G65 P${pW ? pW.raw : '?'} makrosu için kural yok` : '');
         forget();
         continue;
       }
 
       // ---- tool change ----
-      if (has(ws, 'M', 6)) {
+      if (has(ws, 'M', 6)) st.toolChanges++;
+      if (has(ws, 'M', 6) && R.tool.length) {
         const tW = get(ws, 'T');
         const T = tW ? tW.raw : st.tool;
+        const tVal = T == null ? null : /^[-+]?[\d.]+$/.test(T) ? String(parseFloat(T)) : T;
         const rest = ws.filter(w => !(w.letter === 'M' && w.value === 6) && w.letter !== 'T');
         if (rest.length) emit(i, joinWords(rest), 'changed', '');
-        emitTpl(i, R.tool, { T: T != null ? String(parseFloat(T)) : null });
+        emitTpl(i, R.tool, { T: tVal });
         if (comments.length) emit(i, withComments('', comments), 'changed');
-        st.toolChanges++; st.tool = T; forget();
+        st.tool = T; forget();
         continue;
       }
       if (get(ws, 'T')) st.tool = get(ws, 'T').raw;
@@ -7187,7 +7346,7 @@ SON = M17
       // ---- work offset ----
       const g541 = ws.find(w => w.letter === 'G' && Math.abs(w.value - 54.1) < 1e-9);
       const gWork = ws.find(w => w.letter === 'G' && [54, 55, 56, 57, 58, 59].includes(w.value));
-      if (g541 || gWork) {
+      if ((g541 || gWork) && (SIE || R.offset.length)) {
         let G, fl = '';
         if (g541) {
           const pn = get(ws, 'P') ? Math.round(get(ws, 'P').value) : 1;
@@ -7199,11 +7358,17 @@ SON = M17
           if (gWork.value > 57) fl = `G${gWork.value} → ${G}: Siemens'te G58/G59 başka anlama gelir`;
           ws = ws.filter(w => w !== gWork);
         }
-        emitTpl(i, R.offset, { G });
-        if (fl) out[out.length - 1].flag = fl;
-        if (R.offset.some(l => /\bG90\b/.test(l))) st.outAbs = true;
-        forget();
-        if (!ws.length) { if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
+        if (!SIE) { G = g541 ? 'G54.1 P' + (get(parsed.words, 'P') ? get(parsed.words, 'P').raw : '1') : 'G' + gWork.raw; fl = ''; }
+        if (R.offset.length) {
+          emitTpl(i, R.offset, { G });
+          if (fl) out[out.length - 1].flag = fl;
+          if (R.offset.some(l => /\bG90\b/.test(l))) st.outAbs = true;
+          forget();
+          if (!ws.length) { if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
+        } else {
+          ws.unshift({ text: G }); // no template: just the 840D work offset in its place
+          if (fl) flags.push(fl);
+        }
         changed = true;
       }
 
@@ -7219,8 +7384,8 @@ SON = M17
       if (get(ws, 'F')) st.F = get(ws, 'F').raw;
       if (get(ws, 'S')) st.S = get(ws, 'S').raw;
 
-      // ---- subprograms ----
-      if (has(ws, 'M', 98)) {
+      // ---- subprograms (ISO output keeps M98/M99 as they are) ----
+      if (SIE && has(ws, 'M', 98)) {
         const pW = get(ws, 'P'), lW = get(ws, 'L') || get(ws, 'K');
         const rest = ws.filter(w => !(w.letter === 'M' && w.value === 98) && w !== pW && w !== lW);
         if (rest.length) emit(i, joinWords(rest), 'changed', '');
@@ -7232,7 +7397,7 @@ SON = M17
         forget();
         continue;
       }
-      if (has(ws, 'M', 99)) {
+      if (SIE && has(ws, 'M', 99)) {
         if (opts.isSub) {
           const rest = ws.filter(w => !(w.letter === 'M' && w.value === 99));
           if (get(rest, 'P')) flags.push('M99 P (dönüş satırı) desteklenmiyor');
@@ -7244,7 +7409,7 @@ SON = M17
       }
 
       // ---- drilling cycles → MCALL CYCLE8x ----
-      const cycW = ws.find(w => w.letter === 'G' && CYCLE_G.has(w.value));
+      const cycW = SIE && ws.find(w => w.letter === 'G' && CYCLE_G.has(w.value));
       const cancels = has(ws, 'G', 80) || ws.some(w => w.letter === 'G' && [0, 1, 2, 3].includes(w.value));
       if (st.cycle && (cancels || cycW)) {
         before.push({ text: 'MCALL', kind: 'added' });
@@ -7252,7 +7417,7 @@ SON = M17
         st.cycle = null;
         ws = ws.filter(w => !(w.letter === 'G' && w.value === 80));
         changed = true;
-      } else if (has(ws, 'G', 80)) {
+      } else if (SIE && has(ws, 'G', 80)) {
         ws = ws.filter(w => !(w.letter === 'G' && w.value === 80));
         changed = true;
       }
@@ -7303,7 +7468,7 @@ SON = M17
           else flags.push('delik konumu bilinmiyor');
         }
         changed = true;
-      } else if (ws.some(w => w.letter === 'G' && [74, 76, 86, 87, 88, 89].includes(w.value))) {
+      } else if (SIE && ws.some(w => w.letter === 'G' && [74, 76, 86, 87, 88, 89].includes(w.value))) {
         flags.push('bu delme döngüsü çevrilmedi');
       }
 
@@ -7314,10 +7479,11 @@ SON = M17
           const key = codeKey('G', w.raw);
           if (R.g.has(key)) {
             const rep = R.g.get(key);
-            if (w.value === 49 && st.traori) { newWs.push({ text: 'TRAFOOF' }); st.traori = false; changed = true; return; }
+            if (SIE && w.value === 49 && st.traori) { newWs.push({ text: 'TRAFOOF' }); st.traori = false; changed = true; return; }
             if (rep.length) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
             changed = true; return;
           }
+          if (!SIE) { newWs.push(w); return; }
           if (Math.abs(w.value - 43.4) < 1e-9) { before.push({ text: 'TRAORI', kind: 'added', flag: 'G43.4 → TRAORI: 5 eksen dönüşümü makinede tanımlı olmalı' }); st.traori = true; changed = true; return; }
           if (w.value === 43) { changed = true; return; }        // length comp comes with D on Siemens
           if (w.value === 53) { newWs.push({ text: 'SUPA' }); changed = true; return; }
@@ -7340,14 +7506,14 @@ SON = M17
           }
           newWs.push(w); return;
         }
-        if (w.letter === 'H' && ws.some(x => x.letter === 'G' && (x.value === 43 || Math.abs(x.value - 43.4) < 1e-9))) { changed = true; return; }
-        if (w.letter === 'D' && ws.some(x => x.letter === 'G' && (x.value === 41 || x.value === 42))) { changed = true; return; }
+        if (SIE && w.letter === 'H' && ws.some(x => x.letter === 'G' && (x.value === 43 || Math.abs(x.value - 43.4) < 1e-9))) { changed = true; return; }
+        if (SIE && w.letter === 'D' && ws.some(x => x.letter === 'G' && (x.value === 41 || x.value === 42))) { changed = true; return; }
         newWs.push(w);
       });
       ws = newWs;
 
       // dwell: Mazak P milliseconds / X seconds → Siemens F seconds
-      if (has(ws, 'G', 4)) {
+      if (SIE && has(ws, 'G', 4)) {
         const pW = get(ws, 'P'), xW = get(ws, 'X') || get(ws, 'U');
         const sec = pW ? pW.value / 1000 : xW ? xW.value : null;
         ws = ws.filter(w => w !== pW && w !== xW);
@@ -7355,7 +7521,7 @@ SON = M17
         changed = true;
       }
       // arcs by radius: R → CR=
-      if (!st.cycle && (st.motion === 2 || st.motion === 3) && get(ws, 'R')) {
+      if (SIE && !st.cycle && (st.motion === 2 || st.motion === 3) && get(ws, 'R')) {
         ws = ws.map(w => (w.letter === 'R' ? { text: 'CR=' + w.raw } : w));
         changed = true;
       }
@@ -7401,11 +7567,15 @@ SON = M17
     const labelled = new Set();
     let n = 0;
     out.forEach(o => {
-      let num;
-      if (srcLabel.has(o.src) && !labelled.has(o.src)) { num = srcLabel.get(o.src); labelled.add(o.src); }
+      let num = null;
+      if (o.noN) { /* % and O lines of ISO output */ }
+      else if (srcLabel.has(o.src) && !labelled.has(o.src)) { num = srcLabel.get(o.src); labelled.add(o.src); }
       else { do { n += 10; } while (used.has('N' + n)); num = 'N' + n; }
       o.n = opts.renumber ? num : null;
-      if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${o.flag}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${o.flag}`;
+      if (o.flag && !/!!\s*KONTROL/i.test(o.text)) {
+        if (!SIE) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
+        else o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${o.flag}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${o.flag}`;
+      }
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
     });
     return { lines: out, srcLines, notes, calls };
@@ -7417,6 +7587,14 @@ SON = M17
   // files: [{name, text}] → {programs: [{name, outName, isSub, number, result}], missing, notes}
   function convertSet(files, options) {
     const rules = parseRules(options.rulesText || DEFAULT_RULES);
+    const target = TARGETS.find(t => t.id === options.target) || TARGETS[0];
+    const writer = target.writer;
+    const common = { rules, writer, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
+    if (writer === 'iso') {
+      // same dialect: every file stays one program under its own name
+      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: false, number: null, result: convertProgram(f.text, Object.assign({ isSub: false }, common)) }));
+      return { programs, missing: [], rules, target };
+    }
     const progs = [];
     files.forEach(f => {
       // a file may hold several programs, each starting with an O number
@@ -7445,25 +7623,23 @@ SON = M17
     });
     const out = progs.map(pg => {
       const isSub = pg.number != null && called.has(pg.number) && !/M\s*0*30\b|M\s*0*2\b/i.test(pg.text.replace(/\([^)]*\)/g, ''));
-      const result = convertProgram(pg.text, { rules, isSub, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false });
-      const outName = isSub ? fill(rules.sub.file, { P: pg.number }).out : pg.baseName + '.MPF';
+      const result = convertProgram(pg.text, Object.assign({ isSub }, common));
+      const outName = isSub ? fill(rules.sub.file, { P: pg.number }).out : pg.baseName + target.mainExt;
       return { srcName: pg.srcName, outName, isSub, number: pg.number, result };
     });
     const have = new Set(out.filter(o => o.isSub).map(o => o.number));
     const missing = [...called].filter(n => !have.has(n));
-    return { programs: out, missing, rules };
+    return { programs: out, missing, rules, target };
   }
 
-  return { DEFAULT_RULES, parseRules, convertProgram, convertSet, lineText };
+  return { SOURCES, TARGETS, PROFILES, DEFAULT_RULES, genericRules, parseRules, convertProgram, convertSet, lineText };
 })();
 
-/* ================= Tool: Program Dönüştürücü (Mazak → Siemens 840D) ================= */
+/* ================= Tool: Program Dönüştürücü ================= */
 (function () {
   const $ = id => document.getElementById(id);
-  const RULES_KEY = 'toolbox.convRules';
   const dropzone7 = $('dropzone7'), fileInput7 = $('fileInput7'), fileList7 = $('fileList7');
   const fileCount7 = $('fileCount7'), clearBtn7 = $('clearBtn7');
-  const renumChk7 = $('renumChk7'), suppressChk7 = $('suppressChk7'), holeChk7 = $('holeChk7');
   const convertBtn7 = $('convertBtn7'), rulesText7 = $('rulesText7'), rulesResetBtn7 = $('rulesResetBtn7');
   const resultPanel7 = $('resultPanel7'), notes7 = $('notes7'), progList7 = $('progList7');
   const previewTitle7 = $('previewTitle7'), previewBadge7 = $('previewBadge7'), convBody7 = $('convBody7');
@@ -7472,36 +7648,165 @@ SON = M17
 
   let files = [];       // {id, name, text}
   let nextId = 1;
-  let result = null;    // MazakSiemens.convertSet output
+  let result = null;    // ProgConvert.convertSet output
   let current = 0;      // index of the program in the preview
   let flagRows = [], flagAt = -1;
 
-  /* ---- rules: kept in this browser ---- */
-  function loadRules() {
-    let saved = null;
-    try { saved = localStorage.getItem(RULES_KEY); } catch (e) { /* storage off */ }
-    rulesText7.value = saved || MazakSiemens.DEFAULT_RULES;
+  /* ---- source / target / machine profiles ----
+     Built-in machines come from ProgConvert.PROFILES; an edit to one is kept
+     as an override. Machines the user makes live in `custom`. All of it is
+     stored in this browser; Dışa/İçe Aktar moves a machine between computers. */
+  const STORE_KEY = 'toolbox.convProfiles';
+  const srcSel7 = $('srcSel7'), tgtSel7 = $('tgtSel7'), machineSel7 = $('machineSel7');
+  const newMachineBtn7 = $('newMachineBtn7'), renameMachineBtn7 = $('renameMachineBtn7'), deleteMachineBtn7 = $('deleteMachineBtn7');
+  const exportBtn7 = $('exportBtn7'), importBtn7 = $('importBtn7'), importInput7 = $('importInput7');
+  const rulesFor7 = $('rulesFor7'), rulesState7 = $('rulesState7');
+  let store = { custom: [], overrides: {}, selected: { source: 'mazak', target: 'siemens840d', machine: {} } };
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) store = Object.assign(store, JSON.parse(raw));
+    const old = localStorage.getItem('toolbox.convRules'); // the single rules text of the first version
+    if (old && !store.overrides['hermle-c52']) store.overrides['hermle-c52'] = old;
+    if (old) localStorage.removeItem('toolbox.convRules');
+  } catch (e) { /* storage off or unreadable: start fresh */ }
+  if (!store.selected.machine) store.selected.machine = {};
+  function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
+
+  const pairKey = () => srcSel7.value + '|' + tgtSel7.value;
+  const builtin = id => ProgConvert.PROFILES.find(p => p.id === id);
+  function profilesFor(source, target) {
+    const b = ProgConvert.PROFILES.filter(p => p.source === source && p.target === target)
+      .map(p => ({ id: p.id, name: p.name, builtin: true, rules: store.overrides[p.id] != null ? store.overrides[p.id] : p.rules }));
+    const c = store.custom.filter(p => p.source === source && p.target === target).map(p => Object.assign({ builtin: false }, p));
+    return b.concat(c);
   }
-  function saveRules() {
-    try {
-      if (rulesText7.value === MazakSiemens.DEFAULT_RULES) localStorage.removeItem(RULES_KEY);
-      else localStorage.setItem(RULES_KEY, rulesText7.value);
-    } catch (e) { /* storage off */ }
+  function machine() { return profilesFor(srcSel7.value, tgtSel7.value).find(p => p.id === machineSel7.value); }
+  const defaultRulesOf = m => (m.builtin ? builtin(m.id).rules : ProgConvert.genericRules(srcSel7.value, tgtSel7.value));
+
+  ProgConvert.SOURCES.forEach(x => srcSel7.add(new Option(x.name, x.id)));
+  ProgConvert.TARGETS.forEach(x => tgtSel7.add(new Option(x.name, x.id)));
+  srcSel7.value = store.selected.source; if (!srcSel7.value) srcSel7.selectedIndex = 0;
+  tgtSel7.value = store.selected.target; if (!tgtSel7.value) tgtSel7.selectedIndex = 0;
+
+  function fillMachines(selectId) {
+    const list = profilesFor(srcSel7.value, tgtSel7.value);
+    machineSel7.innerHTML = '';
+    list.forEach(p => machineSel7.add(new Option(p.name + (p.builtin && store.overrides[p.id] != null ? ' (değiştirildi)' : ''), p.id)));
+    const want = selectId || store.selected.machine[pairKey()];
+    machineSel7.value = list.some(p => p.id === want) ? want : (list[0] ? list[0].id : '');
+    showMachine();
   }
-  loadRules();
+  function showMachine() {
+    const m = machine();
+    store.selected = { source: srcSel7.value, target: tgtSel7.value, machine: Object.assign(store.selected.machine, { [pairKey()]: machineSel7.value }) };
+    saveStore();
+    rulesText7.value = m ? m.rules : '';
+    rulesFor7.textContent = m ? m.name : '—';
+    renameMachineBtn7.disabled = deleteMachineBtn7.disabled = !m || m.builtin;
+    renameMachineBtn7.title = deleteMachineBtn7.title = m && m.builtin ? 'Hazır makine — değiştirmek için Yeni Makine ile kopyalayın' : '';
+    updateRulesState();
+    const src = ProgConvert.SOURCES.find(x => x.id === srcSel7.value), tgt = ProgConvert.TARGETS.find(x => x.id === tgtSel7.value);
+    $('convHeadA7').textContent = src ? src.name : '';
+    $('convHeadB7').textContent = (tgt ? tgt.name : '') + (m ? ' · ' + m.name : '');
+  }
+  function updateRulesState() {
+    const m = machine();
+    rulesState7.textContent = m && rulesText7.value !== defaultRulesOf(m) ? 'Varsayılandan farklı' : '';
+  }
+  [srcSel7, tgtSel7].forEach(sel => sel.addEventListener('change', () => { fillMachines(); if (result) run(); }));
+  machineSel7.addEventListener('change', () => { showMachine(); if (result) run(); });
+
   let rulesTimer = null;
   rulesText7.addEventListener('input', () => {
-    saveRules();
+    const m = machine();
+    if (!m) return;
+    if (m.builtin) {
+      if (rulesText7.value === builtin(m.id).rules) delete store.overrides[m.id];
+      else store.overrides[m.id] = rulesText7.value;
+      const opt = machineSel7.options[machineSel7.selectedIndex];
+      opt.text = m.name + (store.overrides[m.id] != null ? ' (değiştirildi)' : '');
+    } else {
+      store.custom.find(p => p.id === m.id).rules = rulesText7.value;
+    }
+    saveStore();
+    updateRulesState();
     clearTimeout(rulesTimer);
     if (result) rulesTimer = setTimeout(run, 400);
   });
   rulesResetBtn7.addEventListener('click', () => {
-    if (rulesText7.value !== MazakSiemens.DEFAULT_RULES && !confirm('Kurallar varsayılana dönsün mü? Yaptığınız değişiklikler silinir.')) return;
-    rulesText7.value = MazakSiemens.DEFAULT_RULES;
-    saveRules();
+    const m = machine();
+    if (!m) return;
+    const def = defaultRulesOf(m);
+    if (rulesText7.value === def) return;
+    if (!confirm(`"${m.name}" kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
+    if (m.builtin) delete store.overrides[m.id];
+    else store.custom.find(p => p.id === m.id).rules = def;
+    saveStore();
+    fillMachines(m.id);
     if (result) run();
   });
-  [renumChk7, suppressChk7, holeChk7].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
+  const uniqueName = (name, source, target) => {
+    const taken = new Set(profilesFor(source, target).map(p => p.name));
+    let n = name, k = 2;
+    while (taken.has(n)) n = `${name} (${k++})`;
+    return n;
+  };
+  function addMachine(name, source, target, rules) {
+    const p = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: uniqueName(name, source, target), source, target, rules };
+    store.custom.push(p);
+    saveStore();
+    return p;
+  }
+  newMachineBtn7.addEventListener('click', () => {
+    const m = machine();
+    const name = (prompt('Yeni makinenin adı (mevcut kurallar kopyalanır):', m ? m.name + ' kopyası' : 'Yeni makine') || '').trim();
+    if (!name) return;
+    const p = addMachine(name, srcSel7.value, tgtSel7.value, m ? rulesText7.value : ProgConvert.genericRules(srcSel7.value, tgtSel7.value));
+    fillMachines(p.id);
+    $('rulesBox7').open = true;
+    if (result) run();
+  });
+  renameMachineBtn7.addEventListener('click', () => {
+    const m = machine();
+    if (!m || m.builtin) return;
+    const name = (prompt('Makinenin yeni adı:', m.name) || '').trim();
+    if (!name || name === m.name) return;
+    store.custom.find(p => p.id === m.id).name = uniqueName(name, srcSel7.value, tgtSel7.value);
+    saveStore();
+    fillMachines(m.id);
+  });
+  deleteMachineBtn7.addEventListener('click', () => {
+    const m = machine();
+    if (!m || m.builtin) return;
+    if (!confirm(`"${m.name}" silinsin mi? Kuralları da silinir.`)) return;
+    store.custom = store.custom.filter(p => p.id !== m.id);
+    saveStore();
+    fillMachines();
+    if (result) run();
+  });
+  exportBtn7.addEventListener('click', () => {
+    const m = machine();
+    if (!m) return;
+    const data = { format: 'toolbox-makine', version: 1, name: m.name, source: srcSel7.value, target: tgtSel7.value, rules: rulesText7.value };
+    download(m.name.replace(/[\\/:*?"<>|]+/g, '_') + '.json', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  });
+  importBtn7.addEventListener('click', () => importInput7.click());
+  importInput7.addEventListener('change', async () => {
+    const f = importInput7.files[0];
+    importInput7.value = '';
+    if (!f) return;
+    let data;
+    try { data = JSON.parse(await f.text()); } catch (e) { alert('Dosya okunamadı: geçerli bir makine dosyası değil.'); return; }
+    const okSrc = ProgConvert.SOURCES.some(x => x.id === data.source), okTgt = ProgConvert.TARGETS.some(x => x.id === data.target);
+    if (data.format !== 'toolbox-makine' || typeof data.rules !== 'string' || !okSrc || !okTgt) { alert('Bu bir makine dosyası değil ya da kaynak/hedef bu sürümde yok.'); return; }
+    const p = addMachine(String(data.name || 'İçe aktarılan makine'), data.source, data.target, data.rules);
+    srcSel7.value = data.source; tgtSel7.value = data.target;
+    fillMachines(p.id);
+    if (result) run();
+  });
+
+  const optRenum = $('renumChk7'), optSupp = $('suppressChk7'), optHole = $('holeChk7');
+  [optRenum, optSupp, optHole].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
 
   /* ---- files ---- */
   // Mazak files are often in the Windows code page; Turkish comments must survive.
@@ -7528,7 +7833,7 @@ SON = M17
       const row = document.createElement('div');
       row.className = 'fl-row';
       const role = result && result.programs.filter(pg => pg.srcName === f.name || pg.srcName.startsWith(f.name + ' ['));
-      const tag = role && role.length ? role.map(pg => (pg.isSub ? 'Alt program → ' : 'Ana program → ') + pg.outName).join(' · ') : '';
+      const tag = role && role.length ? role.map(pg => (pg.isSub ? 'Alt program → ' : result.target.writer === 'iso' ? '→ ' : 'Ana program → ') + pg.outName).join(' · ') : '';
       row.innerHTML = `<span class="fl-name"></span><span class="fl-meta"></span><button class="fl-remove" title="Kaldır">×</button>`;
       row.querySelector('.fl-name').textContent = f.name;
       row.querySelector('.fl-meta').textContent = (tag ? tag + ' · ' : '') + f.text.split(/\r\n|\r|\n/).length + ' satır';
@@ -7553,11 +7858,12 @@ SON = M17
   /* ---- convert ---- */
   function run() {
     if (!files.length) return;
-    result = MazakSiemens.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
+    result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
+      target: tgtSel7.value,
       rulesText: rulesText7.value,
-      renumber: renumChk7.checked,
-      suppress: suppressChk7.checked,
-      holeMsg: holeChk7.checked
+      renumber: optRenum.checked,
+      suppress: optSupp.checked,
+      holeMsg: optHole.checked
     });
     if (current >= result.programs.length) current = 0;
     resultPanel7.style.display = 'block';
@@ -7597,7 +7903,7 @@ SON = M17
       item.className = 'pair-item' + (k === current ? ' active' : '');
       item.innerHTML = `<div class="pi-name"></div><div class="pi-sub"></div><div class="pi-status"></div>`;
       item.querySelector('.pi-name').textContent = pg.outName;
-      item.querySelector('.pi-sub').textContent = (pg.isSub ? 'alt program · ' : 'ana program · ') + pg.srcName;
+      item.querySelector('.pi-sub').textContent = (pg.isSub ? 'alt program · ' : result.target.writer === 'iso' ? '' : 'ana program · ') + pg.srcName;
       item.querySelector('.pi-status').innerHTML =
         `<span class="st st-chg">${s.changed} değişen</span>` + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : `<span class="st st-same">KONTROL yok</span>`);
       item.addEventListener('click', () => { current = k; renderProgList(); renderPreview(); });
@@ -7634,7 +7940,7 @@ SON = M17
         const aNum = left ? i + 1 : '';
         const aText = left ? escapeHtml7(srcText) : '';
         const bNum = o && o.flag ? '!!' : '';
-        const bText = o ? escapeHtml7(MazakSiemens.lineText(o)) : '';
+        const bText = o ? escapeHtml7(ProgConvert.lineText(o)) : '';
         html.push(`<div class="${cls}"><div class="dnum side-a${aCls}">${aNum}</div><div class="dtext side-a${aCls}">${aText}</div><div class="dnum side-b${bCls}">${bNum}</div><div class="dtext side-b${bCls}">${bText}</div></div>`);
       }
     });
@@ -7661,7 +7967,7 @@ SON = M17
   nextFlagBtn7.addEventListener('click', () => goFlag(1));
 
   /* ---- output ---- */
-  const programText = pg => pg.result.lines.map(MazakSiemens.lineText).join('\r\n') + '\r\n';
+  const programText = pg => pg.result.lines.map(ProgConvert.lineText).join('\r\n') + '\r\n';
   function download(name, blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -7723,6 +8029,7 @@ SON = M17
     end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
     return new Blob([...parts, ...central, end], { type: 'application/zip' });
   }
+  fillMachines();
 })();
 </script>
 
