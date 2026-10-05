@@ -7024,12 +7024,6 @@ G61.1
 // CYCLE832() ya da CYCLE832(,0)
 G64
 
-[DÖNER EKSEN]
-// A/B/C hareketi olan satır kilit aç / kilitle arasına alınır — {SATIR}: çevrilen satır
-M46 M43
-{SATIR}
-M47 M44
-
 [ÇAĞRI SUB2000]
 // CALL ".../_N_SUB2000_SPF" — {Rnn}: çağrıdan önce verilen R parametresi
 G65 P9862 B3. T[#989] E{R98} R{R92*2} S{R80} Y{R97} Z{R96}
@@ -7099,9 +7093,6 @@ ${mazak ? 'G61.1' : 'G05.1 Q1'}
 
 [YÜKSEK HIZ İPTALİ]
 ${mazak ? 'G64' : 'G05.1 Q0'}
-
-[DÖNER EKSEN]
-// A/B/C hareketi olan satırı sarmak için; {SATIR}: çevrilen satır. Boş: olduğu gibi
 
 [R PARAMETRELERİ]
 // Rn → #(TABAN+n)
@@ -7311,7 +7302,6 @@ SON = M17
       hsc: tplOf('YUKSEK HIZ'),
       hscOff: tplOf('YUKSEK HIZ IPTALI'),
       fixedPoint: tplOf('SABIT NOKTA'),
-      rotary: tplOf('DONER EKSEN'),
       cmds: mapLines(sections['KOMUTLAR']),
       toolNames: mapLines(sections['TAKIM NUMARALARI']),
       calls,
@@ -7997,25 +7987,8 @@ SON = M17
     const targets = new Set();
     parts.forEach(p => { const g = p.code.match(/GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)/i); if (g) targets.add(g[1].toUpperCase()); });
 
-    const st = { abs: true, pos: { X: null, Y: null, Z: null }, rot: { A: null, B: null, C: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0 };
+    const st = { abs: true, pos: { X: null, Y: null, Z: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0 };
     let usedDC = false;
-    // a turn of the rotary axes, between the rules' unclamp / clamp lines
-    const emitRotary = (i, line, flag) => {
-      if (R.rotary.length) R.rotary.forEach(t => emit(i, t.includes('{SATIR}') ? t.replace('{SATIR}', line) : t, t.includes('{SATIR}') ? 'changed' : 'template', t.includes('{SATIR}') ? flag || '' : ''));
-      else emit(i, line, 'changed', flag || '');
-    };
-    // rotary words that actually turn something (a value already standing is left out)
-    const rotarySplit = ws => {
-      const moving = [], still = [];
-      ws.forEach(x => {
-        const m = x.match(/^([ABC])(.*)$/);
-        if (!m || !/^[-\d.[#]/.test(m[2])) return;
-        const v = parseFloat(m[2]);
-        if (!isNaN(v) && st.abs && st.rot[m[1]] != null && Math.abs(st.rot[m[1]] - v) < 1e-9) still.push(x); else moving.push(x);
-      });
-      return { moving, still };
-    };
-    const noteRotary = words => words.forEach(x => { const v = parseFloat(x.slice(1)); st.rot[x[0]] = !isNaN(v) && st.abs ? v : null; });
     const toolNo = v => {
       if (v == null) return null;
       const name = String(v).replace(/^"|"$/g, '');
@@ -8157,7 +8130,6 @@ SON = M17
           if (['A', 'B', 'C'].some(k => vals[k] !== '0')) out[out.length - 1].flag = 'CYCLE800 açıları kaynak makinenin eksenlerine göre — eğik düzlem açılarını kontrol edin';
         } else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
         if (comment && out.length > first) out[out.length - 1].text = withC(out[out.length - 1].text, comment);
-        st.rot = { A: null, B: null, C: null };
         done(); continue;
       }
       const c832 = code.match(/^CYCLE832\s*\((.*)\)$/i);
@@ -8185,7 +8157,6 @@ SON = M17
           lines.forEach((l, k) => { const f = fillExpr(l, { T: toolNo(st.tool) || '' }, rvals); emit(i, withC(f.out, k === lines.length - 1 ? comment : null), 'template', f.missing.length ? 'değer yok: ' + f.missing.join(', ') : ''); });
           if (!lines.length && comment) emit(i, comment, 'changed');
           st.pos = { X: null, Y: null, Z: null };
-          st.rot = { A: null, B: null, C: null };
         } else if (/^(M17|RET)$/i.test(name)) {
           emit(i, withC(R.sub.end, comment), 'changed');
         } else if (/^L\d+$/.test(name)) {
@@ -8293,19 +8264,11 @@ SON = M17
       const axes = ws.filter(x => /^[XYZABC][-\d.[#]/.test(x));
       if (st.cycle && axes.length) {
         const c = st.cycle;
-        let xy = ws.filter(x => /^[XY]/.test(x));
+        const xy = ws.filter(x => /^[XY]/.test(x));
         if (ws.some(x => /^Z/.test(x))) flags.push('MCALL içinde Z hareketi');
-        const { moving } = rotarySplit(ws);
-        if (moving.length) {
-          // the ISO cycle would drill with the table unclamped: close it, turn, start it again
-          if (c.started) { emit(i, 'G80', 'added'); c.started = false; }
-          emitRotary(i, 'G0 ' + moving.join(' '));
-          noteRotary(moving);
-          if (!xy.length) xy = ['X', 'Y'].filter(l => st.pos[l] != null).map(l => l + fmt(st.pos[l]));
-        }
-        const rest = ws.filter(x => !/^[XYZABC]/.test(x) && !/^G0?[0-3]$/.test(x));
+        const rest = ws.filter(x => !/^[XYZ]/.test(x) && !/^G0?[0-3]$/.test(x)); // A/B/C stay with the position
         const line = c.started ? xy.join(' ') : cycleLine(c, xy);
-        emit(i, withC([line].concat(rest).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
+        emit(i, withC([line].concat(rest).filter(Boolean).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
         c.started = true;
         xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs) st.pos[x[0]] = v; });
         done(); continue;
@@ -8313,17 +8276,9 @@ SON = M17
       // track where the tool is (for the cycle retract height)
       ws.forEach(x => { const mm = x.match(/^([XYZ])(-?[\d.]+)$/); if (mm) st.pos[mm[1]] = st.abs ? parseFloat(mm[2]) : (st.pos[mm[1]] != null ? st.pos[mm[1]] + parseFloat(mm[2]) : null); });
 
-      const { moving, still } = rotarySplit(ws);
-      let wsOut = ws.filter(x => !still.includes(x));
-      if (still.length && !wsOut.some(x => /^[XYZABC][-\d.[#]/.test(x)) && wsOut.every(x => /^G0?[0-3]$/.test(x))) wsOut = []; // only a standing rotary word: nothing moves
-      const text = withC(wsOut.join(' '), comment);
-      const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase() && !still.length;
-      if (moving.length) {
-        emitRotary(i, text, flags.join('; '));
-        noteRotary(moving);
-      } else if (text || flags.length) {
-        emit(i, text, same && !comment === !p.comment ? 'same' : 'changed', flags.join('; '));
-      }
+      const text = withC(ws.join(' '), comment);
+      const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase();
+      if (text || flags.length) emit(i, text, same && !comment === !p.comment ? 'same' : 'changed', flags.join('; '));
       if (incWs.length) { emit(i, 'G91 ' + incWs.join(' '), 'added', 'IC() ayrı satıra alındı — aynı blokta değil, sırayla hareket eder'); emit(i, 'G90', 'added'); }
       after.forEach(x => emit(i, x, 'added'));
       done();
