@@ -3931,6 +3931,7 @@ const LatheCore = (function () {
 
     let posX = 0, posZ = 0, hasPosition = false;
     let motionMode = 'rapid'; // sensible power-on default until a G0/1/2/3 is explicitly seen
+    let threading = false;    // G32/G33: a straight move whose F is the lead per revolution
     let positioning = 'absolute';
     let currentTool = null;
     let currentItem = null;
@@ -3940,7 +3941,7 @@ const LatheCore = (function () {
     let currentS = null;
     let maxRpmLimit = null; // from an S on a G92/G50 line
     let lastChangedTool = null; // tool in the spindle per the last counted M06
-    const counts = { rapid: 0, linear: 0, arc: 0 };
+    const counts = { rapid: 0, linear: 0, arc: 0, thread: 0 };
 
     lines.forEach((rawLine, idx) => {
       const lineNo = idx + 1;
@@ -3957,10 +3958,11 @@ const LatheCore = (function () {
       let hasSpindleLimitLine = false;
       tokens.forEach(t => {
         if (t.letter === 'G') {
-          if (t.value === 0) motionMode = 'rapid';
-          else if (t.value === 1) motionMode = 'linear';
-          else if (t.value === 2) motionMode = 'arcCW';
-          else if (t.value === 3) motionMode = 'arcCCW';
+          if (t.value === 0) { motionMode = 'rapid'; threading = false; }
+          else if (t.value === 1) { motionMode = 'linear'; threading = false; }
+          else if (t.value === 2) { motionMode = 'arcCW'; threading = false; }
+          else if (t.value === 3) { motionMode = 'arcCCW'; threading = false; }
+          else if (t.value === 32 || t.value === 33) { motionMode = 'linear'; threading = true; } // thread cutting (Fanuc A: G32, B/C and others: G33)
           else if (t.value === 90) positioning = 'absolute';
           else if (t.value === 91) positioning = 'incremental';
           else if (t.value === 94 || t.value === 98) feedMode = 'perMin';
@@ -4065,6 +4067,9 @@ const LatheCore = (function () {
         if (seg.type === 'arcCW' || seg.type === 'arcCCW') counts.arc++; else counts.linear++;
       } else if (motionMode === 'rapid') {
         counts.rapid++;
+      } else if (threading) {
+        seg.thread = true;
+        counts.thread++;
       } else {
         counts.linear++;
       }
@@ -4129,6 +4134,25 @@ const LatheCore = (function () {
 
   const FALLBACK_MAX_RPM = 6000; // only if a program never sets G50/G92 and the CSS diameter is tiny
 
+  // Spindle speed of a cutting move: S under G97, from the mean diameter under
+  // G96 (clamped by G50/G92). null when the program never set a speed mode.
+  function segRpm(seg, unitSystem) {
+    if (seg.speedMode === 'rpm' && seg.S != null) return seg.S;
+    if (seg.speedMode === 'css' && seg.S != null) {
+      const diameter = Math.max(Math.abs(seg.x1 + seg.x2), 1e-6); // 2 × mean radius
+      const rpm = unitSystem === 'inch' ? (12 * seg.S) / (Math.PI * diameter) : (1000 * seg.S) / (Math.PI * diameter);
+      return Math.min(rpm, seg.maxRpmLimit != null ? seg.maxRpmLimit : FALLBACK_MAX_RPM);
+    }
+    return null;
+  }
+  // Feed per minute. A thread pass (G32/G33) always advances one lead (F) per
+  // revolution, whatever G94/G95 says; otherwise G94/G98 F is already per minute.
+  function segFeedPerMin(seg, rpm) {
+    if (seg.F == null || seg.F <= 0) return null;
+    if (seg.thread || seg.feedMode !== 'perMin') return rpm > 0 ? seg.F * rpm : null;
+    return seg.F;
+  }
+
   /* ---- cutting / air / tool-change time ----
      opts: { rapidRate, toolChangeSec, unitSystem: 'inch' | 'metric' } */
   function computeTimes(segments, toolChanges, opts, dwells) {
@@ -4186,22 +4210,7 @@ const LatheCore = (function () {
         return;
       }
 
-      if (seg.F == null || seg.F <= 0) { unknownCount++; return; }
-
-      let rpm;
-      if (seg.speedMode === 'rpm' && seg.S != null) {
-        rpm = seg.S;
-      } else if (seg.speedMode === 'css' && seg.S != null) {
-        const avgRadius = (seg.x1 + seg.x2) / 2;
-        const diameter = Math.max(Math.abs(2 * avgRadius), 1e-6);
-        rpm = unitSystem === 'inch' ? (12 * seg.S) / (Math.PI * diameter) : (1000 * seg.S) / (Math.PI * diameter);
-        rpm = Math.min(rpm, seg.maxRpmLimit != null ? seg.maxRpmLimit : FALLBACK_MAX_RPM);
-      } else {
-        unknownCount++; return;
-      }
-      if (!(rpm > 0)) { unknownCount++; return; }
-
-      const feedPerMin = seg.feedMode === 'perMin' ? seg.F : seg.F * rpm;
+      const feedPerMin = segFeedPerMin(seg, segRpm(seg, unitSystem));
       if (!(feedPerMin > 0)) { unknownCount++; return; }
 
       const t = dist / feedPerMin;
@@ -4218,7 +4227,7 @@ const LatheCore = (function () {
     };
   }
 
-  return { ITEM_RE, stripComments, tokenize, toolPocket, parse, arcLength, arcSamplePoints, segLength, formatMinutes, computeTimes };
+  return { ITEM_RE, stripComments, tokenize, toolPocket, parse, arcLength, arcSamplePoints, segLength, formatMinutes, segRpm, segFeedPerMin, computeTimes };
 })();
 
 /* ================= Tool: Torna Program Simülatörü ================= */
@@ -4586,7 +4595,7 @@ const LatheCore = (function () {
 
   function showDrawSummary5(counts) {
     drawSummary5.style.display = 'block';
-    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır · <b>${counts.rapid}</b> hızlı · <b>${counts.linear}</b> doğrusal · <b>${counts.arc}</b> yay · <b>${toolsFound.length}</b> takım · <b>${itemsFound.length}</b> item · <b>${toolChanges5.length}</b> M06`;
+    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır · <b>${counts.rapid}</b> hızlı · <b>${counts.linear}</b> doğrusal · <b>${counts.arc}</b> yay${counts.thread ? ` · <b>${counts.thread}</b> diş` : ''} · <b>${toolsFound.length}</b> takım · <b>${itemsFound.length}</b> item · <b>${toolChanges5.length}</b> M06`;
   }
 
   insertLineBtn5.addEventListener('click', insertLineBelow5);
@@ -4626,6 +4635,22 @@ const LatheCore = (function () {
     return { pos, currentSeg };
   }
 
+  // "G97 25 dev/dk · F.0833/dev → 2.0825/dk" — what the time calculation uses for this move
+  function speedText5(seg) {
+    const rpm = LatheCore.segRpm(seg, unitSystem5);
+    const num = v => +v.toFixed(4);
+    let t = seg.speedMode === 'css' && seg.S != null ? `G96 S${seg.S} → ${rpm != null ? Math.round(rpm) : '?'} dev/dk`
+      : seg.speedMode === 'rpm' && seg.S != null ? `G97 ${num(seg.S)} dev/dk`
+      : 'devir yok';
+    if (seg.F != null) {
+      const perRev = seg.thread || seg.feedMode !== 'perMin';
+      const fpm = LatheCore.segFeedPerMin(seg, rpm);
+      t += `  ·  F${num(seg.F)}${perRev ? '/dev' : '/dk'}`;
+      if (perRev) t += fpm != null ? ` → ${num(fpm)}/dk` : ' → ?';
+    }
+    return t;
+  }
+
   function setCurrentLine(n, opts) {
     const o = opts || {};
     currentLine = Math.max(1, Math.min(rawLines.length || 1, n));
@@ -4643,8 +4668,10 @@ const LatheCore = (function () {
     let readout = `Satır ${currentLine} / ${rawLines.length}`;
     if (pos) readout += `  ·  Konum: X${(pos.x).toFixed(4)} Z${pos.z.toFixed(4)}`;
     if (currentSeg) {
-      const typeLabel = { rapid: 'G00 hızlı', linear: 'G01 doğrusal', arcCW: 'G02 yay (CW)', arcCCW: 'G03 yay (CCW)' }[currentSeg.type] || currentSeg.type;
+      const typeLabel = currentSeg.thread ? 'G33 diş'
+        : ({ rapid: 'G00 hızlı', linear: 'G01 doğrusal', arcCW: 'G02 yay (CW)', arcCCW: 'G03 yay (CCW)' }[currentSeg.type] || currentSeg.type);
       readout += `  ·  ${typeLabel}`;
+      if (currentSeg.type !== 'rapid') readout += `  ·  ${speedText5(currentSeg)}`;
     }
     simReadout5.textContent = readout;
 
