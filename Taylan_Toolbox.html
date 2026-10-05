@@ -3919,7 +3919,10 @@ const LatheCore = (function () {
     return pocket.replace(/^0+(?=\d)/, '') || pocket;
   }
 
-  function parse(text, diameterMode) {
+  // opts.unitSystem ('inch' | 'metric'): units for integer G76 depths when the
+  // program has no G20/G21.
+  function parse(text, diameterMode, opts) {
+    const defaultUnits = (opts && opts.unitSystem) || 'inch';
     const lines = text.split(/\r\n|\r|\n/);
     const segments = [];
     const lineHasMove = new Array(lines.length + 1).fill(false);
@@ -3941,7 +3944,85 @@ const LatheCore = (function () {
     let currentS = null;
     let maxRpmLimit = null; // from an S on a G92/G50 line
     let lastChangedTool = null; // tool in the spindle per the last counted M06
-    const counts = { rapid: 0, linear: 0, arc: 0, thread: 0 };
+    const counts = { rapid: 0, linear: 0, arc: 0, thread: 0, g76: 0 };
+    let unitsG = null; // 'inch' | 'metric' from G20/G21
+
+    // An integer P/Q/K/D/R word in a G76 block is in least input increments
+    // (0.0001 in / 0.001 mm); with a decimal point it is taken as written.
+    function incr(t, signed) {
+      const v = /\./.test(t.raw) ? t.value : t.value * ((unitsG || defaultUnits) === 'metric' ? 0.001 : 0.0001);
+      return signed ? v : Math.abs(v);
+    }
+
+    /* G76 threading cycle, expanded into its passes so it draws and times
+       like the moves it makes. Two forms:
+         Fanuc two-block   G76 P(mm rr aa) Q(min. depth) R(finish allowance)
+                           G76 X(U) Z(W) R(taper) P(thread height) Q(first depth) F(lead)
+         one-block (Fanuc 10T, Haas)
+                           G76 X Z K(thread height) D(first depth) I(taper) F(lead) [P infeed]
+       Depths and taper are radius values. Pass depth follows the
+       constant-volume rule Δd·√n, at least the minimum depth per pass, rough
+       passes stop at height − allowance, then the finishing passes run at
+       full depth. Each pass: rapid in, thread, rapid out, rapid back. */
+    const g76Setup = { finishPasses: 1, minDepth: 0, allowance: 0 };
+    function threadCycle(tokens, lineNo) {
+      const w = l => tokens.find(t => t.letter === l);
+      const X = w('X'), Z = w('Z'), U = w('U'), W = w('W');
+      if (!X && !Z && !U && !W) { // first block: the settings for the next cycle
+        const P = w('P'), Q = w('Q'), R = w('R');
+        if (P) g76Setup.finishPasses = Math.max(1, parseInt(P.raw.replace(/\D/g, '').padStart(6, '0').slice(0, 2), 10) || 1);
+        if (Q) g76Setup.minDepth = incr(Q);
+        if (R) g76Setup.allowance = incr(R);
+        return;
+      }
+      if (!hasPosition || !(currentF > 0)) return;
+      const oneBlock = !!(w('K') || w('D'));
+      const heightTok = oneBlock ? w('K') : w('P');
+      if (!heightTok) return;
+      const firstTok = oneBlock ? w('D') : w('Q');
+      const taperTok = oneBlock ? w('I') : w('R');
+      const height = incr(heightTok);
+      const first = firstTok ? incr(firstTok) : height;
+      const taper = taperTok ? incr(taperTok, true) : 0;
+      const infeed = oneBlock && w('P') ? Math.round(w('P').value) : 1; // Haas P3/P4: constant depth per pass
+      const minDepth = oneBlock ? 0 : g76Setup.minDepth;
+      const allowance = oneBlock ? 0 : g76Setup.allowance;
+      const finishPasses = oneBlock ? 0 : g76Setup.finishPasses; // one-block: the last rough pass is the full depth
+      if (!(height > 0) || !(first > 0)) return;
+
+      const x0 = posX, z0 = posZ;
+      const radial = v => (diameterMode ? v / 2 : v);
+      const xEnd = X ? (positioning === 'incremental' ? x0 + radial(X.value) : radial(X.value)) : (U ? x0 + radial(U.value) : x0);
+      const zEnd = Z ? (positioning === 'incremental' ? z0 + Z.value : Z.value) : (W ? z0 + W.value : z0);
+      const external = xEnd <= x0;               // cutting toward the axis
+      const crest = external ? xEnd + height : xEnd - height;
+
+      const depths = [];
+      const roughTo = Math.max(0, height - allowance);
+      let prev = 0;
+      for (let n = 1; n <= 500 && prev < roughTo - 1e-12; n++) {
+        let d = infeed === 3 || infeed === 4 ? first * n : first * Math.sqrt(n);
+        if (d - prev < minDepth) d = prev + minDepth;
+        if (d >= roughTo) d = roughTo;
+        depths.push(d);
+        prev = d;
+      }
+      for (let i = 0; i < finishPasses; i++) depths.push(height);
+
+      const base = { lineNo, tool: currentTool, item: currentItem, F: currentF, feedMode, S: currentS, speedMode: speedModeG, maxRpmLimit, cycle: 'G76', passes: depths.length };
+      depths.forEach((d, i) => {
+        const r = external ? crest - d : crest + d;
+        const rStart = r + taper;
+        segments.push(Object.assign({}, base, { type: 'rapid', x1: x0, z1: z0, x2: rStart, z2: z0 }));
+        segments.push(Object.assign({}, base, { type: 'linear', thread: true, pass: i + 1, depth: d, x1: rStart, z1: z0, x2: r, z2: zEnd }));
+        segments.push(Object.assign({}, base, { type: 'rapid', x1: r, z1: zEnd, x2: x0, z2: zEnd }));
+        segments.push(Object.assign({}, base, { type: 'rapid', x1: x0, z1: zEnd, x2: x0, z2: z0 }));
+        counts.rapid += 3;
+        counts.thread++;
+      });
+      counts.g76++;
+      lineHasMove[lineNo] = true; // the tool ends back at the start point
+    }
 
     lines.forEach((rawLine, idx) => {
       const lineNo = idx + 1;
@@ -3963,6 +4044,8 @@ const LatheCore = (function () {
           else if (t.value === 2) { motionMode = 'arcCW'; threading = false; }
           else if (t.value === 3) { motionMode = 'arcCCW'; threading = false; }
           else if (t.value === 32 || t.value === 33) { motionMode = 'linear'; threading = true; } // thread cutting (Fanuc A: G32, B/C and others: G33)
+          else if (t.value === 20) unitsG = 'inch';
+          else if (t.value === 21) unitsG = 'metric';
           else if (t.value === 90) positioning = 'absolute';
           else if (t.value === 91) positioning = 'incremental';
           else if (t.value === 94 || t.value === 98) feedMode = 'perMin';
@@ -4006,6 +4089,7 @@ const LatheCore = (function () {
         if (sec > 0) dwells.push({ lineNo, sec, item: currentItem, tool: currentTool });
         return;
       }
+      if (tokens.some(t => t.letter === 'G' && t.value === 76)) { threadCycle(tokens, lineNo); return; }
       if (tokens.some(t => t.letter === 'G' && NON_MOTION_G.has(t.value))) return;
 
       let xTok = null, zTok = null, iTok = null, kTok = null, rTok = null, lTok = null;
@@ -4330,7 +4414,7 @@ const LatheCore = (function () {
 
   // Parsing lives in LatheCore; this keeps the view's own state in sync with it.
   function parseProgram(text, diameterMode) {
-    const parsed = LatheCore.parse(text, diameterMode);
+    const parsed = LatheCore.parse(text, diameterMode, { unitSystem: unitSystem5 });
     rawLines = parsed.lines;
     segments = parsed.segments;
     lineHasMove = parsed.lineHasMove;
@@ -4381,6 +4465,8 @@ const LatheCore = (function () {
       unitSystemSegmented5.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       unitSystem5 = btn.dataset.unit;
+      // integer G76 depths are read in these units, and G96 speeds too
+      if (simPanel5.style.display !== 'none') refreshFromProgram({ keepZoom: true });
     });
   });
 
@@ -4595,7 +4681,7 @@ const LatheCore = (function () {
 
   function showDrawSummary5(counts) {
     drawSummary5.style.display = 'block';
-    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır · <b>${counts.rapid}</b> hızlı · <b>${counts.linear}</b> doğrusal · <b>${counts.arc}</b> yay${counts.thread ? ` · <b>${counts.thread}</b> diş` : ''} · <b>${toolsFound.length}</b> takım · <b>${itemsFound.length}</b> item · <b>${toolChanges5.length}</b> M06`;
+    drawSummary5.innerHTML = `<b>${rawLines.length}</b> satır · <b>${counts.rapid}</b> hızlı · <b>${counts.linear}</b> doğrusal · <b>${counts.arc}</b> yay${counts.thread ? ` · <b>${counts.thread}</b> diş pasosu` : ''}${counts.g76 ? ` (<b>${counts.g76}</b> G76)` : ''} · <b>${toolsFound.length}</b> takım · <b>${itemsFound.length}</b> item · <b>${toolChanges5.length}</b> M06`;
   }
 
   insertLineBtn5.addEventListener('click', insertLineBelow5);
@@ -4667,7 +4753,12 @@ const LatheCore = (function () {
     const { pos, currentSeg } = positionAtLine(currentLine);
     let readout = `Satır ${currentLine} / ${rawLines.length}`;
     if (pos) readout += `  ·  Konum: X${(pos.x).toFixed(4)} Z${pos.z.toFixed(4)}`;
-    if (currentSeg) {
+    const cyc = segments.filter(sg => sg.lineNo === currentLine && sg.cycle === 'G76' && sg.thread);
+    if (cyc.length) {
+      const p = Math.max(0, Math.min(8, parseInt(precision5.value, 10) || 4));
+      const last = cyc[cyc.length - 1];
+      readout += `  ·  G76 diş döngüsü: ${cyc.length} paso, ilk ${cyc[0].depth.toFixed(p)} → ${last.depth.toFixed(p)} derinlik  ·  ${speedText5(last)}`;
+    } else if (currentSeg) {
       const typeLabel = currentSeg.thread ? 'G33 diş'
         : ({ rapid: 'G00 hızlı', linear: 'G01 doğrusal', arcCW: 'G02 yay (CW)', arcCCW: 'G03 yay (CCW)' }[currentSeg.type] || currentSeg.type);
       readout += `  ·  ${typeLabel}`;
