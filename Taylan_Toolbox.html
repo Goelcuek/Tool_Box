@@ -5735,37 +5735,73 @@ const LatheCore = (function () {
     const fmt = v => v.toFixed(p);
     // drawn the way the plot shows it (Z,X horizontal lathe; X,Z vertical)
     const scrPt = pt => { const q = plotOf5(pt.x, pt.z); return `${fmt(q.h)},${fmt(q.v)}`; };
+    // every point with a NONE snap override, so AutoCAD's running object
+    // snaps can't pull it onto geometry drawn a moment earlier
+    const P = pt => '_non ' + scrPt(pt);
+    // the middle point only steers the arc and isn't part of the drawing: written
+    // with extra decimals, so the circle through it keeps the program's radius exactly
+    const fine = v => v.toFixed(Math.min(12, p + 4));
+    const Pmid = pt => { const q = plotOf5(pt.x, pt.z); return `_non ${fine(q.h)},${fine(q.v)}`; };
     const lines = [];
+    const isArc = sg => sg.type === 'arcCW' || sg.type === 'arcCCW';
 
-    // Original toolpath — one connected line through every point in program
-    // order (arcs densified via sampling, same approach used elsewhere here).
-    const origPts = [];
-    segments.forEach(s => {
-      if (origPts.length === 0) origPts.push({ x: s.x1, z: s.z1 });
-      if (s.type === 'arcCW' || s.type === 'arcCCW') {
-        arcSamplePoints5(s, geomTol5()).slice(1).forEach(pt => origPts.push(pt));
-      } else {
-        origPts.push({ x: s.x2, z: s.z2 });
-      }
-    });
-    if (origPts.length > 1) {
-      lines.push('CECOLOR');
-      lines.push(resolveColorValue5(colorSelOrigLathe, customColorOrigLathe));
-      lines.push('_line');
-      origPts.forEach(pt => lines.push(scrPt(pt)));
-      lines.push('');
+    // start, middle and end of an arc, the short way round as the plot draws it
+    function arcThree(sg) {
+      const a1 = Math.atan2(sg.x1 - sg.cx, sg.z1 - sg.cz);
+      let d = Math.atan2(sg.x2 - sg.cx, sg.z2 - sg.cz) - a1;
+      while (d <= -Math.PI) d += 2 * Math.PI;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      const r = Math.hypot(sg.x1 - sg.cx, sg.z1 - sg.cz), am = a1 + d / 2;
+      return [{ x: sg.x1, z: sg.z1 }, { x: sg.cx + r * Math.sin(am), z: sg.cz + r * Math.cos(am) }, { x: sg.x2, z: sg.z2 }];
+    }
+    // after rounding to the chosen decimals, are the three points still a real arc?
+    function arcDrawable(three) {
+      const q = three.map(pt => scrPt(pt).split(',').map(Number));
+      const [A, B, C] = q;
+      if ((A[0] === C[0] && A[1] === C[1]) || (A[0] === B[0] && A[1] === B[1]) || (B[0] === C[0] && B[1] === C[1])) return false;
+      const cross = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
+      const unit = Math.pow(10, -p);
+      return Math.abs(cross) > unit * unit * 4;
+    }
+    // a path of segments: straight runs as one _line, every G02/G03 as an _arc
+    function emitPath(segs) {
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) { lines.push('_line'); run.forEach(pt => lines.push(P(pt))); lines.push(''); }
+        run = [];
+      };
+      segs.forEach(sg => {
+        if (isArc(sg)) {
+          const three = arcThree(sg);
+          if (arcDrawable(three)) {
+            flush();
+            lines.push('_arc', P(three[0]), Pmid(three[1]), P(three[2]));
+            run = [{ x: sg.x2, z: sg.z2 }];
+            return;
+          }
+          // too small for the chosen decimals: short lines instead, so the script never stops on a collinear arc
+          if (!run.length) run.push({ x: sg.x1, z: sg.z1 });
+          arcSamplePoints5(sg, geomTol5()).slice(1).forEach(pt => run.push(pt));
+          return;
+        }
+        if (!run.length) run.push({ x: sg.x1, z: sg.z1 });
+        run.push({ x: sg.x2, z: sg.z2 });
+      });
+      flush();
     }
 
-    // User offsets — one line each (arcs densified the same way).
+    // Original toolpath, in program order
+    if (segments.length) {
+      lines.push('CECOLOR');
+      lines.push(resolveColorValue5(colorSelOrigLathe, customColorOrigLathe));
+      emitPath(segments);
+    }
+
+    // User offsets — each its own line or arc
     if (userOffsets5.length > 0) {
       lines.push('CECOLOR');
       lines.push(resolveColorValue5(colorSelOffsetLathe, customColorOffsetLathe));
-      userOffsets5.forEach(o => {
-        const pts = o.type === 'linear' ? [{ x: o.x1, z: o.z1 }, { x: o.x2, z: o.z2 }] : arcSamplePoints5(o, geomTol5());
-        lines.push('_line');
-        pts.forEach(pt => lines.push(scrPt(pt)));
-        lines.push('');
-      });
+      userOffsets5.forEach(o => emitPath([o]));
     }
 
     return lines.join('\n') + '\n';
