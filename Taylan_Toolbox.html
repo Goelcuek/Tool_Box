@@ -2826,7 +2826,7 @@ function offsetPolylineXY(pts, tol, closed) {
     maxCols = grid.reduce((m, r) => Math.max(m, r.length), 0);
 
     selectedCells.clear(); nomXCells.clear(); nomYCells.clear(); actXCells.clear(); actYCells.clear();
-    anchorCell = null;
+    anchorCell = null; selRect = null;
 
     if (grid.length === 0) {
       scanSummary3.style.display = 'block';
@@ -2844,61 +2844,85 @@ function offsetPolylineXY(pts, tol, closed) {
 
   function cellKey(r, c) { return r + ',' + c; }
 
-  function renderGrid() {
-    dataGrid3.innerHTML = '';
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-    const corner = document.createElement('th'); corner.className = 'corner'; corner.textContent = '#';
-    trh.appendChild(corner);
-    for (let c = 0; c < maxCols; c++) { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); }
-    thead.appendChild(trh);
-    dataGrid3.appendChild(thead);
+  /* ---- grid + selection ----
+     Built for reports with thousands of cells: every cell is reachable
+     directly (cellEls[r][c]), one listener on the table serves all cells,
+     and a selection change touches only the cells whose state changes —
+     while dragging, just the strip the rectangle grew or shrank by — at
+     most once per frame. Nothing walks the whole grid per mouse move. */
+  let cellEls = [];            // cellEls[r][c] → <td>
+  let lastMouseEvt = null;     // mouse position during a drag, for the edge auto-scroll
+  let selRect = null;          // {r1, r2, c1, c2} while the selection is exactly one rectangle
+  const cellEl = k => { const i = k.indexOf(','); const row = cellEls[+k.slice(0, i)]; return row ? row[+k.slice(i + 1)] : null; };
+  const escCell = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    const tbody = document.createElement('tbody');
+  function renderGrid() {
+    let head = '<thead><tr><th class="corner">#</th>';
+    for (let c = 0; c < maxCols; c++) head += `<th>${c}</th>`;
+    head += '</tr></thead>';
+    const rows = [];
     grid.forEach((row, r) => {
-      const tr = document.createElement('tr');
-      const rowHead = document.createElement('td'); rowHead.className = 'rowhead'; rowHead.textContent = r + 1;
-      tr.appendChild(rowHead);
-      for (let c = 0; c < maxCols; c++) {
-        const td = document.createElement('td');
-        td.textContent = row[c] !== undefined ? row[c] : '';
-        td.dataset.r = r; td.dataset.c = c;
-        td.addEventListener('mousedown', onCellMouseDown);
-        td.addEventListener('mouseenter', onCellMouseEnter);
-        tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
+      let tr = `<tr><td class="rowhead">${r + 1}</td>`;
+      for (let c = 0; c < maxCols; c++) tr += `<td data-r="${r}" data-c="${c}">${row[c] !== undefined ? escCell(row[c]) : ''}</td>`;
+      rows.push(tr + '</tr>');
     });
-    dataGrid3.appendChild(tbody);
+    dataGrid3.innerHTML = head + '<tbody>' + rows.join('') + '</tbody>';
+    const body = dataGrid3.tBodies[0];
+    cellEls = Array.from(body.rows, tr => Array.prototype.slice.call(tr.cells, 1));
+    selRect = null;
   }
 
-  function onCellMouseDown(e) {
+  // one set of listeners for all cells
+  const cellOf = e => {
+    const td = e.target.closest ? e.target.closest('td') : null;
+    if (!td || td.classList.contains('rowhead') || td.dataset.r === undefined || !dataGrid3.contains(td)) return null;
+    return { r: +td.dataset.r, c: +td.dataset.c };
+  };
+  dataGrid3.addEventListener('mousedown', e => {
+    const cell = cellOf(e);
+    if (!cell) return;
     e.preventDefault();
-    const r = parseInt(this.dataset.r, 10), c = parseInt(this.dataset.c, 10);
+    const { r, c } = cell;
     if (e.ctrlKey || e.metaKey) {
       const k = cellKey(r, c);
-      if (selectedCells.has(k)) selectedCells.delete(k); else selectedCells.add(k);
+      const on = !selectedCells.has(k);
+      if (on) selectedCells.add(k); else selectedCells.delete(k);
+      cellEls[r][c].classList.toggle('cell-selected', on);
+      selRect = null; // no longer a plain rectangle
       anchorCell = { r, c }; isDragging = false;
     } else if (e.shiftKey && anchorCell) {
       setRectSelection(anchorCell, { r, c });
     } else {
-      selectedCells.clear(); selectedCells.add(cellKey(r, c));
+      setRectSelection({ r, c }, { r, c });
       anchorCell = { r, c }; isDragging = true;
+      lastMouseEvt = e; // where this drag starts — never the end of the last one
       startAutoScroll();
     }
-    updateSelectionClasses();
-  }
-  function onCellMouseEnter() {
+  });
+  // while dragging, many cells can be crossed between two frames: only the last one counts
+  let pendingCell = null, dragFrame = 0;
+  dataGrid3.addEventListener('mouseover', e => {
     if (!isDragging) return;
-    const r = parseInt(this.dataset.r, 10), c = parseInt(this.dataset.c, 10);
-    setRectSelection(anchorCell, { r, c });
-    updateSelectionClasses();
-  }
-  document.addEventListener('mouseup', () => { isDragging = false; });
+    const cell = cellOf(e);
+    if (!cell) return;
+    pendingCell = cell;
+    if (!dragFrame) dragFrame = requestAnimationFrame(() => {
+      dragFrame = 0;
+      if (pendingCell && anchorCell) setRectSelection(anchorCell, pendingCell);
+      pendingCell = null;
+    });
+  });
+  document.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    lastMouseEvt = null;
+    if (dragFrame) { cancelAnimationFrame(dragFrame); dragFrame = 0; }
+    if (pendingCell && anchorCell) setRectSelection(anchorCell, pendingCell); // the cell under the mouse at release
+    pendingCell = null;
+  });
 
   // Edge auto-scroll while drag-selecting, so you don't need a second hand on the scrollbar/wheel.
-  let lastMouseEvt = null;
-  document.addEventListener('mousemove', e => { lastMouseEvt = e; });
+  document.addEventListener('mousemove', e => { if (isDragging) lastMouseEvt = e; });
   // Runs only while a drag is in progress: started by the mousedown that
   // begins one, and it stops itself on the first frame after the mouse is
   // released, so the page is idle the rest of the time.
@@ -2928,33 +2952,55 @@ function offsetPolylineXY(pts, tol, closed) {
         gridWrap3.scrollLeft += dx;
         const elem = document.elementFromPoint(mx, my);
         if (elem && elem.tagName === 'TD' && !elem.classList.contains('rowhead') && elem.dataset.r !== undefined) {
-          const r = parseInt(elem.dataset.r, 10), c = parseInt(elem.dataset.c, 10);
-          setRectSelection(anchorCell, { r, c });
-          updateSelectionClasses();
+          setRectSelection(anchorCell, { r: +elem.dataset.r, c: +elem.dataset.c });
         }
       }
     }
     requestAnimationFrame(autoScrollLoop);
   }
 
+  // Select the rectangle a–b. From a previous rectangle only the cells that
+  // change state are touched; from any other selection, its cells are cleared one by one.
   function setRectSelection(a, b) {
+    const n = { r1: Math.min(a.r, b.r), r2: Math.max(a.r, b.r), c1: Math.min(a.c, b.c), c2: Math.max(a.c, b.c) };
+    const o = selRect;
+    if (o && o.r1 === n.r1 && o.r2 === n.r2 && o.c1 === n.c1 && o.c2 === n.c2) return;
+    const set = (r, c, on) => {
+      const k = cellKey(r, c);
+      if (on) selectedCells.add(k); else selectedCells.delete(k);
+      const td = cellEls[r] && cellEls[r][c];
+      if (td) td.classList.toggle('cell-selected', on);
+    };
+    if (o) {
+      const inO = (r, c) => r >= o.r1 && r <= o.r2 && c >= o.c1 && c <= o.c2;
+      const inN = (r, c) => r >= n.r1 && r <= n.r2 && c >= n.c1 && c <= n.c2;
+      const R1 = Math.min(o.r1, n.r1), R2 = Math.max(o.r2, n.r2), C1 = Math.min(o.c1, n.c1), C2 = Math.max(o.c2, n.c2);
+      for (let r = R1; r <= R2; r++) {
+        // rows inside both rectangles change only at their column edges
+        const bothRows = r >= o.r1 && r <= o.r2 && r >= n.r1 && r <= n.r2;
+        if (bothRows && o.c1 === n.c1 && o.c2 === n.c2) continue;
+        for (let c = C1; c <= C2; c++) {
+          const was = inO(r, c), now = inN(r, c);
+          if (was !== now) set(r, c, now);
+        }
+      }
+    } else {
+      selectedCells.forEach(k => { const td = cellEl(k); if (td) td.classList.remove('cell-selected'); });
+      selectedCells.clear();
+      for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) set(r, c, true);
+    }
+    selRect = n;
+  }
+  function clearSelection() {
+    selectedCells.forEach(k => { const td = cellEl(k); if (td) td.classList.remove('cell-selected'); });
     selectedCells.clear();
-    const r1 = Math.min(a.r, b.r), r2 = Math.max(a.r, b.r);
-    const c1 = Math.min(a.c, b.c), c2 = Math.max(a.c, b.c);
-    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) selectedCells.add(cellKey(r, c));
+    selRect = null;
   }
-  function updateSelectionClasses() {
-    dataGrid3.querySelectorAll('td:not(.rowhead)').forEach(td => {
-      td.classList.toggle('cell-selected', selectedCells.has(cellKey(td.dataset.r, td.dataset.c)));
-    });
-  }
-  function refreshAssignedClasses() {
-    dataGrid3.querySelectorAll('td:not(.rowhead)').forEach(td => {
-      const k = cellKey(td.dataset.r, td.dataset.c);
-      td.classList.toggle('cell-nomx', nomXCells.has(k));
-      td.classList.toggle('cell-nomy', nomYCells.has(k));
-      td.classList.toggle('cell-actx', actXCells.has(k));
-      td.classList.toggle('cell-acty', actYCells.has(k));
+  const ASSIGN_CLASSES = () => [[nomXCells, 'cell-nomx'], [nomYCells, 'cell-nomy'], [actXCells, 'cell-actx'], [actYCells, 'cell-acty']];
+  function refreshAssignedFor(keys) {
+    keys.forEach(k => {
+      const td = cellEl(k);
+      if (td) ASSIGN_CLASSES().forEach(([m, cls]) => td.classList.toggle(cls, m.has(k)));
     });
   }
   function updateAssignCounts() {
@@ -2962,14 +3008,14 @@ function offsetPolylineXY(pts, tol, closed) {
   }
 
   function assignSelectionTo(targetMap) {
-    selectedCells.forEach(k => {
+    const keys = Array.from(selectedCells);
+    keys.forEach(k => {
       [nomXCells, nomYCells, actXCells, actYCells].forEach(m => { if (m !== targetMap) m.delete(k); });
       const [r, c] = k.split(',').map(Number);
       targetMap.set(k, grid[r][c] !== undefined ? grid[r][c] : '');
     });
-    selectedCells.clear();
-    refreshAssignedClasses();
-    updateSelectionClasses();
+    clearSelection();
+    refreshAssignedFor(keys);
     updateAssignCounts();
   }
   assignNomXBtn.addEventListener('click', () => assignSelectionTo(nomXCells));
@@ -2977,8 +3023,11 @@ function offsetPolylineXY(pts, tol, closed) {
   assignActXBtn.addEventListener('click', () => assignSelectionTo(actXCells));
   assignActYBtn.addEventListener('click', () => assignSelectionTo(actYCells));
   clearAssignBtn3.addEventListener('click', () => {
-    nomXCells.clear(); nomYCells.clear(); actXCells.clear(); actYCells.clear(); selectedCells.clear();
-    refreshAssignedClasses(); updateSelectionClasses(); updateAssignCounts();
+    const keys = [nomXCells, nomYCells, actXCells, actYCells].flatMap(m => Array.from(m.keys()));
+    nomXCells.clear(); nomYCells.clear(); actXCells.clear(); actYCells.clear();
+    clearSelection();
+    refreshAssignedFor(keys);
+    updateAssignCounts();
   });
 
   /* ---- extraction ---- */
