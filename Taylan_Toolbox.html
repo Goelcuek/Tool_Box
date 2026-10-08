@@ -499,6 +499,8 @@
   }
   table.data-grid th.corner { z-index: 3; }
   table.data-grid td:not(.rowhead) { cursor: cell; }
+  table.data-grid thead th:not(.corner) { cursor: pointer; }
+  table.data-grid thead th:not(.corner):hover { color: var(--blue); }
   table.data-grid td.cell-selected { background: rgba(0,113,227,0.15); }
 
   .color-field { display: flex; align-items: center; gap: 8px; }
@@ -1638,7 +1640,7 @@
           <div id="scanSummary3" class="scan-summary" style="display:none;"></div>
 
           <div id="gridSection3" style="display:none;">
-            <div class="grid-hint">Sürükle: aralık · <b>Ctrl</b>/<b>⌘</b>: tek tek</div>
+            <div class="grid-hint">Sürükle: aralık (dışarı ne kadar çekilirse o kadar hızlı kayar) · <b>Shift</b>+tık: aralığın sonu · Sütun başlığı: sütundaki tüm sayılar · <b>Ctrl</b>/<b>⌘</b>: tek tek</div>
             <div class="grid-wrap" id="gridWrap3">
               <table class="data-grid" id="dataGrid3"></table>
             </div>
@@ -2889,12 +2891,12 @@ function offsetPolylineXY(pts, tol, closed) {
       if (on) selectedCells.add(k); else selectedCells.delete(k);
       cellEls[r][c].classList.toggle('cell-selected', on);
       selRect = null; // no longer a plain rectangle
-      anchorCell = { r, c }; isDragging = false;
+      anchorCell = { r, c }; anchorCol = null; isDragging = false;
     } else if (e.shiftKey && anchorCell) {
       setRectSelection(anchorCell, { r, c });
     } else {
       setRectSelection({ r, c }, { r, c });
-      anchorCell = { r, c }; isDragging = true;
+      anchorCell = { r, c }; anchorCol = null; isDragging = true;
       lastMouseEvt = e; // where this drag starts — never the end of the last one
       startAutoScroll();
     }
@@ -2921,43 +2923,97 @@ function offsetPolylineXY(pts, tol, closed) {
     pendingCell = null;
   });
 
-  // Edge auto-scroll while drag-selecting, so you don't need a second hand on the scrollbar/wheel.
+  // Edge auto-scroll while drag-selecting, like a spreadsheet: slow in a band
+  // just inside the table's edge, faster the further outside the mouse is
+  // pulled, with no cut-off. While the mouse is outside, the selection
+  // follows the row/column at the edge under it on every frame.
   document.addEventListener('mousemove', e => { if (isDragging) lastMouseEvt = e; });
-  // Runs only while a drag is in progress: started by the mousedown that
-  // begins one, and it stops itself on the first frame after the mouse is
-  // released, so the page is idle the rest of the time.
-  let autoScrollRunning = false;
+  let autoScrollRunning = false, lastFrameT = 0;
   function startAutoScroll() {
     if (autoScrollRunning) return;
     autoScrollRunning = true;
+    lastFrameT = 0;
     requestAnimationFrame(autoScrollLoop);
   }
-  function autoScrollLoop() {
+  const EDGE = 30;
+  // px per 60 Hz frame for a mouse `d` px past the start of the edge band
+  // (scaled by the real frame time, so a slower computer scrolls just as far per second)
+  function scrollSpeed(d) {
+    if (d <= EDGE) return 2 + 10 * d / EDGE;
+    const out = d - EDGE;
+    return Math.min(1500, 12 + out * 0.6 + out * out / 120);
+  }
+  // the scrolling body of the table on screen: below the sticky header,
+  // right of the row numbers, without scrollbars, and inside the window
+  function bodyView() {
+    const rect = gridWrap3.getBoundingClientRect();
+    const head = dataGrid3.tHead ? dataGrid3.tHead.getBoundingClientRect().height : 0;
+    const firstRowHead = dataGrid3.tBodies[0] && dataGrid3.tBodies[0].rows[0] ? dataGrid3.tBodies[0].rows[0].cells[0].getBoundingClientRect().width : 0;
+    const top = rect.top + gridWrap3.clientTop + head, left = rect.left + gridWrap3.clientLeft + firstRowHead;
+    return {
+      top: Math.max(top, 0),
+      bottom: Math.min(rect.top + gridWrap3.clientTop + gridWrap3.clientHeight, window.innerHeight),
+      left: Math.max(left, 0),
+      right: Math.min(rect.left + gridWrap3.clientLeft + gridWrap3.clientWidth, window.innerWidth)
+    };
+  }
+  // the data cell at a screen point (rows and columns found by binary search on their offsets)
+  function cellAtPoint(x, y) {
+    const t = dataGrid3.getBoundingClientRect();
+    const rows = dataGrid3.tBodies[0].rows, heads = dataGrid3.tHead.rows[0].cells;
+    const yy = y - t.top, xx = x - t.left;
+    let lo = 0, hi = rows.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (rows[mid].offsetTop <= yy) lo = mid; else hi = mid - 1; }
+    let clo = 1, chi = heads.length - 1;
+    while (clo < chi) { const mid = (clo + chi + 1) >> 1; if (heads[mid].offsetLeft <= xx) clo = mid; else chi = mid - 1; }
+    return { r: lo, c: Math.max(0, clo - 1) };
+  }
+  function autoScrollLoop(now) {
     if (!isDragging) { autoScrollRunning = false; return; }
-    if (lastMouseEvt) {
-      const rect = gridWrap3.getBoundingClientRect();
-      const EDGE = 40, MAXSPD = 16, MARGIN = 60;
-      let dy = 0, dx = 0;
+    const k = lastFrameT ? Math.min(100, now - lastFrameT) / (1000 / 60) : 1;
+    lastFrameT = now;
+    if (lastMouseEvt && anchorCell && cellEls.length) {
+      const v = bodyView();
       const my = lastMouseEvt.clientY, mx = lastMouseEvt.clientX;
-      if (my > rect.top - MARGIN && my < rect.bottom + MARGIN) {
-        if (my < rect.top + EDGE) dy = -MAXSPD * (1 - Math.max(0, my - rect.top) / EDGE);
-        else if (my > rect.bottom - EDGE) dy = MAXSPD * (1 - Math.max(0, rect.bottom - my) / EDGE);
-      }
-      if (mx > rect.left - MARGIN && mx < rect.right + MARGIN) {
-        if (mx < rect.left + EDGE) dx = -MAXSPD * (1 - Math.max(0, mx - rect.left) / EDGE);
-        else if (mx > rect.right - EDGE) dx = MAXSPD * (1 - Math.max(0, rect.right - mx) / EDGE);
-      }
-      if (dy !== 0 || dx !== 0) {
-        gridWrap3.scrollTop += dy;
-        gridWrap3.scrollLeft += dx;
-        const elem = document.elementFromPoint(mx, my);
-        if (elem && elem.tagName === 'TD' && !elem.classList.contains('rowhead') && elem.dataset.r !== undefined) {
-          setRectSelection(anchorCell, { r: +elem.dataset.r, c: +elem.dataset.c });
-        }
+      let dy = 0, dx = 0;
+      if (my > v.bottom - EDGE) dy = k * scrollSpeed(my - (v.bottom - EDGE));
+      else if (my < v.top + EDGE) dy = -k * scrollSpeed((v.top + EDGE) - my);
+      if (mx > v.right - EDGE) dx = k * scrollSpeed(mx - (v.right - EDGE));
+      else if (mx < v.left + EDGE) dx = -k * scrollSpeed((v.left + EDGE) - mx);
+      if (dy) gridWrap3.scrollTop += dy;
+      if (dx) gridWrap3.scrollLeft += dx;
+      if (dy || dx || my < v.top || my > v.bottom || mx < v.left || mx > v.right) {
+        // the edge cell under the mouse, also when the table can't scroll any further
+        const t = dataGrid3.getBoundingClientRect();
+        const cx = Math.min(Math.max(mx, v.left + 1), Math.min(v.right, t.right) - 1);
+        const cy = Math.min(Math.max(my, v.top + 1), Math.min(v.bottom, t.bottom) - 1);
+        setRectSelection(anchorCell, cellAtPoint(cx, cy));
       }
     }
     requestAnimationFrame(autoScrollLoop);
   }
+
+  // Column header: every number in that column (Shift: the columns from the
+  // last anchor to this one, Ctrl/⌘: added to what is selected).
+  const NUM_RE = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+  let anchorCol = null;
+  dataGrid3.addEventListener('mousedown', e => {
+    const th = e.target.closest ? e.target.closest('th') : null;
+    if (!th || th.classList.contains('corner') || !dataGrid3.tHead || !dataGrid3.tHead.contains(th)) return;
+    e.preventDefault();
+    const c = th.cellIndex - 1;
+    const from = e.shiftKey && (anchorCol != null || anchorCell) ? (anchorCol != null ? anchorCol : anchorCell.c) : c;
+    if (!(e.ctrlKey || e.metaKey)) clearSelection();
+    for (let cc = Math.min(from, c); cc <= Math.max(from, c); cc++) {
+      grid.forEach((row, r) => {
+        if (row[cc] === undefined || !NUM_RE.test(row[cc])) return;
+        const k = cellKey(r, cc);
+        if (!selectedCells.has(k)) { selectedCells.add(k); cellEls[r][cc].classList.add('cell-selected'); }
+      });
+    }
+    selRect = null;
+    if (!e.shiftKey) anchorCol = c;
+  });
 
   // Select the rectangle a–b. From a previous rectangle only the cells that
   // change state are touched; from any other selection, its cells are cleared one by one.
