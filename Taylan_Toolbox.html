@@ -6951,7 +6951,9 @@ const LatheCore = (function () {
 
    For Siemens output the code handles what any Fanuc-type → 840D
    conversion needs: comments, block numbers, macro variables, subprogram
-   calls, drilling cycles, arcs given by R, dwell, machine coordinates.
+   calls, drilling cycles (G73–G89), arcs given by R, dwell, machine
+   coordinates, G52 / G68 / G51.1 frames, G68.2 tilted planes (→ CYCLE800,
+   through the machine's kinematics) and G43.4 / G43.5 (→ TRAORI).
 
    Nothing that cannot be translated safely is guessed or commented out: it
    stays in the program as written, so the control stops on it, and the
@@ -7053,11 +7055,22 @@ IPTAL
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 MSG (" *** {N}. DELIK *** ")
 
+[KİNEMATİK]
+// Hermle C52: A devirme (X etrafında) + C tabla. Y etrafında devirmeli (B) makinede EKSENLER = B C.
+// G68.2 açıları CYCLE800 doğrudan mod (192) eksen konumlarına bununla çevrilir.
+// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
+EKSENLER = A C
+YÖN A = 1
+YÖN C = 1
+TERCİH = -
+
 [EĞİK DÜZLEM]
-// G68.2 X Y Z I J K (+ G53.1) — {X} {Y} {Z} {I} {J} {K}: G68.2 satırındaki değerler.
-// Aynı düzlem art arda yeniden seçilirse tekrar yazılmaz.
+// G68.2 (+ G53.1) — {X} {Y} {Z}: düzlem sıfırı · {I} {J} {K}: G68.2 açıları olduğu gibi
+// {EKSEN1} {EKSEN2}: KİNEMATİK'e göre A ve C konumu (CYCLE800 doğrudan mod, 192)
+// {MOD} {A} {B} {C}: eksen eksen dönüş — CYCLE800 _MODE ve X, Y, Z etrafındaki açılar
+// G68.2 P1 (roll-pitch-yaw) ve P'siz G68.2 (Euler) ikisi de okunur. Aynı düzlem art arda gelirse tekrar yazılmaz.
 R20 = 0
-CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{I},({J}+ R20),{K},0,0,0,-1,,100)
+CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)
 
 [EĞİK DÜZLEM İPTALİ]
 // G68.2'den sonra gelmeyen G69
@@ -7144,12 +7157,27 @@ TK1346_SPOTDRILL = 3
 G91 G28 Z0.
 G90
 
+[KİNEMATİK]
+// Hermle C52: A devirme (X etrafında) + C tabla — CYCLE800 doğrudan modda (192) 1. değer A, 2. değer C.
+// Y etrafında devirmeli (B) makinede EKSENLER = B C. G68.2 açıları bununla hesaplanır.
+// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
+EKSENLER = A C
+YÖN A = 1
+YÖN C = 1
+TERCİH = -
+
+[EĞİK DÜZLEM GERİ ÇEKME]
+// CYCLE800'de geri çekme varsa (_FR 1, 2, 4, 5) düzlemden önce yazılır
+G91 G28 Z0.
+G90
+
 [EĞİK DÜZLEM]
-// CYCLE800(...) — {X0} {Y0} {Z0} {A} {B} {C}: CYCLE800 değerleri
+// CYCLE800(...) — {X0} {Y0} {Z0}: düzlem sıfırı · {I} {J} {K}: G68.2 açıları (CYCLE800'ün her modundan
+// hesaplanır; şablonda G68.2 P1 varsa roll-pitch-yaw, yoksa Euler) · {A} {B} {C}: CYCLE800'deki değerler
 M46 M43
 G69
 G0
-G68.2 P1 X{X0} Y{Y0} Z{Z0} I{A} J{B} K{C}
+G68.2 P1 X{X0} Y{Y0} Z{Z0} I{I} J{J} K{K}
 G53.1
 M47 M44
 
@@ -7175,6 +7203,10 @@ G65 P9862 B1. T[#989] S{R80}
 [R PARAMETRELERİ]
 // Rn → #(TABAN+n)
 TABAN = 500
+
+[ALT PROGRAM NUMARALARI]
+// Adla çağrılan Siemens alt programı = Mazak program numarası (yazılmazsa addaki sayı: SUBIT14 → 14)
+// SUBIT14 = 9014
 
 [ALT PROGRAM]
 // L1234 P3 → M98 P1234 L3 — dosya adı, çağrı ve alt program sonu
@@ -7220,9 +7252,24 @@ T{T} M6${mazak ? '' : '\nG43 H{T}'}
 G91 G28 Z0
 G90
 
+[KİNEMATİK]
+// Döner eksenler (CYCLE800 doğrudan mod için): devirme ekseni (A: X etrafında, B: Y etrafında) ve üstündeki C tablası.
+// G68.2 açıları ile CYCLE800 doğrudan mod (192) eksen konumları bununla çevrilir.
+// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
+EKSENLER = A C
+YÖN A = 1
+YÖN C = 1
+TERCİH = -
+
+[EĞİK DÜZLEM GERİ ÇEKME]
+// CYCLE800'de geri çekme varsa (_FR 1, 2, 4, 5) düzlemden önce yazılır
+G91 G28 Z0
+G90
+
 [EĞİK DÜZLEM]
-// CYCLE800(...) — {X0} {Y0} {Z0} {A} {B} {C}: CYCLE800 değerleri
-G68.2 X{X0} Y{Y0} Z{Z0} I{A} J{B} K{C}
+// CYCLE800(...) — {X0} {Y0} {Z0}: düzlem sıfırı · {I} {J} {K}: G68.2 açıları (şablonda P1 varsa
+// roll-pitch-yaw, yoksa Euler olarak hesaplanır) · {A} {B} {C}: CYCLE800'deki değerler
+G68.2 X{X0} Y{Y0} Z{Z0} I{I} J{J} K{K}
 G53.1
 
 [EĞİK DÜZLEM İPTALİ]
@@ -7238,6 +7285,9 @@ ${mazak ? 'G64' : 'G05.1 Q0'}
 [R PARAMETRELERİ]
 // Rn → #(TABAN+n)
 TABAN = 500
+
+[ALT PROGRAM NUMARALARI]
+// Adla çağrılan Siemens alt programı = program numarası (yazılmazsa addaki sayı)
 
 [ALT PROGRAM]
 // L1234 P3 → M98 P1234 L3
@@ -7338,6 +7388,24 @@ SUPA G0 X0 Y0 ;!! KONTROL: park konumu
 [DELİK MESAJI]
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 
+[KİNEMATİK]
+// Döner eksenler (yalnız {EKSEN1} {EKSEN2} için): devirme ekseni (A: X etrafında, B: Y etrafında) ve üstündeki C tablası.
+// G68.2 açıları ile CYCLE800 doğrudan mod (192) eksen konumları bununla çevrilir.
+// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
+EKSENLER = A C
+YÖN A = 1
+YÖN C = 1
+TERCİH = -
+
+[EĞİK DÜZLEM]
+// G68.2 (+ G53.1) → CYCLE800 eksen eksen: {MOD}: dönüş sırası (_MODE) · {A} {B} {C}: X, Y, Z etrafındaki açılar
+// {X} {Y} {Z}: düzlem sıfırı · doğrudan mod için {EKSEN1} {EKSEN2} (KİNEMATİK'e göre döner eksen konumu)
+CYCLE800(1,"",0,{MOD},{X},{Y},{Z},{A},{B},{C},0,0,0,-1) ;!! KONTROL: döner eksen veri kaydı adı (_TC)
+
+[EĞİK DÜZLEM İPTALİ]
+// G68.2'den sonra gelmeyen G69
+CYCLE800()
+
 [ALT PROGRAM]
 // M98 P{P} L{L} — alt program dosya adı, çağrısı ve sonu
 DOSYA = L{P}.SPF
@@ -7419,6 +7487,16 @@ SON = M17
     });
     let rbase = 500;
     (sections['R PARAMETRELERI'] || []).forEach(l => { const r = l.match(/TABAN\s*=\s*(\d+)/i); if (r) rbase = parseInt(r[1], 10); });
+    // [KİNEMATİK] EKSENLER = A C · YÖN A = -1 · TERCİH = -
+    const kin = { tilt: 'A', sign: { A: 1, B: 1, C: 1 }, prefer: -1 };
+    (sections['KINEMATIK'] || []).forEach(l => {
+      const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
+      if (!r) return;
+      const k = sectionKey(r[1]), v = r[2].trim().toUpperCase();
+      if (k === 'EKSENLER') { const t = v.match(/[AB]/); if (t) kin.tilt = t[0]; }
+      else if (/^YON [ABC]$/.test(k)) kin.sign[k.slice(-1)] = parseFloat(v) < 0 ? -1 : 1;
+      else if (k === 'TERCIH') kin.prefer = /^[+]|^ART|^POZ/.test(v) ? 1 : -1;
+    });
     const sub = { file: 'L{P}.SPF', call: 'L{P} P{L}', end: 'M17' };
     (sections['ALT PROGRAM'] || []).forEach(l => {
       const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
@@ -7440,11 +7518,14 @@ SON = M17
       holeMsg: trimBlock(sections['DELIK MESAJI']),
       plane: tplOf('EGIK DUZLEM'),
       planeOff: tplOf('EGIK DUZLEM IPTALI'),
+      planeRetract: tplOf('EGIK DUZLEM GERI CEKME'),
+      kin,
       hsc: tplOf('YUKSEK HIZ'),
       hscOff: tplOf('YUKSEK HIZ IPTALI'),
       fixedPoint: tplOf('SABIT NOKTA'),
       cmds: mapLines(sections['KOMUTLAR']),
       toolNames: mapLines(sections['TAKIM NUMARALARI']),
+      subNames: new Map([...mapLines(sections['ALT PROGRAM NUMARALARI'])].filter(([, v]) => v.length && /^\d+$/.test(v[0])).map(([k, v]) => [k, String(parseInt(v[0], 10))])),
       calls,
       rbase,
       // [EKSENLER] C = DC → rotary moves written as C=DC(…) on Siemens
@@ -7484,15 +7565,225 @@ SON = M17
 
   const PASS_G = new Set([0, 1, 2, 3, 9, 17, 18, 19, 40, 41, 42, 60, 64, 90, 91, 94, 95, 96, 97]);
   const HOME_G = new Set([0, 17, 18, 19, 20, 21, 28, 40, 49, 67, 69, 80, 90, 91, 94, 95, 97, 98, 99]);
-  const CYCLE_G = new Set([73, 81, 82, 83, 84, 85]);
+  const CYCLE_G = new Set([73, 74, 76, 81, 82, 83, 84, 84.2, 84.3, 85, 86, 88, 89]);
 
   function fill(tpl, vals) {
     const missing = [];
-    const out = tpl.replace(/\{([A-Z])\}/g, (m, k) => {
+    const out = tpl.replace(/\{([A-Z][A-Z0-9]*)\}/g, (m, k) => {
       if (vals[k] != null && vals[k] !== '') return vals[k];
       missing.push(k); return '';
     });
     return { out, missing };
+  }
+
+  /* ---------- tilted working planes ----------
+     A plane is a rotation matrix: its columns are the plane's X, Y and Z
+     axes in work coordinates. Each way of writing one is a chain of turns:
+       CYCLE800 axis by axis    about X, Y, Z in the _MODE order, each about the new axes
+       CYCLE800 direct (192)    the machine's own axes: tilt (A about X or B about Y), then table C
+       G68.2 / G68.2 P0 (Euler) about Z, new X, new Z by I, J, K
+       G68.2 P1 (roll-pitch-yaw) about the fixed X, Y, Z by I, J, K (Q123)
+     With a table machine and ISO axis directions, direct (a, c) is the plane
+     Rz(c)·Rx(a): Euler I=c J=a K=0, roll-pitch-yaw I=a J=0 K=c, CYCLE800
+     27 (Z, Y, X) with _A=a _C=c. Those cases are plain sums, so angles that
+     are expressions (R20, #520) pass through them; the rest is worked out
+     in numbers. */
+  const DEG = Math.PI / 180;
+  const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  function rotM(axis, d) {
+    const c = Math.cos(d * DEG), s = Math.sin(d * DEG);
+    if (axis === 'X') return [[1, 0, 0], [0, c, -s], [0, s, c]];
+    if (axis === 'Y') return [[c, 0, s], [0, 1, 0], [-s, 0, c]];
+    return [[c, -s, 0], [s, c, 0], [0, 0, 1]];
+  }
+  const mmul = (a, b) => a.map(r => [0, 1, 2].map(j => r[0] * b[0][j] + r[1] * b[1][j] + r[2] * b[2][j]));
+  const mtr = m => [0, 1, 2].map(i => [0, 1, 2].map(j => m[j][i]));
+  const mvec = (m, v) => m.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+  const turns = list => list.reduce((m, t) => mmul(m, rotM(t[0], t[1])), I3);
+  const atan2d = (y, x) => Math.atan2(y, x) / DEG;
+  const clamp1 = v => Math.max(-1, Math.min(1, v));
+  const norm360 = v => { const r = ((v % 360) + 360) % 360; return r > 359.99995 ? 0 : r; };
+  // M = Rz(Z)·Ry(Y)·Rx(X): about Z, new Y, new X — the same as X, Y, Z about the fixed axes
+  function anglesZYX(m) {
+    const y = Math.asin(clamp1(-m[2][0])) / DEG;
+    if (Math.abs(m[2][1]) + Math.abs(m[2][2]) > 1e-9) return { X: atan2d(m[2][1], m[2][2]), Y: y, Z: atan2d(m[1][0], m[0][0]) };
+    return { X: 0, Y: y, Z: atan2d(-m[0][1], m[1][1]) };
+  }
+  // M = Rz(I)·Rx(J)·Rz(K): Euler angles as G68.2 takes them
+  function anglesZXZ(m) {
+    const j = Math.acos(clamp1(m[2][2])) / DEG;
+    if (Math.abs(m[0][2]) + Math.abs(m[1][2]) > 1e-9) return { I: atan2d(m[0][2], -m[1][2]), J: j, K: atan2d(m[2][0], m[2][1]) };
+    return { I: atan2d(m[1][0], m[0][0]), J: j, K: 0 };
+  }
+  // CYCLE800 _MODE bits 0–5: 1st, 2nd, 3rd axis of the turns, two bits each (01 X, 10 Y, 11 Z)
+  const seqOfMode = mode => [mode & 3, (mode >> 2) & 3, (mode >> 4) & 3].map(k => [null, 'X', 'Y', 'Z'][k]);
+  const modeOfSeq = seq => seq.reduce((m, ax, k) => m + { X: 1, Y: 2, Z: 3 }[ax] * Math.pow(4, k), 0);
+  const inOrder = (live, order) => { let k = 0; return live.every(ax => { while (k < order.length && order[k] !== ax) k++; return k++ < order.length; }); };
+  // the machine's rotary positions for a plane: tilt (A about X or B about Y), then C on the table;
+  // rest: turn left over about the plane's Z (0 when the machine shows the plane as it is)
+  function machineAxes(m, kin) {
+    const n = [m[0][2], m[1][2], m[2][2]];
+    let t = Math.acos(clamp1(n[2])) / DEG * kin.prefer, c;
+    const st = Math.sin(t * DEG);
+    if (Math.abs(st) < 1e-9) { t = 0; c = atan2d(m[1][0], m[0][0]); }
+    else if (kin.tilt === 'A') c = atan2d(n[0] / st, -n[1] / st);
+    else c = atan2d(n[1] / st, n[0] / st);
+    const r = mmul(mtr(turns([['Z', c], [kin.tilt === 'A' ? 'X' : 'Y', t]])), m);
+    return { t: t * kin.sign[kin.tilt], c: norm360(c * kin.sign.C), rest: atan2d(r[1][0], r[0][0]) };
+  }
+  // G68.2 words → what a Siemens plane template takes:
+  // {EKSEN1} {EKSEN2} rotary positions (direct, 192) · {MOD} {A} {B} {C} axis by axis
+  function planeFromIso(ws, kin) {
+    const val = l => { const w = ws.find(x => x.letter === l); return w ? w.value : 0; };
+    const P = Math.round(val('P')), qw = ws.find(x => x.letter === 'Q');
+    const Q = qw ? String(Math.round(qw.value)) : '123';
+    const I = val('I'), J = val('J'), K = val('K');
+    const flags = [];
+    const z = v => Math.abs(v) < 1e-9;
+    let m = null, lin = null, axis = null;
+    if (P === 0) { // Euler: Z, new X, new Z
+      m = turns([['Z', I], ['X', J], ['Z', K]]);
+      if (z(K)) axis = { MOD: modeOfSeq(['Z', 'X', 'Y']), A: J, B: 0, C: I };
+      if (kin.tilt === 'A' && z(K)) lin = { t: J, c: I };
+      if (kin.tilt === 'B' && z(K + 90)) lin = { t: J, c: I - 90 };
+    } else if (P === 1) { // roll-pitch-yaw: I, J, K about the fixed axes in the Q order
+      let order = Q.split('').map(d => ({ 1: 'X', 2: 'Y', 3: 'Z' })[d]);
+      if (order.length !== 3 || order.some(x => !x) || new Set(order).size !== 3) { flags.push(`G68.2 Q${Q} okunamadı`); order = ['X', 'Y', 'Z']; }
+      else if (Q !== '123') flags.push(`G68.2 Q${Q}: dönüş sırası kontrol edilmeli`);
+      const by = {};
+      by[order[0]] = I; by[order[1]] = J; by[order[2]] = K;
+      m = turns([[order[2], K], [order[1], J], [order[0], I]]);
+      axis = { MOD: modeOfSeq([order[2], order[1], order[0]]), A: by.X, B: by.Y, C: by.Z };
+      const tAx = kin.tilt === 'A' ? 'X' : 'Y', other = kin.tilt === 'A' ? 'Y' : 'X';
+      if (z(by[other]) && inOrder([tAx, 'Z'].filter(a => !z(by[a])), order)) lin = { t: by[tAx], c: by.Z };
+    } else {
+      flags.push(`G68.2 P${P} (nokta / vektör tanımı) çevrilmedi — açıları elle yazın`);
+    }
+    let t = null, c = null, rest = 0;
+    if (lin) { t = lin.t * kin.sign[kin.tilt]; c = lin.c * kin.sign.C; }
+    else if (m) { const r = machineAxes(m, kin); t = r.t; c = r.c; rest = r.rest; }
+    if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.X, B: a.Y, C: a.Z }; }
+    const vals = {};
+    if (t != null) { vals.EKSEN1 = fmt(t); vals.EKSEN2 = fmt(c); }
+    if (axis) { vals.MOD = String(axis.MOD); vals.A = fmt(axis.A); vals.B = fmt(axis.B); vals.C = fmt(axis.C); }
+    return { vals, rest, flags };
+  }
+  // an angle that is a number ({v}) or an expression in the target's syntax ({e})
+  const angZ = a => a.v != null && Math.abs(a.v) < 1e-9;
+  const angNeg = (a, wrap) => (a.v != null ? { v: -a.v } : { e: '-' + wrap(a.e) });
+  const angAdd = (a, k) => (a.v != null ? { v: a.v + k } : { e: a.e + (k < 0 ? '' : '+') + fmt(k) });
+  const angSign = (a, s, wrap) => (s < 0 ? angNeg(a, wrap) : a);
+  const angText = (a, wrap) => (a.v != null ? fmt(Math.abs(a.v) < 5e-5 ? 0 : a.v) : wrap(a.e));
+
+  /* ---------- Siemens expressions → Fanuc macro syntax ----------
+     Parsed rather than pattern-replaced, so that MOD (→ [a-FIX[a/b]*b]),
+     DIV (→ FIX[a/b]), NOT (Fanuc has none: the comparison is turned round)
+     and nested brackets come out right. */
+  const SIE_FN = { SIN: 'SIN', COS: 'COS', TAN: 'TAN', ASIN: 'ASIN', ACOS: 'ACOS', SQRT: 'SQRT', ABS: 'ABS', TRUNC: 'FIX', ROUND: 'ROUND', LN: 'LN', EXP: 'EXP' };
+  const CMP_ISO = { '==': 'EQ', '<>': 'NE', '>': 'GT', '>=': 'GE', '<': 'LT', '<=': 'LE' };
+  const CMP_NOT = { '==': '<>', '<>': '==', '>': '<=', '>=': '<', '<': '>=', '<=': '>' };
+  function sieParse(src) {
+    const s = String(src), toks = [];
+    const re = /\s*(==|<>|>=|<=|[-+*/(),<>]|(?:\d+\.?\d*|\.\d+)|[A-Z_$][A-Z0-9_]*)/giy;
+    while (re.lastIndex < s.length) {
+      const at = re.lastIndex, m = re.exec(s);
+      if (!m) { if (/^\s*$/.test(s.slice(at))) break; return null; }
+      toks.push(m[1]);
+    }
+    let i = 0;
+    const peek = () => toks[i], up = () => (toks[i] || '').toUpperCase();
+    const orx = () => {
+      let a = andx();
+      while (a && (up() === 'OR' || up() === 'XOR')) { const k = up().toLowerCase(); i++; const b = andx(); if (!b) return null; a = { k, a, b }; }
+      return a;
+    };
+    const andx = () => {
+      let a = notx();
+      while (a && up() === 'AND') { i++; const b = notx(); if (!b) return null; a = { k: 'and', a, b }; }
+      return a;
+    };
+    const notx = () => { if (up() === 'NOT') { i++; const a = notx(); return a && { k: 'not', a }; } return cmp(); };
+    const cmp = () => {
+      const a = sum();
+      if (a && CMP_ISO[peek()]) { const op = toks[i++]; const b = sum(); return b && { k: 'cmp', op, a, b }; }
+      return a;
+    };
+    const sum = () => {
+      let a = term();
+      while (a && (peek() === '+' || peek() === '-')) { const op = toks[i++]; const b = term(); if (!b) return null; a = { k: 'bin', op, a, b }; }
+      return a;
+    };
+    const term = () => {
+      let a = unary();
+      while (a && (peek() === '*' || peek() === '/' || up() === 'MOD' || up() === 'DIV')) { const op = up(); i++; const b = unary(); if (!b) return null; a = { k: 'bin', op, a, b }; }
+      return a;
+    };
+    const unary = () => {
+      if (peek() === '-') { i++; const a = unary(); return a && { k: 'neg', a }; }
+      if (peek() === '+') { i++; return unary(); }
+      return prim();
+    };
+    const prim = () => {
+      const t = peek();
+      if (t == null) return null;
+      if (t === '(') { i++; const a = orx(); if (!a || peek() !== ')') return null; i++; return { k: 'par', a }; }
+      if (/^[\d.]/.test(t)) { i++; return { k: 'num', s: t }; }
+      const U = t.toUpperCase();
+      const r = U.match(/^R(\d+)$/);
+      if (r) { i++; return { k: 'r', n: parseInt(r[1], 10) }; }
+      if ((SIE_FN[U] || U === 'POT' || U === 'ATAN2') && toks[i + 1] === '(') {
+        i += 2;
+        const args = [];
+        for (;;) { const a = orx(); if (!a) return null; args.push(a); if (peek() !== ',') break; i++; }
+        if (peek() !== ')') return null;
+        i++;
+        return { k: 'fn', f: U, args };
+      }
+      return null; // DEF variables, system variables: not ours to translate
+    };
+    const ast = orx();
+    return ast && i === toks.length ? ast : null;
+  }
+  const LOGIC = new Set(['cmp', 'and', 'or', 'xor', 'not']);
+  const bareAst = n => (n.k === 'par' ? bareAst(n.a) : n);
+  const truthy = n => (LOGIC.has(bareAst(n).k) ? bareAst(n) : { k: 'cmp', op: '<>', a: n, b: { k: 'num', s: '0' } });
+  function notAst(n) {
+    n = truthy(n);
+    if (n.k === 'cmp') return Object.assign({}, n, { op: CMP_NOT[n.op] });
+    if (n.k === 'not') return truthy(n.a);
+    if (n.k === 'and' || n.k === 'or') { const a = notAst(n.a), b = notAst(n.b); return a && b && { k: n.k === 'and' ? 'or' : 'and', a, b }; }
+    return null; // XOR
+  }
+  function isoOf(n, base) {
+    const simple = x => ['num', 'r', 'par', 'fn'].includes(x.k) || (x.k === 'bin' && (x.op === 'MOD' || x.op === 'DIV'));
+    const w = x => { const s = isoOf(x, base); return s == null ? null : simple(x) ? s : '[' + s + ']'; };
+    const parts = list => { const r = list.map(x => isoOf(x, base)); return r.some(x => x == null) ? null : r; };
+    switch (n.k) {
+      case 'num': return n.s;
+      case 'r': return '#' + (base + n.n);
+      case 'par': { const s = isoOf(n.a, base); return s == null ? null : simple(n.a) && n.a.k !== 'num' && n.a.k !== 'r' ? s : '[' + s + ']'; }
+      case 'neg': { const s = w(n.a); return s && '-' + s; }
+      case 'bin': {
+        if (n.op === 'MOD') { const a = w(n.a), b = w(n.b); return a && b && `[${a}-FIX[${a}/${b}]*${b}]`; }
+        if (n.op === 'DIV') { const a = w(n.a), b = w(n.b); return a && b && `FIX[${a}/${b}]`; }
+        const p = parts([n.a, n.b]);
+        return p && p[0] + n.op + p[1];
+      }
+      case 'fn': {
+        const p = parts(n.args);
+        if (!p) return null;
+        if (n.f === 'POT') { const a = w(n.args[0]); return `[${a}*${a}]`; }
+        if (n.f === 'ATAN2') return p.length === 2 ? `ATAN[${p[0]}]/[${p[1]}]` : null;
+        return p.length === 1 ? `${SIE_FN[n.f]}[${p[0]}]` : null;
+      }
+      case 'cmp': { const p = parts([n.a, n.b]); return p && `${p[0]} ${CMP_ISO[n.op]} ${p[1]}`; }
+      case 'and': case 'or': case 'xor': {
+        const p = parts([truthy(n.a), truthy(n.b)]);
+        return p && `[${p[0]}] ${n.k.toUpperCase()} [${p[1]}]`;
+      }
+      case 'not': { const inv = notAst(n.a); return inv ? isoOf(inv, base) : null; }
+    }
+    return null;
   }
 
   /* ---------- one program ---------- */
@@ -7530,7 +7821,8 @@ SON = M17
 
     const st = {
       abs: true, outAbs: true, motion: 0, pos: { X: null, Y: null, Z: null },
-      tool: null, toolChanges: 0, cycle: null, retract98: true, traori: false, holes: 0, F: null, S: null, plane: null
+      tool: null, toolChanges: 0, cycle: null, retract98: true, traori: false, holes: 0, F: null, S: null, plane: null,
+      feedRev: false, vec: false, g52: null, rot2d: null, arot: false
     };
     const forget = () => { st.pos = { X: null, Y: null, Z: null }; };
 
@@ -7744,16 +8036,77 @@ SON = M17
         changed = true;
       }
 
+      // ---- frames: G52 local zero, G68 rotation, G51.1 mirror ----
+      if (SIE) {
+        const gOf = v => ws.find(w => w.letter === 'G' && Math.abs(w.value - v) < 1e-9);
+        const g52 = gOf(52), g68 = gOf(68), g511 = gOf(51.1), g501 = gOf(50.1);
+        const frameLines = [];
+        const axesOf = list => ws.filter(w => list.includes(w.letter));
+        if (g52) {
+          const a = axesOf('XYZ');
+          st.g52 = a.some(w => w.value !== 0) ? a.filter(w => w.value !== 0).map(w => w.letter + w.raw).join(' ') : null;
+          frameLines.push(st.g52 ? 'TRANS ' + st.g52 : 'TRANS');
+          if (!st.g52 && st.rot2d) frameLines.push(`AROT RPL=${st.rot2d}`); // TRANS alone clears the rotation too
+          ws = ws.filter(w => w !== g52 && !a.includes(w));
+        }
+        if (g68) {
+          const x = get(ws, 'X'), y = get(ws, 'Y'), r = get(ws, 'R');
+          if (!st.abs) flags.push('G91 ile G68 — açı önceki dönüşe eklenir');
+          const shift = (x && x.value) || (y && y.value);
+          if (shift) frameLines.push(`ATRANS X${x ? x.raw : '0'} Y${y ? y.raw : '0'}`);
+          frameLines.push(`AROT RPL=${r ? r.raw : '0'}`);
+          if (shift) frameLines.push(`ATRANS X${x ? fmt(-x.value) : '0'} Y${y ? fmt(-y.value) : '0'}`);
+          st.rot2d = r ? r.raw : '0';
+          ws = ws.filter(w => w !== g68 && w !== x && w !== y && w !== r);
+        }
+        if (g511) {
+          const a = axesOf('XYZ');
+          if (a.some(w => w.value !== 0)) flags.push('G51.1 ayna ekseni sıfırda değil — ATRANS ile kaydırın');
+          frameLines.push('AMIRROR ' + a.map(w => w.letter + '0').join(' '));
+          ws = ws.filter(w => w !== g511 && !a.includes(w));
+        }
+        if (g501) {
+          // MIRROR alone clears the whole programmable frame: G52 / G68 back on
+          frameLines.push('MIRROR');
+          if (st.g52) frameLines.push('TRANS ' + st.g52);
+          if (st.rot2d) frameLines.push(`AROT RPL=${st.rot2d}`);
+          ws = ws.filter(w => w !== g501 && !'XYZ'.includes(w.letter));
+        }
+        const g69r = st.rot2d && gOf(69);
+        if (g69r) {
+          frameLines.push('ROT');
+          if (st.g52) frameLines.push('TRANS ' + st.g52);
+          st.rot2d = null;
+          if (!R.plane.length || !st.plane) ws = ws.filter(w => w !== g69r); // the plane cancel below still sees it otherwise
+        }
+        if (frameLines.length) {
+          frameLines.forEach((t, k) => emit(i, k === frameLines.length - 1 && !ws.length ? withComments(t, comments) : t, 'changed', k === 0 ? flags.join('; ') : ''));
+          flags = [];
+          changed = true;
+          if (!ws.length) continue;
+        }
+      }
+
       // ---- tilted working plane ----
       const g682 = ws.find(w => w.letter === 'G' && Math.abs(w.value - 68.2) < 1e-9);
       if (g682 && (R.plane.length || !SIE)) {
         if (R.plane.length) {
           const vals = {};
           'XYZIJK'.split('').forEach(l => { const w = get(ws, l); vals[l] = fmt(w ? w.value : 0); });
-          const key = JSON.stringify(vals);
+          const key = JSON.stringify(vals) + (get(ws, 'P') ? get(ws, 'P').raw : '') + (get(ws, 'Q') ? get(ws, 'Q').raw : '');
           if (st.plane !== key) {
+            const pl = planeFromIso(ws, R.kin);
+            Object.assign(vals, pl.vals);
+            if (st.arot) { emit(i, 'ROT', 'added'); if (st.g52) emit(i, 'TRANS ' + st.g52, 'added'); st.arot = false; } // the last plane's AROT
             emitTpl(i, R.plane, vals);
-            if (['I', 'J', 'K'].some(l => vals[l] !== '0')) out[out.length - 1].flag = 'eğik düzlem açıları makinenin eksen açılarına göre kontrol edilmeli';
+            const fl = pl.flags.slice();
+            const direct = R.plane.some(l => /\{EKSEN[12]\}/.test(l));
+            if (direct && Math.abs(pl.rest) > 5e-5) {
+              emit(i, `AROT Z=${fmt(pl.rest)}`, 'added', 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile');
+              st.arot = true;
+            }
+            if (['I', 'J', 'K'].some(l => vals[l] !== '0')) fl.push(direct ? `düzlem açıları ${R.kin.tilt}/C kinematiğiyle döner eksen konumuna çevrildi — ilk denemede kontrol edin` : 'eğik düzlem açılarını ilk denemede kontrol edin');
+            if (fl.length) out[out.length - 1 - (direct && Math.abs(pl.rest) > 5e-5 ? 1 : 0)].flag = fl.join('; ');
             st.plane = key;
           }
           if (comments.length) emit(i, withComments('', comments), 'changed');
@@ -7772,6 +8125,7 @@ SON = M17
         changed = true;
         if (!planeFollows(i)) { // a real cancel, not the reset before the next G68.2
           if (R.planeOff.length) { emitTpl(i, R.planeOff, {}); if (!ws.length && comments.length) { out[out.length - 1].text = withComments(out[out.length - 1].text, comments); comments = []; } }
+          if (st.arot) { emit(i, 'ROT', 'added'); if (st.g52) emit(i, 'TRANS ' + st.g52, 'added'); st.arot = false; }
           st.plane = null;
         }
         if (!ws.length) { if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
@@ -7785,6 +8139,8 @@ SON = M17
         if (w.value === 91) st.abs = false;
         if (w.value === 98) st.retract98 = true;
         if (w.value === 99) st.retract98 = false;
+        if (w.value === 94) st.feedRev = false;
+        if (w.value === 95) st.feedRev = true;
       });
       if (get(ws, 'F')) st.F = get(ws, 'F').raw;
       if (get(ws, 'S')) st.S = get(ws, 'S').raw;
@@ -7815,7 +8171,7 @@ SON = M17
 
       // ---- drilling cycles → MCALL CYCLE8x ----
       const cycW = SIE && ws.find(w => w.letter === 'G' && CYCLE_G.has(w.value));
-      const cancels = has(ws, 'G', 80) || ws.some(w => w.letter === 'G' && [0, 1, 2, 3].includes(w.value));
+      const cancels = has(ws, 'G', 80) || ws.some(w => w.letter === 'G' && [0, 1, 2, 3, 87].includes(w.value)); // G87 has no Siemens cycle: it ends the open one
       if (st.cycle && (cancels || cycW)) {
         before.push({ text: 'MCALL', kind: 'added' });
         if (st.cycle.retZ != null) st.pos.Z = st.cycle.retZ;
@@ -7847,17 +8203,28 @@ SON = M17
           // RFP + SDIS = the Fanuc R point; above zero it is written as surface 0 plus safety distance
           const P = c.R > 0 ? [fmt(rtp), '0', fmt(c.R), fmt(c.Z)] : [fmt(rtp), fmt(c.R), '0', fmt(c.Z)];
           let call;
+          const dtb = fmt((c.P || 0) / 1000); // Mazak P: milliseconds · Siemens DTB: seconds
           if (c.g === 81) call = `CYCLE81(${P.join(',')})`;
-          else if (c.g === 82) call = `CYCLE82(${P.join(',')},,${fmt((c.P || 0) / 1000)})`;
+          else if (c.g === 82) call = `CYCLE82(${P.join(',')},,${dtb})`;
           else if (c.g === 83 || c.g === 73) {
             if (!(c.Q > 0)) fl.push('G83/G73 Q (kademe) yok');
             const q = c.Q || 0;
             call = `CYCLE83(${P.join(',')},,${fmt(c.R - q)},,${fmt(q)},0,0,1,${c.g === 83 ? 1 : 0})`;
           } else if (c.g === 85) call = `CYCLE85(${P.join(',')},,0,${st.F || ''},${st.F || ''})`;
-          else if (c.g === 84) {
-            const pit = st.F && st.S ? fmt(parseFloat(st.F) / parseFloat(st.S)) : '';
+          else if (c.g === 89) call = `CYCLE89(${P.join(',')},,${dtb})`;
+          else if (c.g === 88) { call = `CYCLE88(${P.join(',')},,${dtb},3)`; fl.push('G88 → CYCLE88: dipte mil durur, elle çıkış'); }
+          else if (c.g === 76 || c.g === 86) {
+            // Siemens boring 2: spindle oriented (POSS), tool lifted off (RPA/RPO/RPAP), rapid out
+            call = `CYCLE86(${P.join(',')},,${dtb},3,${c.g === 76 ? fmt(-(c.Q || 0)) : 0},0,0,0)`;
+            fl.push(c.g === 76 ? 'G76 → CYCLE86: kaçma yönü (RPA = -Q, -X) ve mil açısı (POSS) makineye göre kontrol edilmeli' : 'G86 → CYCLE86: mil yönlendirilip hızlı çıkar');
+          } else if ([74, 84, 84.2, 84.3].includes(c.g)) {
+            // Siemens takes the pitch, signed for the hand: G94 F/S, G95 F
+            const left = c.g === 74 || c.g === 84.3;
+            const f = st.F != null ? parseFloat(st.F) : NaN, s = st.S != null ? parseFloat(st.S) : NaN;
+            const pv = st.feedRev ? f : f / s;
+            const pit = isFinite(pv) && pv > 0 ? (left ? '-' : '') + String(Math.round(pv * 1e6) / 1e6) : '';
             fl.push('kılavuz çekme: hatve ' + (pit || '?') + ' ve yön kontrol edilmeli');
-            call = `CYCLE84(${P.join(',')},,0,3,,${pit},,${st.S || ''},${st.S || ''})`;
+            call = `CYCLE84(${P.join(',')},,${dtb},${left ? 4 : 3},,${pit},,${st.S || ''},${st.S || ''})`;
           }
           if (get(ws, 'F')) before.push({ text: 'F' + get(ws, 'F').raw, kind: 'added' });
           before.push({ text: 'MCALL ' + call, kind: 'added', flag: fl.join('; ') });
@@ -7874,8 +8241,6 @@ SON = M17
           else flags.push('delik konumu bilinmiyor');
         }
         changed = true;
-      } else if (SIE && ws.some(w => w.letter === 'G' && [74, 76, 86, 87, 88, 89].includes(w.value))) {
-        flags.push('bu delme döngüsü çevrilmedi');
       }
 
       // ---- word-by-word ----
@@ -7884,15 +8249,20 @@ SON = M17
       ws.forEach(w => {
         if (w.letter === 'G') {
           const key = codeKey('G', w.raw);
+          if (SIE && w.value === 49 && st.traori) { newWs.push({ text: 'TRAFOOF' }); st.traori = false; st.vec = false; changed = true; return; }
           if (R.g.has(key)) {
             const rep = R.g.get(key);
-            if (SIE && w.value === 49 && st.traori) { newWs.push({ text: 'TRAFOOF' }); st.traori = false; changed = true; return; }
             if (rep.length) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
             if (Math.abs(w.value - 5.1) < 1e-9) dropQ = true; // G05.1 Q1: the Q belongs to the G
             changed = true; return;
           }
           if (!SIE) { newWs.push(w); return; }
           if (Math.abs(w.value - 43.4) < 1e-9) { before.push({ text: 'TRAORI', kind: 'added', flag: 'G43.4 → TRAORI: 5 eksen dönüşümü makinede tanımlı olmalı' }); st.traori = true; changed = true; return; }
+          if (Math.abs(w.value - 43.5) < 1e-9) {
+            // tool vector in work coordinates: I J K → A3= B3= C3=
+            before.push({ text: 'ORIWKS', kind: 'added' }, { text: 'TRAORI', kind: 'added', flag: 'G43.5 → TRAORI: takım vektörü (I J K) A3= B3= C3= olarak yazıldı' });
+            st.traori = true; st.vec = true; changed = true; return;
+          }
           if (w.value === 43) { changed = true; return; }        // length comp comes with D on Siemens
           if (w.value === 53) { newWs.push({ text: 'SUPA' }); changed = true; return; }
           if (w.value === 4) { newWs.push(w); return; }
@@ -7901,6 +8271,7 @@ SON = M17
           if (Math.abs(w.value - 68.2) < 1e-9 || Math.abs(w.value - 53.1) < 1e-9) flags.push('eğik düzlem (G68.2) — CYCLE800 ile yeniden yazılmalı');
           else if (w.value === 68 || w.value === 69) flags.push('koordinat döndürme — ROT ile yeniden yazılmalı');
           else if (w.value === 28) flags.push('G28 tek başına — referans dönüşü elle çevrilmeli');
+          else if (w.value === 87) flags.push('G87 (arka delik büyütme) çevrilmedi');
           else flags.push(`G${w.raw} çevrilmedi`);
           newWs.push(w); return;
         }
@@ -7914,7 +8285,10 @@ SON = M17
           }
           newWs.push(w); return;
         }
-        if (SIE && w.letter === 'H' && ws.some(x => x.letter === 'G' && (x.value === 43 || Math.abs(x.value - 43.4) < 1e-9))) { changed = true; return; }
+        if (SIE && w.letter === 'H' && ws.some(x => x.letter === 'G' && (x.value === 43 || Math.abs(x.value - 43.4) < 1e-9 || Math.abs(x.value - 43.5) < 1e-9))) { changed = true; return; }
+        if (SIE && st.vec && 'IJK'.includes(w.letter) && st.motion <= 1 && !st.cycle) {
+          newWs.push({ text: { I: 'A3', J: 'B3', K: 'C3' }[w.letter] + '=' + w.raw }); changed = true; return;
+        }
         if (SIE && st.abs && R.axes.has(w.letter) && w.raw != null && !st.cycle) { newWs.push({ text: `${w.letter}=${R.axes.get(w.letter)}(${w.raw})` }); changed = true; return; }
         if (SIE && w.letter === 'D' && ws.some(x => x.letter === 'G' && (x.value === 41 || x.value === 42))) { changed = true; return; }
         newWs.push(w);
@@ -7992,10 +8366,16 @@ SON = M17
 
   /* ---------- Siemens 840D → ISO (Mazak / Fanuc / Haas) ----------
      The other direction: 840D syntax read back into a Fanuc-type program.
-     Comments, R parameters (→ #TABAN+n), labels and GOTOF/GOTOB, MCALL
-     CYCLE81–85 (→ G81–G85), CR= (→ R), G4 F, SUPA, T="name" through the tool
-     number table. What is machine-specific — named subprogram calls like
-     L_M54, CALL paths, CYCLE800 / CYCLE832, G75 — comes from the rules. */
+     Comments, R parameters (→ #TABAN+n) and expressions (MOD, DIV, NOT …),
+     labels and GOTO, block IF/ELSE/ENDIF, FOR, LOOP, REPEAT…UNTIL and CASE
+     (→ IF … GOTO and WHILE … DO), REPEAT of a labelled section (written out
+     again), CYCLE81–89 and CYCLE840 (→ G73–G89), HOLES1 / HOLES2 / CYCLE801
+     (every hole written out), CYCLE800 in each of its modes (→ G68.2, angles
+     worked out through the machine's kinematics), TRANS / ROT / MIRROR
+     (→ G52 / G68 / G51.1), TRAORI with A3= B3= C3= (→ G43.5 I J K), CR=,
+     G4 F, SUPA, T="name" through the tool number table. What is
+     machine-specific — named subprogram calls like L_M54, CALL paths,
+     CYCLE832, G75 — comes from the rules. */
   const CYCLE800_ARGS = ['FR', 'TC', 'ST', 'MODE', 'X0', 'Y0', 'Z0', 'A', 'B', 'C', 'X1', 'Y1', 'Z1', 'DIR', 'FR_I', 'DMODE'];
 
   function splitArgs(s) { // top-level commas; quotes and brackets kept whole
@@ -8050,11 +8430,24 @@ SON = M17
     const v = sum();
     return v != null && i === src.length && isFinite(v) ? v : null;
   }
-  const fanucCond = (expr, base) => fanucExpr(String(expr).trim().replace(/^\((.*)\)$/, '$1'), base);
-  const fanucExpr = (expr, base) => String(expr)
+  // pattern-replaced, for what the parser does not take (system variables and the like)
+  const fanucPlain = (expr, base) => String(expr)
     .replace(/\bR(\d+)\b/gi, (m, n) => '#' + (base + parseInt(n, 10)))
     .replace(/==/g, ' EQ ').replace(/<>/g, ' NE ').replace(/>=/g, ' GE ').replace(/<=/g, ' LE ').replace(/>/g, ' GT ').replace(/</g, ' LT ')
     .replace(/\(/g, '[').replace(/\)/g, ']').replace(/\s+/g, ' ').trim();
+  const fanucExpr = (expr, base) => {
+    const ast = sieParse(expr);
+    const s = ast && isoOf(ast, base);
+    return s != null ? s : fanucPlain(expr, base);
+  };
+  // a condition for IF [..] / WHILE [..], without the outer brackets; turned round with `invert`
+  const fanucCond = (expr, base, invert) => {
+    const ast = sieParse(expr);
+    const c = ast && (invert ? notAst(ast) : truthy(ast));
+    const s = c && isoOf(c, base);
+    if (s != null) return s;
+    return invert ? null : fanucPlain(String(expr).trim().replace(/^\((.*)\)$/, '$1'), base);
+  };
   // {T}, {X0}, {R80}, {R92*2}: names first, then arithmetic over R parameters
   function fillExpr(tpl, vals, rvals) {
     const missing = [];
@@ -8093,16 +8486,29 @@ SON = M17
   }
   const ADDR_RE = /^[A-Z]{1,2}\s*=?\s*-?[\d.]/i;
 
+  // Siemens commands with no meaning on a Fanuc-type control (path smoothing,
+  // feedforward, orientation reference): left out without a note. KOMUTLAR
+  // can still give any of them lines.
+  const SIE_QUIET = new Set(['STOPRE', 'SOFT', 'BRISK', 'DRIVE', 'FFWON', 'FFWOF', 'CFC', 'CFTCP', 'CFIN', 'UPATH', 'SPATH',
+    'COMPOF', 'COMPON', 'COMPCURV', 'COMPCAD', 'COMPSURF', 'CUT2D', 'CUT2DF', 'CUT3DC', 'CDON', 'CDOF', 'CDOF2',
+    'ORIWKS', 'ORIMKS', 'ORIAXES', 'ORIVECT', 'ORIEULER', 'ORIRPY', 'WAITM', 'WAITE', 'WAITS']);
+  const SIE_BLOCK = /^(MCALL|ENDWHILE|ELSE|ENDIF|LOOP|ENDLOOP|ENDFOR|REPEAT|RET|M17|TRAORI|TRAFOOF|A?ROT|A?TRANS|A?MIRROR|A?SCALE)$/i;
+  // CYCLE84 / CYCLE840 MPIT: metric coarse thread → pitch
+  const MPIT = { 3: 0.5, 4: 0.7, 5: 0.8, 6: 1, 8: 1.25, 10: 1.5, 12: 1.75, 14: 2, 16: 2, 18: 2.5, 20: 2.5, 22: 2.5, 24: 3, 27: 3, 30: 3.5, 33: 3.5, 36: 4, 39: 4, 42: 4.5, 45: 4.5, 48: 5 };
+  const fmt6 = v => String(Math.round(v * 1e6) / 1e6);
+
   function convertFromSiemens(src, opts) {
     const R = opts.rules;
     const base = R.rbase;
     const srcLines = src.split(/\r\n|\r|\n/);
     if (srcLines.length && srcLines[srcLines.length - 1] === '') srcLines.pop();
     const parts = srcLines.map(splitSie);
+    parts.forEach(p => { p.code = p.code.replace(/^TRAORI\s*\(\s*\d*\s*\)$/i, 'TRAORI'); });
     const out = [];
     const notes = [];
     const emit = (i, text, kind, flag, extra) => out.push(Object.assign({ text, src: i, kind, flag: flag || '' }, extra || {}));
     const withC = (code, c) => [code, c].filter(Boolean).join(' ');
+    const wrapF = e => '[' + e + ']';
 
     // R parameters set to plain numbers and never read by the program itself
     // are arguments for a cycle or a CALL that the rules turn into one Mazak
@@ -8117,19 +8523,103 @@ SON = M17
       if (!isCycleLine(p.code)) (body.match(/\bR(\d+)\b/gi) || []).forEach(r => rRead.add(r.slice(1)));
       const call = p.code.match(/^CALL\s*"([^"]*)"/i);
       if (call && !R.calls.has(callName(call[1]))) unmappedCall = true;
-      const bare = p.code.match(/^([A-Z_][A-Z0-9_]*)(\s+P\s*\d+)?$/i);
-      if (bare && (!ADDR_RE.test(p.code) || /^L\d+$/i.test(bare[1])) && !R.cmds.has(bare[1].toUpperCase()) && !/^(MCALL|STOPRE|ENDWHILE|ELSE|ENDIF|RET|M17)$/i.test(bare[1])) unmappedCall = true;
+      const bare = p.code.match(/^([A-Z_][A-Z0-9_]*)(\s+P\s*=?\s*\d+)?$/i);
+      if (bare && (!ADDR_RE.test(p.code) || /^L\d+$/i.test(bare[1])) && !R.cmds.has(bare[1].toUpperCase()) && !SIE_BLOCK.test(bare[1]) && !SIE_QUIET.has(bare[1].toUpperCase())) unmappedCall = true;
     });
     const dropR = new Set();
     if (!unmappedCall) rConst.forEach((v, k) => { if (!isNaN(v) && !rRead.has(k)) dropR.add(k); });
+    // R parameters the program changes as it runs (counters, and what is worked
+    // out from them) are never replaced by the number they hold at that line:
+    // a jump back gives them another one
+    const varying = new Set();
+    const asgs = parts.map(p => p.code.match(/^R(\d+)\s*=\s*(.+)$/i)).filter(Boolean);
+    const refs = e => (e.match(/\bR(\d+)\b/gi) || []).map(r => r.slice(1));
+    asgs.forEach(a => { if (refs(a[2]).includes(a[1])) varying.add(a[1]); });
+    parts.forEach(p => { const f = p.code.match(/^FOR\s+R(\d+)\b/i); if (f) varying.add(f[1]); });
+    for (let grew = true; grew;) {
+      grew = false;
+      asgs.forEach(a => { if (!varying.has(a[1]) && refs(a[2]).some(r => varying.has(r))) { varying.add(a[1]); grew = true; } });
+    }
     const rvals = new Map();
+    const useVec = parts.some(p => /\b[ABC]3\s*=/i.test(p.code)); // TRAORI with tool vectors → G43.5
+
+    // REPEAT <label> [<label>] [P=n], REPEATB <label> [P=n]: the section is
+    // written out again where the REPEAT stands (a label alone runs to
+    // ENDLABEL:, or else up to the REPEAT)
+    const labelAt = new Map();
+    parts.forEach((p, k) => { if (p.label) { if (!labelAt.has(p.label)) labelAt.set(p.label, []); labelAt.get(p.label).push(k); } });
+    const findLabel = (lab, from) => {
+      const ks = labelAt.get(lab) || [];
+      const back = ks.filter(k => k < from);
+      return back.length ? back[back.length - 1] : ks.find(k => k > from);
+    };
+    const exec = [];
+    const expand = (k, srcIdx, depth) => {
+      const p = parts[k];
+      const rm = p.code.match(/^(REPEATB?)\s+([A-Z_][A-Z0-9_]*)(?:\s+([A-Z_][A-Z0-9_]*))?(?:\s+P\s*=\s*(\S+))?$/i);
+      if (!rm || depth > 4) return false;
+      const s = findLabel(rm[2].toUpperCase(), k);
+      if (s == null) return false;
+      let e;
+      if (/B$/i.test(rm[1])) e = s;
+      else if (rm[3]) e = (labelAt.get(rm[3].toUpperCase()) || []).find(j => j >= s);
+      else {
+        const end = (labelAt.get('ENDLABEL') || []).find(j => j > s && (s > k || j < k));
+        e = end != null ? end : s < k ? k - 1 : null;
+      }
+      const n = rm[4] != null ? evalExpr(rm[4], new Map()) : 1;
+      if (e == null || e < s || n == null || n < 1 || n > 20 || n !== Math.round(n)) return false;
+      exec.push({ i: srcIdx, p: { n: depth ? null : p.n, label: depth ? null : p.label, code: '', comment: [p.code, p.comment].filter(Boolean).join(' ') } });
+      for (let r = 0; r < n; r++) {
+        for (let j = s; j <= e; j++) {
+          if (j === k || (!parts[j].code && !parts[j].comment)) continue;
+          if (!expand(j, srcIdx, depth + 1)) exec.push({ i: srcIdx, p: Object.assign({}, parts[j], { n: null, label: null }) });
+        }
+      }
+      return true;
+    };
+    parts.forEach((p, k) => { if (!expand(k, k, 0)) exec.push({ i: k, p }); });
+
+    // block structures, paired: IF/ELSE/ENDIF, LOOP, FOR, REPEAT…UNTIL, WHILE
+    const blk = new Map();
+    {
+      const stack = [];
+      let id = 0;
+      const open = (type, x) => { const b = { type, id: ++id, start: x, els: null, end: null }; stack.push(b); blk.set(x, b); };
+      const close = (type, x) => { const b = stack[stack.length - 1]; if (!b || b.type !== type) return; stack.pop(); b.end = x; blk.set(x, b); };
+      exec.forEach((e, x) => {
+        const c = e.p.code;
+        if (/^IF\b/i.test(c) && !/\bGOTO[FBC]?\s+\S+$/i.test(c)) open('IF', x);
+        else if (/^ELSE$/i.test(c)) { const b = stack[stack.length - 1]; if (b && b.type === 'IF' && b.els == null) { b.els = x; blk.set(x, b); } }
+        else if (/^ENDIF$/i.test(c)) close('IF', x);
+        else if (/^LOOP$/i.test(c)) open('LOOP', x);
+        else if (/^ENDLOOP$/i.test(c)) close('LOOP', x);
+        else if (/^FOR\b/i.test(c)) open('FOR', x);
+        else if (/^ENDFOR$/i.test(c)) close('FOR', x);
+        else if (/^REPEAT$/i.test(c)) open('REPEAT', x);
+        else if (/^UNTIL\b/i.test(c)) close('REPEAT', x);
+        else if (/^WHILE\b/i.test(c)) open('WHILE', x);
+        else if (/^ENDWHILE$/i.test(c)) close('WHILE', x);
+      });
+      [...blk.keys()].forEach(x => { const b = blk.get(x); if (b.end == null || b.type === 'WHILE') blk.delete(x); });
+    }
+    // IF … GOTO … ENDIF with nothing else inside: one ISO line
+    const skip = new Set();
+    blk.forEach(b => {
+      if (b.type !== 'IF' || b.els != null || b.jump) return;
+      const body = [];
+      for (let x = b.start + 1; x < b.end; x++) if (exec[x].p.code) body.push(x);
+      const g = body.length === 1 && exec[body[0]].p.code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i);
+      if (g) { b.jump = g[1].toUpperCase(); skip.add(body[0]); skip.add(b.end); }
+    });
 
     // GOTO targets: labels and block numbers that something jumps to
     const targets = new Set();
-    parts.forEach(p => { const g = p.code.match(/GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)/i); if (g) targets.add(g[1].toUpperCase()); });
+    parts.forEach(p => { for (const g of p.code.matchAll(/GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)/gi)) targets.add(g[1].toUpperCase()); });
 
-    const st = { abs: true, pos: { X: null, Y: null, Z: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0 };
+    const st = { abs: true, pos: { X: null, Y: null, Z: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0, feedRev: false, rot: null, trans: null };
     let usedDC = false;
+    const namedSeen = new Set();
     const toolNo = v => {
       if (v == null) return null;
       const name = String(v).replace(/^"|"$/g, '');
@@ -8142,6 +8632,12 @@ SON = M17
         emit(i, f.out, 'template', f.missing.length ? (flagFor || 'şablonda değer yok') + ': ' + f.missing.join(', ') : '');
       });
     };
+    // a value as the target writes it: the number, or the expression in brackets
+    const valOf = s => {
+      const t = String(s).trim().replace(/^\((.*)\)$/, '$1');
+      const v = evalExpr(t, rvals);
+      return v != null ? { v } : { e: fanucExpr(t, base) };
+    };
     // next tool change before anything moves? then a lone T is only the selection for it
     const m6Follows = i => {
       for (let j = i + 1; j < parts.length; j++) {
@@ -8153,16 +8649,94 @@ SON = M17
     };
     function cycleLine(c, xyWords) {
       // first position of a cycle: the full ISO cycle block
-      const g = { 81: 'G81', 82: 'G82', 83: c.vari === 0 ? 'G73' : 'G83', 84: 'G84', 85: 'G85' }[c.no];
-      const w = [c.retract, g].concat(xyWords).concat([`Z${fmt(c.dp)}`, `R${fmt(c.r)}`]);
+      const w = [c.retract, c.g].concat(xyWords).concat([`Z${fmt(c.dp)}`, `R${fmt(c.r)}`]);
       if (c.q != null) w.push(`Q${fmt(c.q)}`);
       if (c.p != null) w.push(`P${Math.round(c.p)}`);
+      if (c.s != null) w.push('S' + c.s);
       if (c.f != null) w.push('F' + c.f);
       return w.join(' ');
     }
+    // a position inside MCALL: the first one carries the whole ISO cycle
+    function cyclePos(i, xy, rest, comment, flags) {
+      const c = st.cycle;
+      const line = c.started ? xy.join(' ') : cycleLine(c, xy);
+      emit(i, withC([line].concat(rest).filter(Boolean).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
+      c.started = true;
+      xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs) st.pos[x[0]] = v; });
+    }
+    // subprogram called by name (SUBIT14): its number from ALT PROGRAM NUMARALARI, or the
+    // number its file was given in this conversion; one that stays on the machine needs a rule
+    function subCall(i, name, L, code, comment) {
+      const local = opts.localSubs && opts.localSubs.get(name);
+      const num = R.subNames.get(name) || local;
+      if (!num) { emit(i, withC(code, comment), 'same', `${name} için kural yok — KOMUTLAR'a (komut) ya da ALT PROGRAM NUMARALARI'na (alt program) ekleyin`); return; }
+      const P = String(parseInt(num, 10));
+      const callTpl = R.sub.call.split(/\s+/).filter(tok => !(/\{L\}/.test(tok) && !L)).join(' ');
+      if (!R.subNames.has(name) && !namedSeen.has(name)) notes.push(`${name} alt programı ${P} numarasıyla çağrıldı (dosyası birlikte çevrildi) — başka numara için ALT PROGRAM NUMARALARI'na ${name} = numara yazın.`);
+      namedSeen.add(name);
+      emit(i, withC(fill(callTpl, { P, L }).out, comment), 'changed');
+      st.pos = { X: null, Y: null, Z: null };
+    }
 
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i];
+    // CYCLE800 → the values the plane template takes: {I} {J} {K} as the
+    // template's G68.2 wants them (P1: roll-pitch-yaw, otherwise Euler),
+    // {X0} {Y0} {Z0} the plane zero, and every CYCLE800 argument by name
+    function cycle800Plane(args) {
+      const rawOf = k => (args[CYCLE800_ARGS.indexOf(k)] || '').trim();
+      const angOf = k => (rawOf(k) ? valOf(rawOf(k)) : { v: 0 });
+      const numOf = (k, d) => { const v = rawOf(k) ? evalExpr(rawOf(k), rvals) : null; return v == null ? d : v; };
+      const rpy = R.plane.some(l => /G68\.2[^;(]*\bP\s*1\b/i.test(l));
+      const kin = R.kin;
+      const flags = [];
+      const mode = Math.round(numOf('MODE', 57));
+      const kind = mode & 0xC0;
+      const A = angOf('A'), B = angOf('B'), C = angOf('C'), Z0 = { v: 0 };
+      const num = list => list.every(a => a.v != null);
+      let res = null, m = null;
+      if (kind === 0xC0) { // direct: 1st and 2nd rotary axis of the swivel data record
+        if (!angZ(C)) flags.push('CYCLE800 3. döner eksen değeri kullanılmadı');
+        const t = angSign(A, kin.sign[kin.tilt], wrapF), c = angSign(B, kin.sign.C, wrapF);
+        if (kin.tilt === 'A') res = rpy ? { I: t, J: Z0, K: c } : { I: c, J: t, K: Z0 };
+        else res = rpy ? { I: Z0, J: t, K: c } : { I: angAdd(c, 90), J: t, K: { v: -90 } };
+        if (num([t, c])) m = turns([['Z', c.v], [kin.tilt === 'A' ? 'X' : 'Y', t.v]]);
+      } else if (kind === 0) { // axis by axis, each turn about the new axes, in the _MODE order
+        const seq = seqOfMode(mode & 63);
+        if (seq.some(x => !x) || new Set(seq).size !== 3) flags.push(`CYCLE800 _MODE ${mode}: eksen sırası okunamadı`);
+        else {
+          const by = { X: A, Y: B, Z: C };
+          const live = seq.filter(ax => !angZ(by[ax]));
+          if (num([A, B, C])) m = turns(seq.map(ax => [ax, by[ax].v]));
+          if (rpy && inOrder(live, ['Z', 'Y', 'X'])) res = { I: A, J: B, K: C };
+          else if (!rpy && inOrder(live, ['Z', 'X'])) res = { I: C, J: A, K: Z0 };
+          else if (!rpy && inOrder(live, ['X', 'Z'])) res = { I: Z0, J: A, K: C };
+        }
+      } else if (kind === 0x40) { // solid angle: about Z by _A, then about the new Y by _B
+        flags.push('CYCLE800 uzay açısı (64) — açıları kontrol edin');
+        if (angZ(C)) res = rpy ? { I: Z0, J: B, K: A } : { I: angAdd(A, 90), J: B, K: { v: -90 } };
+        if (num([A, B, C])) m = turns([['Z', A.v], ['Y', B.v], ['Z', C.v]]);
+      } else flags.push('CYCLE800 projeksiyon açısı (128) çevrilmedi — açıları elle yazın');
+      if (!res && m) {
+        if (rpy) { const g = anglesZYX(m); res = { I: { v: g.X }, J: { v: g.Y }, K: { v: g.Z } }; }
+        else { const g = anglesZXZ(m); res = { I: { v: g.I }, J: { v: g.J }, K: { v: g.K } }; }
+      }
+      if (!res) { if (kind !== 0x80) flags.push('düzlem açıları ifadeli — çevrilemedi'); res = { I: A, J: B, K: C }; }
+      // zero before the turn → G68.2 X Y Z; the shift after it is folded in when it can be
+      const org = ['X0', 'Y0', 'Z0'].map(angOf), off = ['X1', 'Y1', 'Z1'].map(angOf);
+      if (off.some(a => !angZ(a))) {
+        if (m && num(org) && num(off)) { const d = mvec(m, off.map(a => a.v)); org.forEach((a, k) => { a.v += d[k]; }); }
+        else flags.push('CYCLE800 dönüş sonrası kaydırma (X1 Y1 Z1) çevrilmedi');
+      }
+      if (Math.round(numOf('ST', 0)) % 10 === 1) flags.push('CYCLE800 eklemeli düzlem (_ST) — önceki düzlemin üstüne');
+      if (rawOf('DIR') && numOf('DIR', 1) === 0) flags.push('CYCLE800 _DIR=0: eksenler dönmez');
+      const vals = {};
+      CYCLE800_ARGS.forEach(k => { vals[k] = k === 'TC' ? rawOf(k).replace(/"/g, '') : angText(angOf(k), wrapF); });
+      ['X0', 'Y0', 'Z0'].forEach((k, n) => { vals[k] = angText(org[n], wrapF); });
+      ['I', 'J', 'K'].forEach(k => { vals[k] = angText(res[k], wrapF); });
+      return { vals, flags, retract: numOf('FR', 0) !== 0, turned: ['I', 'J', 'K'].some(k => vals[k] !== '0'), direct: kind === 0xC0, rpy };
+    }
+
+    for (let x = 0; x < exec.length; x++) {
+      const { i, p } = exec[x];
       let comment = isoComment(p.comment);
       if (comment) {
         // comment rules work on the text inside the brackets
@@ -8172,10 +8746,11 @@ SON = M17
       }
       const lab = p.label && targets.has(p.label) ? p.label : (p.n && targets.has('N' + p.n) ? 'N' + p.n : null);
       const extra = lab ? { gotoLabel: lab } : null;
-      let code = p.code;
+      const code = p.code;
       const first = out.length;
-      const done = () => { if (lab && out.length > first) out[first].gotoLabel = lab; else if (lab) emit(i, '', 'changed', '', extra); };
+      const done = () => { if (lab && out.length > first && !out[first].gotoLabel) out[first].gotoLabel = lab; else if (lab) emit(i, '', 'changed', '', extra); };
 
+      if (skip.has(x)) { if (comment) emit(i, comment, 'changed'); done(); continue; }
       if (!code) {
         if (p.comment != null && !comment && !p.label) continue; // rules removed the only comment
         if (p.label && !comment && !lab) continue;                 // a label nothing jumps to
@@ -8186,28 +8761,110 @@ SON = M17
       // ---- R parameters ----
       const asg = code.match(/^R(\d+)\s*=\s*(.+)$/i);
       if (asg) {
-        const v = evalExpr(asg[2], rvals);
+        const v = varying.has(asg[1]) ? null : evalExpr(asg[2], rvals);
         if (v != null) rvals.set(asg[1], v); else rvals.delete(asg[1]);
         if (dropR.has(asg[1])) { done(); continue; }
         emit(i, withC(`#${base + parseInt(asg[1], 10)}=${fanucExpr(asg[2].trim(), base)}`, comment), 'changed');
         done(); continue;
       }
-      // ---- messages, control flow ----
+      // ---- messages ----
       const msg = code.match(/^MSG\s*\((.*)\)$/i);
       if (msg) {
         const t = msg[1].replace(/^\s*"|"\s*$/g, '').trim();
         if (t || comment) emit(i, withC(t ? isoComment(t) : '', comment), 'changed');
         done(); continue;
       }
+
+      // ---- block structures → jumps and WHILE loops (Fanuc has IF … GOTO, WHILE … DO) ----
+      const b = blk.get(x);
+      if (b) {
+        const L = s => `_${b.type}${b.id}${s}`;
+        const labelLine = (name, c) => emit(i, c || '', 'changed', '', { gotoLabel: name });
+        if (b.type === 'IF') {
+          if (x === b.start) {
+            const cond = code.replace(/^IF\s*/i, '');
+            if (b.jump) emit(i, withC(`IF [${fanucCond(cond, base)}] GOTO{{${b.jump}}}`, comment), 'changed', 'makro satırı — koşulu kontrol edin');
+            else {
+              const inv = fanucCond(cond, base, true);
+              if (inv == null) emit(i, withC(code, comment), 'same', 'IF koşulu çevrilemedi');
+              else emit(i, withC(`IF [${inv}] GOTO{{${L(b.els != null ? 'E' : 'X')}}}`, comment), 'changed', 'IF bloğu ters koşullu atlamaya çevrildi — koşulu kontrol edin');
+            }
+          } else if (x === b.els) { emit(i, `GOTO{{${L('X')}}}`, 'changed'); labelLine(L('E'), comment); }
+          else labelLine(L('X'), comment);
+        } else if (b.type === 'LOOP') {
+          if (x === b.start) { b.depth = ++st.whileDepth; emit(i, withC(`WHILE [1 EQ 1] DO${b.depth}`, comment), 'changed', b.depth > 3 ? 'en çok 3 iç içe döngü (DO1–DO3)' : ''); }
+          else { emit(i, withC(`END${b.depth}`, comment), 'changed'); st.whileDepth--; }
+        } else if (b.type === 'FOR') {
+          if (x === b.start) {
+            const f = code.match(/^FOR\s+R(\d+)\s*=\s*(.+?)\s+TO\s+(.+)$/i);
+            if (!f) { b.bad = true; emit(i, withC(code, comment), 'same', 'FOR çevrilmedi (sayaç R parametresi olmalı)'); }
+            else {
+              b.v = '#' + (base + parseInt(f[1], 10));
+              b.depth = ++st.whileDepth;
+              emit(i, `${b.v}=${fanucExpr(f[2], base)}`, 'changed');
+              emit(i, withC(`WHILE [${b.v} LE ${fanucExpr(f[3], base)}] DO${b.depth}`, comment), 'changed', b.depth > 3 ? 'en çok 3 iç içe döngü (DO1–DO3)' : '');
+            }
+          } else if (b.bad) emit(i, withC(code, comment), 'same', 'FOR çevrilmedi');
+          else { emit(i, `${b.v}=${b.v}+1`, 'changed'); emit(i, withC(`END${b.depth}`, comment), 'changed'); st.whileDepth--; }
+        } else if (b.type === 'REPEAT') {
+          if (x === b.start) labelLine(L('S'), comment);
+          else {
+            const inv = fanucCond(code.replace(/^UNTIL\s*/i, ''), base, true);
+            if (inv == null) emit(i, withC(code, comment), 'same', 'UNTIL koşulu çevrilemedi');
+            else emit(i, withC(`IF [${inv}] GOTO{{${L('S')}}}`, comment), 'changed', 'makro satırı — koşulu kontrol edin');
+          }
+        }
+        done(); continue;
+      }
       let ctl = null;
-      if ((ctl = code.match(/^IF\s+(.+?)\s+GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) {
+      if ((ctl = code.match(/^IF\s+(.+?)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) {
         emit(i, withC(`IF [${fanucCond(ctl[1], base)}] GOTO{{${ctl[2].toUpperCase()}}}`, comment), 'changed', 'makro satırı — koşulu ve #değişkenleri kontrol edin');
         done(); continue;
       }
-      if ((ctl = code.match(/^GOTO[FB]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) { emit(i, withC(`GOTO{{${ctl[1].toUpperCase()}}}`, comment), 'changed'); done(); continue; }
-      if ((ctl = code.match(/^WHILE\s+(.+)$/i))) { st.whileDepth++; emit(i, withC(`WHILE [${fanucCond(ctl[1], base)}] DO${st.whileDepth}`, comment), 'changed', 'makro satırı — koşulu kontrol edin'); done(); continue; }
+      if ((ctl = code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) { emit(i, withC(`GOTO{{${ctl[1].toUpperCase()}}}`, comment), 'changed'); done(); continue; }
+      if ((ctl = code.match(/^CASE\s*\((.+?)\)\s*OF\s+(.+)$/i))) {
+        const e = fanucExpr(ctl[1], base);
+        const items = [...ctl[2].matchAll(/(DEFAULT|[-+]?[\d.]+)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)/gi)];
+        items.forEach((it, k) => emit(i, withC(/^DEFAULT$/i.test(it[1]) ? `GOTO{{${it[2].toUpperCase()}}}` : `IF [${e} EQ ${it[1]}] GOTO{{${it[2].toUpperCase()}}}`, k === items.length - 1 ? comment : null), 'changed', k === 0 ? 'CASE → IF satırları' : ''));
+        if (!items.length) emit(i, withC(code, comment), 'same', 'CASE çevrilmedi');
+        done(); continue;
+      }
+      if ((ctl = code.match(/^WHILE\s+(.+)$/i))) { st.whileDepth++; emit(i, withC(`WHILE [${fanucCond(ctl[1], base)}] DO${st.whileDepth}`, comment), 'changed', 'makro satırı — koşulu kontrol edin' + (st.whileDepth > 3 ? '; en çok 3 iç içe döngü (DO1–DO3)' : '')); done(); continue; }
       if (/^ENDWHILE$/i.test(code)) { emit(i, withC(`END${Math.max(1, st.whileDepth)}`, comment), 'changed'); st.whileDepth = Math.max(0, st.whileDepth - 1); done(); continue; }
-      if (/^(IF|ELSE|ENDIF|FOR|ENDFOR|REPEAT|UNTIL|LOOP|ENDLOOP|DEF|CASE)\b/i.test(code)) { emit(i, withC(code, comment), 'same', 'bu Siemens yapısı çevrilmedi'); done(); continue; }
+      if (/^(IF|ELSE|ENDIF|FOR|ENDFOR|REPEATB?|UNTIL|LOOP|ENDLOOP|DEF|CASE|SAVE|PROC)\b/i.test(code)) { emit(i, withC(code, comment), 'same', 'bu Siemens yapısı çevrilmedi'); done(); continue; }
+
+      // ---- programmable frames: TRANS → G52, ROT → G68, MIRROR → G51.1 ----
+      const frm = code.match(/^(A?)(TRANS|ROT|MIRROR|SCALE)\s+(.+)$/i);
+      if (frm) {
+        const add = !!frm[1], kind = frm[2].toUpperCase();
+        const ax = {};
+        (frm[3].match(/[A-Z]+\s*=\s*\([^)]*\)|[A-Z]+\s*=\s*\S+|[A-Z]\s*-?[\d.]+/gi) || []).forEach(t => {
+          const m = t.replace(/\s+/g, '').match(/^([A-Z]+)=?(.+)$/i);
+          if (m) ax[m[1].toUpperCase()] = valOf(m[2]);
+        });
+        const sum = (a, d) => (a.v != null && d.v != null ? { v: a.v + d.v } : { e: `${angText(a, wrapF)}+${angText(d, wrapF)}` });
+        if (kind === 'TRANS') {
+          if (!add && st.rot) { emit(i, 'G69', 'added'); st.rot = null; } // TRANS replaces the whole frame
+          const prev = st.trans || { X: { v: 0 }, Y: { v: 0 }, Z: { v: 0 } };
+          st.trans = {};
+          ['X', 'Y', 'Z'].forEach(l => { st.trans[l] = ax[l] ? (add ? sum(prev[l], ax[l]) : ax[l]) : (add ? prev[l] : { v: 0 }); });
+          const ws = 'XYZ'.split('').filter(l => ax[l] || !angZ(st.trans[l]) || !angZ(prev[l])).map(l => l + angText(st.trans[l], wrapF));
+          emit(i, withC('G52 ' + (ws.length ? ws.join(' ') : 'X0 Y0 Z0'), comment), 'changed', add && st.rot ? 'ATRANS dönmüş eksenler boyunca kaydırır, G52 dönmemiş — kontrol edin' : '');
+        } else if (kind === 'ROT') {
+          if (Object.keys(ax).some(k => k !== 'RPL' && k !== 'Z')) emit(i, withC(code, comment), 'same', '3B dönüş (ROT X / Y) çevrilmedi — CYCLE800 ile yazılmalı');
+          else {
+            const a = ax.RPL || ax.Z || { v: 0 };
+            const wasOn = !!st.rot;
+            st.rot = add && st.rot ? sum(st.rot, a) : a;
+            if (wasOn) emit(i, 'G69', 'added');
+            emit(i, withC(`G68 X0 Y0 R${angText(st.rot, wrapF)}`, comment), 'changed', add && st.rot.e ? 'AROT ifadeli açı — toplam açıyı kontrol edin' : '');
+          }
+        } else if (kind === 'MIRROR') {
+          const axs = Object.keys(ax).filter(k => 'XYZ'.includes(k));
+          emit(i, withC('G51.1 ' + axs.map(k => k + '0').join(' '), comment), 'changed', add ? 'AMIRROR — önceki aynalama ile birlikte kontrol edin' : '');
+        } else emit(i, withC(code, comment), 'same', `${frm[1]}SCALE çevrilmedi — G51 elle yazılmalı`);
+        done(); continue;
+      }
 
       // ---- drilling cycles ----
       if (/^MCALL$/i.test(code)) {
@@ -8215,30 +8872,50 @@ SON = M17
         else if (comment) emit(i, comment, 'changed');
         done(); continue;
       }
-      const cyc = code.match(/^(MCALL\s+)?CYCLE(8[1-5])\s*\((.*)\)$/i);
+      const cyc = code.match(/^(MCALL\s+)?CYCLE(8[1-9]|840)\s*\((.*)\)$/i);
       if (cyc) {
-        const a = splitArgs(cyc[3]).map(x => (x === '' ? null : evalExpr(x, rvals)));
+        const a = splitArgs(cyc[3]).map(v => (v === '' ? null : evalExpr(v, rvals)));
         const no = parseInt(cyc[2], 10);
         const [rtp, rfp, sdis, dp, dpr] = a;
         const fl = [];
         const rPoint = (rfp != null ? rfp : 0) + (sdis != null ? sdis : 0);
         const depth = dp != null ? dp : (dpr != null && rfp != null ? rfp - dpr : null);
         if (depth == null) fl.push('döngü derinliği okunamadı');
-        const c = { no, r: rPoint, dp: depth, f: st.F, q: null, p: null, vari: 1 };
-        if (no === 82) c.p = a[5] != null ? a[5] * 1000 : null;
-        if (no === 83) {
+        const sec = k => (a[k] != null && a[k] > 0 ? a[k] * 1000 : null); // Siemens seconds → P milliseconds
+        const c = { no, g: 'G81', r: rPoint, dp: depth, f: st.F, q: null, p: null, s: null };
+        if (no === 82) { c.g = 'G82'; c.p = sec(5); }
+        else if (no === 83) {
           const fdep = a[5], fdpr = a[6], dam = a[7];
           const firstDepth = fdep != null ? rPoint - fdep : fdpr;
           c.q = dam > 0 ? dam : firstDepth;
-          c.vari = a[11] != null ? a[11] : 1;
+          c.g = (a[11] != null ? a[11] : 1) === 0 ? 'G73' : 'G83';
           if (dam > 0 && firstDepth != null && Math.abs(firstDepth - dam) > 1e-9) fl.push('ilk kademe ve sonraki kademeler farklı — Q tek değer');
-        }
-        if (no === 84) {
-          const pit = a[8], sst = a[10];
-          if (pit != null && sst != null) c.f = fmt(pit * sst);
-          fl.push('kılavuz çekme — F, S ve senkron mod (M29) kontrol edilmeli');
-        }
-        if (no === 85 && a[6] != null) c.f = fmt(a[6]);
+          if (a[8] > 0 || a[9] > 0) fl.push('CYCLE83 bekleme süreleri (DTB / DTS) çevrilmedi');
+        } else if (no === 84 || no === 840) {
+          // the pitch: PIT, or the metric size MPIT; its sign gives the hand
+          const [mpit, pit0, sst, ptab] = no === 84 ? [a[7], a[8], a[10], a[13]] : [a[9], a[10], null, a[12]];
+          let pit = pit0 ? pit0 : mpit ? Math.sign(mpit) * (MPIT[Math.abs(mpit)] || NaN) : null;
+          if (pit && ptab === 2) pit = Math.sign(pit) / Math.abs(pit); // threads per inch
+          const left = (pit != null && pit < 0) || (no === 840 && a[6] === 4);
+          const s = sst != null ? sst : st.S != null ? parseFloat(st.S) : null;
+          c.g = left ? 'G74' : 'G84';
+          if (sst != null) c.s = fmt(sst);
+          c.f = pit && isFinite(pit) ? (st.feedRev ? fmt6(Math.abs(pit)) : s ? fmt(Math.abs(pit) * s) : null) : null;
+          if (c.f == null) fl.push('kılavuz hatvesi ya da devri okunamadı');
+          c.p = sec(5);
+          fl.push(no === 84 ? 'kılavuz çekme (senkron) — F, S ve M29 / G84.2 makineye göre kontrol edilmeli' : 'kılavuz çekme (yüzer pens) — F ve S kontrol edilmeli');
+        } else if (no === 85) {
+          c.p = sec(5); c.g = c.p ? 'G89' : 'G85';
+          if (a[6] != null) c.f = fmt(a[6]);
+          if (a[6] != null && a[7] != null && Math.abs(a[7] - a[6]) > 1e-9) fl.push('geri çıkış ilerlemesi (RFF) farklıydı — ISO döngüsü aynı F ile çıkar');
+        } else if (no === 86) {
+          c.g = 'G76'; c.p = sec(5);
+          const sh = Math.hypot(a[7] || 0, a[8] || 0);
+          if (sh > 0) c.q = sh;
+          fl.push('CYCLE86 → G76: kaçma yönü ve mil açısı makine parametresinde — kontrol edin');
+        } else if (no === 87) { c.g = 'G88'; fl.push('CYCLE87 (dipte M5 + M0) → G88'); }
+        else if (no === 88) { c.g = 'G88'; c.p = sec(5); }
+        else if (no === 89) { c.g = 'G89'; c.p = sec(5); }
         // the retract height: G98 back to where it started, G99 to the R point
         const zNow = st.pos.Z;
         if (rtp != null && Math.abs(rtp - rPoint) < 1e-9) c.retract = 'G99';
@@ -8257,18 +8934,56 @@ SON = M17
         }
         done(); continue;
       }
+      // ---- position patterns: every hole written out ----
+      const pat = code.match(/^(HOLES1|HOLES2|CYCLE801)\s*\((.*)\)$/i);
+      if (pat) {
+        const kind = pat[1].toUpperCase();
+        const a = splitArgs(pat[2]).map(v => (v === '' ? 0 : evalExpr(v, rvals)));
+        const pts = [];
+        const cs = d => Math.cos(d * DEG), sn = d => Math.sin(d * DEG);
+        const cnt = v => v != null && v >= 1 && v <= 1000 && v === Math.round(v);
+        if (!a.some(v => v == null)) {
+          if (kind === 'HOLES1' && cnt(a[5])) {
+            const [x0, y0, ang, fd, db, n] = a;
+            for (let k = 0; k < n; k++) pts.push([x0 + (fd + k * db) * cs(ang), y0 + (fd + k * db) * sn(ang)]);
+          } else if (kind === 'HOLES2' && cnt(a[5])) {
+            const [x0, y0, rad, sta, inda, n] = a;
+            const step = inda || 360 / n;
+            for (let k = 0; k < n; k++) pts.push([x0 + rad * cs(sta + k * step), y0 + rad * sn(sta + k * step)]);
+          } else if (kind === 'CYCLE801' && cnt(a[5]) && cnt(a[6])) {
+            const [x0, y0, ang, d1, d2, n1, n2] = a;
+            for (let j = 0; j < n2; j++) {
+              for (let k0 = 0; k0 < n1; k0++) {
+                const k = j % 2 ? n1 - 1 - k0 : k0; // row by row, back and forth
+                pts.push([x0 + k * d1 * cs(ang) - j * d2 * sn(ang), y0 + k * d1 * sn(ang) + j * d2 * cs(ang)]);
+              }
+            }
+          }
+        }
+        if (!pts.length) { emit(i, withC(code, comment), 'same', `${kind} değerleri okunamadı`); done(); continue; }
+        pts.forEach((pt, k) => {
+          const xy = ['X' + fmt(pt[0]), 'Y' + fmt(pt[1])];
+          if (st.cycle) cyclePos(i, xy, [], k === 0 ? comment : null, []);
+          else { emit(i, withC('G0 ' + xy.join(' '), k === 0 ? comment : null), 'changed'); st.pos.X = pt[0]; st.pos.Y = pt[1]; }
+        });
+        done(); continue;
+      }
       // ---- tilted plane, high-speed settings ----
       const c800 = code.match(/^CYCLE800\s*\((.*)\)$/i);
       if (c800) {
         const args = splitArgs(c800[1]);
-        const reset = args.every(x => x === '') || (args[1] || '').replace(/"/g, '') === '0';
+        const reset = args.every(v => v === '') || (args[1] || '').replace(/"/g, '').trim() === '0';
         if (reset) {
           if (R.planeOff.length) tplOut(i, R.planeOff, {}); else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
         } else if (R.plane.length) {
-          const vals = {};
-          CYCLE800_ARGS.forEach((k, n) => { const v = args[n] != null && args[n] !== '' ? evalExpr(args[n], rvals) : 0; vals[k] = v == null ? null : fmt(v); });
-          tplOut(i, R.plane, vals, 'CYCLE800 değeri');
-          if (['A', 'B', 'C'].some(k => vals[k] !== '0')) out[out.length - 1].flag = 'CYCLE800 açıları kaynak makinenin eksenlerine göre — eğik düzlem açılarını kontrol edin';
+          const pl = cycle800Plane(args);
+          if (pl.retract && R.planeRetract.length) tplOut(i, R.planeRetract, pl.vals);
+          const from = out.length;
+          tplOut(i, R.plane, pl.vals, 'CYCLE800 değeri');
+          const fl = pl.flags.slice();
+          if (pl.turned && !pl.flags.some(f => /projeksiyon/.test(f))) fl.push(`düzlem açıları ${pl.direct ? R.kin.tilt + '/C kinematiğiyle ' : ''}G68.2 ${pl.rpy ? 'P1 (roll-pitch-yaw)' : '(Euler)'} açısına çevrildi — ilk denemede kontrol edin`);
+          const tgt = out.slice(from).reverse().find(o => /G68\.2/i.test(o.text)) || out[out.length - 1];
+          if (fl.length && tgt) tgt.flag = [tgt.flag].concat(fl).filter(Boolean).join('; ');
         } else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
         if (comment && out.length > first) out[out.length - 1].text = withC(out[out.length - 1].text, comment);
         done(); continue;
@@ -8276,7 +8991,7 @@ SON = M17
       const c832 = code.match(/^CYCLE832\s*\((.*)\)$/i);
       if (c832) {
         const args = splitArgs(c832[1]);
-        const tpl = args.every(x => x === '') || evalExpr(args[1] || '0', rvals) === 0 ? R.hscOff : R.hsc;
+        const tpl = args.every(v => v === '') || evalExpr(args[1] || '0', rvals) === 0 ? R.hscOff : R.hsc;
         if (tpl.length) tplOut(i, tpl, { TOL: args[0] || '' });
         else emit(i, withC(code, comment), 'same', 'CYCLE832 için kural yok');
         done(); continue;
@@ -8285,16 +9000,25 @@ SON = M17
       // ---- calls ----
       const call = code.match(/^CALL\s*"([^"]*)"$/i);
       if (call) {
-        const tpl = R.calls.get(callName(call[1]));
+        const name = callName(call[1]);
+        const tpl = R.calls.get(name);
         if (tpl) { tplOut(i, tpl, { T: toolNo(st.tool) || '' }); if (comment) emit(i, comment, 'changed'); }
-        else emit(i, withC(code, comment), 'same', `CALL ${callName(call[1])} için kural yok`);
+        else if (/^[A-Z_][A-Z0-9_]*$/.test(name) && R.cmds.has(name)) { R.cmds.get(name).forEach(l => emit(i, l, 'template')); if (comment) emit(i, comment, 'changed'); }
+        else if (R.subNames.has(name) || (opts.localSubs && opts.localSubs.has(name))) subCall(i, name, null, code, comment);
+        else emit(i, withC(code, comment), 'same', `CALL ${name} için kural yok`);
         done(); continue;
       }
-      const bare = code.match(/^([A-Z_][A-Z0-9_]*)(?:\s+P\s*(\d+))?$/i);
+      const bare = code.match(/^([A-Z_][A-Z0-9_]*)(?:\s+P\s*=?\s*(\d+))?$/i);
       if (bare && (!ADDR_RE.test(code) || /^L\d+$/i.test(bare[1]))) {
         const name = bare[1].toUpperCase();
         if (R.cmds.has(name)) {
-          const lines = R.cmds.get(name);
+          // TRANS / ROT alone clear the whole programmable frame: whatever the rule writes, a G52 / G68 set here goes too
+          if (/^(TRANS|ROT)$/.test(name)) {
+            if (st.trans && ['X', 'Y', 'Z'].some(l => !angZ(st.trans[l]))) emit(i, 'G52 X0 Y0 Z0', 'added');
+            if (st.rot) emit(i, 'G69', 'added');
+            st.trans = null; st.rot = null;
+          }
+          const lines = R.cmds.get(name).map(l => (name === 'TRAORI' && useVec ? l.replace(/G43\.4/g, 'G43.5') : l));
           lines.forEach((l, k) => { const f = fillExpr(l, { T: toolNo(st.tool) || '' }, rvals); emit(i, withC(f.out, k === lines.length - 1 ? comment : null), 'template', f.missing.length ? 'değer yok: ' + f.missing.join(', ') : ''); });
           if (!lines.length && comment) emit(i, comment, 'changed');
           st.pos = { X: null, Y: null, Z: null };
@@ -8305,18 +9029,22 @@ SON = M17
           const callTpl = R.sub.call.split(/\s+/).filter(tok => !(/\{L\}/.test(tok) && !L)).join(' ');
           emit(i, withC(fill(callTpl, { P, L }).out, comment), 'changed');
           st.pos = { X: null, Y: null, Z: null };
-        } else if (/^STOPRE$/i.test(name)) {
+        } else if (SIE_QUIET.has(name)) {
           if (comment) emit(i, comment, 'changed');
-        } else {
-          emit(i, withC(code, comment), 'same', `${name} için kural yok (alt program ya da komut)`);
-        }
+        } else if (name === 'TRAORI') emit(i, withC(useVec ? 'G43.5' : 'G43.4', comment), 'changed', '5 eksen dönüşümü — takım boyu (H) ve makine ayarı kontrol edilmeli');
+        else if (name === 'TRAFOOF') emit(i, withC('G49', comment), 'changed');
+        else if (/^A?ROT$/.test(name)) { emit(i, withC('G69', comment), 'changed'); st.rot = null; if (st.trans && ['X', 'Y', 'Z'].some(l => !angZ(st.trans[l]))) emit(i, 'G52 X0 Y0 Z0', 'added'); st.trans = null; }
+        else if (/^A?TRANS$/.test(name)) { if (st.rot) emit(i, 'G69', 'added'); st.rot = null; st.trans = null; emit(i, withC('G52 X0 Y0 Z0', comment), 'changed'); }
+        else if (/^A?MIRROR$/.test(name)) emit(i, withC('G50.1 X0 Y0', comment), 'changed');
+        else if (/^A?SCALE$/.test(name)) emit(i, withC('G50', comment), 'changed');
+        else subCall(i, name, bare[2] || null, code, comment);
         done(); continue;
       }
 
       // ---- ordinary blocks, word by word ----
-      const toks = code.match(/[A-Z]+\s*=\s*"[^"]*"|[A-Z]+\s*=\s*\([^)]*\)|[A-Z]+\s*=\s*[^\s]+|[A-Z]+\([^)]*\)|[A-Z]+\s*-?[\d.]+|\S+/gi) || [];
-      const ws = [], before = [], after = [], flags = [], incWs = [];
-      let toolChange = false, tWord = null, motion = null, dwell = false, fixed = false;
+      const toks = code.match(/[ABC]3\s*=\s*\([^)]*\)|[ABC]3\s*=\s*[^\s]+|[A-Z]+\s*=\s*"[^"]*"|[A-Z]+\s*=\s*\([^)]*\)|[A-Z]+\s*=\s*[^\s]+|[A-Z]+\([^)]*\)|[A-Z]+\s*-?[\d.]+|\S+/gi) || [];
+      const ws = [], after = [], flags = [], incWs = [];
+      let toolChange = false, tWord = null, dwell = false, fixed = false;
       toks.forEach(tk => {
         const t = tk.replace(/\s+/g, '');
         let m;
@@ -8324,15 +9052,19 @@ SON = M17
           const g = parseFloat(m[1]);
           const key = 'G' + String(g);
           if (R.g.has(key)) { const rep = R.g.get(key); if (rep.length) { ws.push(rep[0]); rep.slice(1).forEach(x => after.push(x)); } return; }
-          if ([0, 1, 2, 3].includes(g)) { motion = g; ws.push('G' + m[1]); return; }
+          if ([0, 1, 2, 3].includes(g)) { ws.push('G' + m[1]); return; }
           if (g === 90) st.abs = true;
           if (g === 91) st.abs = false;
+          if (g === 94) st.feedRev = false;
+          if (g === 95) st.feedRev = true;
           if (g === 4) { dwell = true; ws.push('G4'); return; }
           if (g === 75) { fixed = true; return; }
           if (g === 153) { ws.push('G53'); return; }
           if (g === 500) return;
+          if (g === 60) { ws.push('G61'); return; }                          // exact stop, modal
+          if ([450, 451, 601, 602, 603, 641, 642, 643, 644, 645].includes(g)) return; // corner and path smoothing settings
           if (g >= 505 && g <= 599) { ws.push(`G54.1 P${g - 500}`); return; }
-          if ([17, 18, 19, 40, 41, 42, 54, 55, 56, 57, 60, 64, 9, 90, 91, 94, 95, 96, 97, 53].includes(g)) { ws.push('G' + m[1]); return; }
+          if ([17, 18, 19, 40, 41, 42, 54, 55, 56, 57, 64, 9, 90, 91, 94, 95, 96, 97, 53].includes(g)) { ws.push('G' + m[1]); return; }
           flags.push(`G${m[1]} çevrilmedi`); ws.push('G' + m[1]); return;
         }
         if ((m = t.match(/^M0*(\d+)$/i))) {
@@ -8342,6 +9074,7 @@ SON = M17
           if (R.m.has(key)) { const rep = R.m.get(key); if (rep.length) { ws.push(rep[0]); rep.slice(1).forEach(x => after.push(x)); } return; }
           ws.push(t.toUpperCase()); return;
         }
+        if ((m = t.match(/^([ABC])3=(.+)$/i))) { ws.push({ A: 'I', B: 'J', C: 'K' }[m[1].toUpperCase()] + angText(valOf(m[2]), wrapF)); return; } // tool vector
         if ((m = t.match(/^T=?(.+)$/i))) { tWord = m[1]; return; }
         if ((m = t.match(/^D(\d+)$/i))) { if (parseInt(m[1], 10) === 0) ws.push('G49'); return; }
         if (/^SUPA$/i.test(t)) { ws.push('G53'); return; }
@@ -8365,7 +9098,7 @@ SON = M17
           const letter = m[1].toUpperCase();
           let raw = m[2];
           if (/=/.test(t) || /R\d|[()]/i.test(raw)) {
-            const v = evalExpr(raw.replace(/^\(|\)$/g, '') === raw ? raw : raw, rvals);
+            const v = evalExpr(raw, rvals);
             raw = v != null ? fmt(v) : '[' + fanucExpr(raw.replace(/^\((.*)\)$/, '$1'), base) + ']';
           }
           if (letter === 'F' && dwell) { ws.push('X' + raw); return; }
@@ -8402,26 +9135,20 @@ SON = M17
       if (tWord != null) { const T = toolNo(tWord); ws.push('T' + (T || tWord)); if (!T) flags.push(`takım numarası yok (${tWord})`); }
 
       // positions inside an MCALL: the first one carries the whole ISO cycle
-      const axes = ws.filter(x => /^[XYZABC][-\d.[#]/.test(x));
+      const axes = ws.filter(w => /^[XYZABC][-\d.[#]/.test(w));
       if (st.cycle && axes.length) {
-        const c = st.cycle;
-        const xy = ws.filter(x => /^[XY]/.test(x));
-        if (ws.some(x => /^Z/.test(x))) flags.push('MCALL içinde Z hareketi');
-        const rest = ws.filter(x => !/^[XYZ]/.test(x) && !/^G0?[0-3]$/.test(x)); // A/B/C stay with the position
-        const line = c.started ? xy.join(' ') : cycleLine(c, xy);
-        emit(i, withC([line].concat(rest).filter(Boolean).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
-        c.started = true;
-        xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs) st.pos[x[0]] = v; });
+        if (ws.some(w => /^Z/.test(w))) flags.push('MCALL içinde Z hareketi');
+        cyclePos(i, ws.filter(w => /^[XY]/.test(w)), ws.filter(w => !/^[XYZ]/.test(w) && !/^G0?[0-3]$/.test(w)), comment, flags); // A/B/C stay with the position
         done(); continue;
       }
       // track where the tool is (for the cycle retract height)
-      ws.forEach(x => { const mm = x.match(/^([XYZ])(-?[\d.]+)$/); if (mm) st.pos[mm[1]] = st.abs ? parseFloat(mm[2]) : (st.pos[mm[1]] != null ? st.pos[mm[1]] + parseFloat(mm[2]) : null); });
+      ws.forEach(w => { const mm = w.match(/^([XYZ])(-?[\d.]+)$/); if (mm) st.pos[mm[1]] = st.abs ? parseFloat(mm[2]) : (st.pos[mm[1]] != null ? st.pos[mm[1]] + parseFloat(mm[2]) : null); });
 
       const text = withC(ws.join(' '), comment);
       const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase();
       if (text || flags.length) emit(i, text, same && !comment === !p.comment ? 'same' : 'changed', flags.join('; '));
       if (incWs.length) { emit(i, 'G91 ' + incWs.join(' '), 'added', 'IC() ayrı satıra alındı — aynı blokta değil, sırayla hareket eder'); emit(i, 'G90', 'added'); }
-      after.forEach(x => emit(i, x, 'added'));
+      after.forEach(a => emit(i, a, 'added'));
       done();
     }
     if (st.cycle) emit(parts.length - 1, 'G80', 'added', 'program açık bir MCALL ile bitiyor');
@@ -8446,6 +9173,7 @@ SON = M17
     });
     return { lines: out, srcLines, notes, calls: [] };
   }
+
   // "/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2006_SPF" → SUB2006
   function callName(path) {
     const last = String(path).split('/').pop();
@@ -8464,13 +9192,20 @@ SON = M17
     const common = { rules, writer, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
     if (route === 'siemens-iso') {
       // every file one program: .SPF (or a file ending in M17/RET) is a subprogram named by its L number
-      const programs = files.map(f => {
+      const subOf = f => {
         const base = f.name.replace(/\.[^.]+$/, '');
         const isSub = /\.SPF$/i.test(f.name) || /\b(M17|RET)\b/i.test(f.text.replace(/;.*$/gm, ''));
-        const num = (base.match(/^L?(\d+)$/i) || [])[1];
+        // L1234 → 1234; a named one (SUBIT14) from ALT PROGRAM NUMARALARI, or the digits in its name
+        const num = (base.match(/^L?(\d+)$/i) || [])[1] || rules.subNames.get(base.toUpperCase()) || (isSub ? (base.match(/(\d+)$/) || [])[1] : null);
+        return { base, isSub, num };
+      };
+      const localSubs = new Map();
+      files.forEach(f => { const s = subOf(f); if (s.isSub && s.num) localSubs.set(s.base.toUpperCase(), String(parseInt(s.num, 10))); });
+      const programs = files.map(f => {
+        const { base, isSub, num } = subOf(f);
         const outName = isSub && num ? fill(rules.sub.file, { P: String(parseInt(num, 10)) }).out : base + target.mainExt;
-        const result = convertFromSiemens(f.text, Object.assign({ isSub }, common));
-        if (isSub && !num) result.notes.push(`${f.name}: alt program adı numara değil — Mazak'ta bir program numarası verin ve çağrıları KOMUTLAR'a ekleyin.`);
+        const result = convertFromSiemens(f.text, Object.assign({ isSub, localSubs }, common));
+        if (isSub && !num) result.notes.push(`${f.name}: alt program adında numara yok — ALT PROGRAM NUMARALARI'na ${base.toUpperCase()} = numara yazın.`);
         return { srcName: f.name, outName, isSub, number: num || null, result };
       });
       return { programs, missing: [], rules, target, route };
@@ -8519,7 +9254,6 @@ SON = M17
 
   return { SOURCES, TARGETS, PROFILES, DEFAULT_RULES, routeOf, targetsFor, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
-
 /* ================= Tool: Program Dönüştürücü ================= */
 (function () {
   const $ = id => document.getElementById(id);
@@ -8555,6 +9289,13 @@ SON = M17
     if (old) localStorage.removeItem('toolbox.convRules');
   } catch (e) { /* storage off or unreadable: start fresh */ }
   if (!store.selected.machine) store.selected.machine = {};
+  // tilted-plane lines of the first versions passed the G68.2 / CYCLE800 values
+  // through untouched; the core now works the angles out ({EKSEN1}, {I} …)
+  const upgradeRules = t => String(t)
+    .replace(/CYCLE800\(1,"HERMLE",100000,192,\{X\},\{Y\},\{Z\},\{I\},\(\{J\}\+ R20\),\{K\},/g, 'CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,')
+    .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}');
+  Object.keys(store.overrides).forEach(k => { store.overrides[k] = upgradeRules(store.overrides[k]); });
+  store.custom.forEach(p => { p.rules = upgradeRules(p.rules); });
   function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
 
   const pairKey = () => srcSel7.value + '|' + tgtSel7.value;
@@ -8692,7 +9433,7 @@ SON = M17
     try { data = JSON.parse(await f.text()); } catch (e) { alert('Dosya okunamadı: geçerli bir makine dosyası değil.'); return; }
     const okSrc = ProgConvert.SOURCES.some(x => x.id === data.source), okTgt = ProgConvert.routeOf(data.source, data.target) != null;
     if (data.format !== 'toolbox-makine' || typeof data.rules !== 'string' || !okSrc || !okTgt) { alert('Bu bir makine dosyası değil ya da kaynak/hedef bu sürümde yok.'); return; }
-    const p = addMachine(String(data.name || 'İçe aktarılan makine'), data.source, data.target, data.rules);
+    const p = addMachine(String(data.name || 'İçe aktarılan makine'), data.source, data.target, upgradeRules(data.rules));
     srcSel7.value = data.source; fillTargets(data.target);
     fillMachines(p.id);
     if (result) run();
