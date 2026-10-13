@@ -7077,20 +7077,22 @@ CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,
 CYCLE800()
 
 [MAKRO P9862 B1]
-// G65 P9862 B1 — yalnız boy ölçümü · {S}: G65 satırındaki S
+// G65 P9862 B1 — yalnız boy ölçümü · {S}: G65 satırındaki S · {SIRA}: takım sırası (TP1LASER:, TP2LASER: …)
+TP{SIRA}LASER:
 R80={S} ;(* CUTTING TOOL SPEED *)
 R91=0 ;(* TOOL PRE LENGTH *)
 R108=10.500 ;( TOOL LENGTH FOR CHECK ) !! KONTROL: takım boyu
 R109=0.100 ;( TOOL LENGTH TOLERANCE)
 R213=0 ;( TOOL PROB REVISION )
 CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2006_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
+
 L_M54
 M01
+ENDLABEL:
 
 [MAKRO P9862 B3]
 // G65 P9862 B3 — boy ve çap ölçümü · {harf}: G65 satırındaki değer (S, R, Y, Z, E, T)
-S750 M3
-G0 C0
+TP{SIRA}LASER:
 R80={S} ;(* CUTTING TOOL SPEED *)
 R91=0 ;(* TOOL PRE LENGTH *)
 R92=({R}/2) ;(* TOOL RADIUS *)
@@ -7103,8 +7105,43 @@ R108=10.500 ;( TOOL LENGTH FOR CHECK ) !! KONTROL: takım boyu
 R109=0.100 ;( TOOL LENGTH TOLERANCE)
 R213=0 ;( TOOL PROB REVISION )
 CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2000_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
-M5
-D1
+
+L_M54
+M01
+ENDLABEL:
+
+[MAKRO P8153]
+// G65 P8153 — pah takımı ölçümü · {A}: takım çapı · {U}: yarım açı (R217 = 2 × U) · {V}: açı toleransı
+// R214 Mazak'ta yok: Hermle'deki sabit değer
+TP{SIRA}LASER:
+R80={S} ;(* CUTTING TOOL SPEED *)
+R91=0 ;(* TOOL PRE LENGTH *)
+R92=({A}/2) ;(* TOOL RADIUS *)
+;(*-should be smaller from tool rad.*)
+R217=({U*2}) ;(* CHAMFER TOOL ANGLE *)
+R214=(0.040/2) ;(* RAD VALUE CALCULATION FOR SECOND LENGTH MEASUREMENT *)
+R219=({V}) ;(* ANGLE TOLERANCE *)
+CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB20022_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
+
+L_M54
+M01
+ENDLABEL:
+
+[MAKRO P8154]
+// G65 P8154 — P8153 gibi; W Hermle'de makronun içinde, kullanılmaz
+TP{SIRA}LASER:
+R80={S} ;(* CUTTING TOOL SPEED *)
+R91=0 ;(* TOOL PRE LENGTH *)
+R92=({A}/2) ;(* TOOL RADIUS *)
+;(*-should be smaller from tool rad.*)
+R217=({U*2}) ;(* CHAMFER TOOL ANGLE *)
+R214=(0.040/2) ;(* RAD VALUE CALCULATION FOR SECOND LENGTH MEASUREMENT *)
+R219=({V}) ;(* ANGLE TOLERANCE *)
+CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB20033_SPF" ;!! KONTROL: makinedeki dizin yolunu yazın
+
+L_M54
+M01
+ENDLABEL:
 
 [R PARAMETRELERİ]
 // Mazak #değişkeni → Siemens R: R5 = 990 ile #990 → R5 · listede olmayan #n → Rn
@@ -7140,6 +7177,8 @@ G500 =
 [METİN]
 // Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
 HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800
+-should be smaller from tool rad. =>
+-for Radius measurement =>
 
 [KOMUTLAR]
 // Siemens komutu ya da alt program adı = Mazak satırları (| alt alta, boş: sil)
@@ -7149,6 +7188,7 @@ STOPRE =
 TRANS =
 TRAFOOF = G49
 TRAORI = G43.4 (!! KONTROL: 5 eksen dönüşümü)
+DIAMOF =
 
 [TAKIM DEĞİŞTİRME]
 // T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan)
@@ -7206,6 +7246,14 @@ G65 P9862 B3. T[#989] E{R98} R{R92*2} S{R80} Y{R97} Z{R96}
 
 [ÇAĞRI SUB2006]
 G65 P9862 B1. T[#989] S{R80}
+
+[ÇAĞRI SUB20022]
+// pah takımı ölçümü · A: takım çapı · U: yarım açı (R217 / 2) · V: açı toleransı
+G65 P8153 A{R92*2} T[#989] S{R80} U{R217/2} V{R219}
+
+[ÇAĞRI SUB20033]
+// W Hermle'de makronun içinde: Mazak'ta sabit yazılır
+G65 P8154 A{R92*2} T[#989] S{R80} U{R217/2} V{R219} W0.400
 
 [R PARAMETRELERİ]
 // Rn → #(TABAN+n) · tek tek başka numara: R5 = 990
@@ -7587,10 +7635,18 @@ SON = M17
   const HOME_G = new Set([0, 17, 18, 19, 20, 21, 28, 40, 49, 67, 69, 80, 90, 91, 94, 95, 97, 98, 99]);
   const CYCLE_G = new Set([73, 74, 76, 81, 82, 83, 84, 84.2, 84.3, 85, 86, 88, 89]);
 
+  // {S}, {EKSEN1}: the value as given (3. written 3); {U*2}: worked out from the letters' numbers
   function fill(tpl, vals) {
     const missing = [];
-    const out = tpl.replace(/\{([A-Z][A-Z0-9]*)\}/g, (m, k) => {
-      if (vals[k] != null && vals[k] !== '') return vals[k];
+    const out = tpl.replace(/\{([A-Z0-9*/+\-. ()]+)\}/g, (m, k) => {
+      if (/^[A-Z][A-Z0-9]*$/.test(k)) {
+        if (vals[k] != null && vals[k] !== '') return /^-?\d+\.$/.test(vals[k]) ? vals[k].slice(0, -1) : vals[k];
+        missing.push(k); return '';
+      }
+      let ok = true;
+      const num = k.replace(/[A-Z][A-Z0-9]*/g, n => { const v = parseFloat(vals[n]); if (!isFinite(v)) { ok = false; return '0'; } return '(' + v + ')'; });
+      const v = ok ? evalExpr(num, new Map()) : null;
+      if (v != null) return fmt(v);
       missing.push(k); return '';
     });
     return { out, missing };
@@ -8052,7 +8108,7 @@ SON = M17
         cands.sort((a, b) => b.conds.length - a.conds.length);
         const tpl = cands.length ? cands[0].tpl : null;
         if (tpl) {
-          const vals = {};
+          const vals = { SIRA: String(Math.max(1, st.toolChanges)) };
           ws.forEach(w => { if (w.letter !== 'G' && w.letter !== 'P') vals[w.letter] = w.raw; });
           emitTpl(i, tpl, vals);
           if (comments.length) emit(i, withComments('', comments), 'changed');
@@ -8561,7 +8617,7 @@ SON = M17
   // Siemens commands with no meaning on a Fanuc-type control (path smoothing,
   // feedforward, orientation reference): left out without a note. KOMUTLAR
   // can still give any of them lines.
-  const SIE_QUIET = new Set(['STOPRE', 'SOFT', 'BRISK', 'DRIVE', 'FFWON', 'FFWOF', 'CFC', 'CFTCP', 'CFIN', 'UPATH', 'SPATH',
+  const SIE_QUIET = new Set(['STOPRE', 'DIAMOF', 'SOFT', 'BRISK', 'DRIVE', 'FFWON', 'FFWOF', 'CFC', 'CFTCP', 'CFIN', 'UPATH', 'SPATH',
     'COMPOF', 'COMPON', 'COMPCURV', 'COMPCAD', 'COMPSURF', 'CUT2D', 'CUT2DF', 'CUT3DC', 'CDON', 'CDOF', 'CDOF2',
     'ORIWKS', 'ORIMKS', 'ORIAXES', 'ORIVECT', 'ORIEULER', 'ORIRPY', 'WAITM', 'WAITE', 'WAITS']);
   const SIE_BLOCK = /^(MCALL|ENDWHILE|ELSE|ENDIF|LOOP|ENDLOOP|ENDFOR|REPEAT|RET|M17|TRAORI|TRAFOOF|A?ROT|A?TRANS|A?MIRROR|A?SCALE)$/i;
@@ -9227,6 +9283,11 @@ SON = M17
     if (st.cycle) emit(parts.length - 1, 'G80', 'added', 'program açık bir MCALL ile bitiyor');
     if (usedDC) notes.push("DC() (en kısa yoldan) döner eksen hareketleri düz değer olarak yazıldı — Mazak'ta döner eksenin en kısa yoldan gitmesi parametreyle açık olmalı.");
 
+    // a number with no decimal point is read in least increments on a Fanuc-type
+    // control (V3 = 0.003, X10 = 0.010): lengths, angles and feeds get one
+    const dot = t => t.replace(/(^|[\s\]])([XYZABCUVWIJKRQFE])(-?\d+)(?![\d.])/g, '$1$2$3.');
+    out.forEach(o => { o.text = o.text.split(/(\([^)]*\))/).map((seg, k) => (k % 2 ? seg : dot(seg))).join(''); });
+
     // block numbers, then GOTO targets filled in with the number their label got
     const labelN = new Map();
     let n = 0;
@@ -9377,9 +9438,39 @@ SON = M17
     }
     return t.replace(/^\[ALT PROGRAM\]/m, '[R PARAMETRELERİ]\n// Mazak #değişkeni → Siemens R: R5 = 990 ile #990 → R5 · listede olmayan #n → Rn\n' + PATTERN_R + '\n\n[ALT PROGRAM]');
   };
+  // a saved copy of a built-in Hermle machine gets what the tool learned since: sections it
+  // lacks (new probe macros) are added, a probe macro still at its old default is brought up
+  // to date, and a few single lines go in where missing; whatever the user wrote stays
+  const OLD_PROBE = {
+    'MAKRO P9862 B1': /^R80=\{S\}[^\n]*\nR91=0[^\n]*\nR108=[^\n]*\nR109=[^\n]*\nR213=[^\n]*\nCALL[^\n]*SUB2006[^\n]*\nL_M54\nM01$/,
+    'MAKRO P9862 B3': /^S750 M3\nG0 C0\nR80=\{S\}[\s\S]*SUB2000[^\n]*\nM5\nD1$/
+  };
+  function addNewSections(t, id) {
+    const b = ProgConvert.PROFILES.find(p => p.id === id);
+    if (!b) return t;
+    const blocks = src => {
+      const m = new Map();
+      let cur = null;
+      src.split('\n').forEach(l => { const hd = l.match(/^\s*\[([^\]]+)\]\s*$/); if (hd) { cur = hd[1].trim().toLocaleUpperCase('tr'); m.set(cur, [l]); } else if (cur) m.get(cur).push(l); });
+      m.forEach(v => { while (v.length > 1 && !v[v.length - 1].trim()) v.pop(); });
+      return m;
+    };
+    const have = blocks(t);
+    blocks(b.rules).forEach((lines, k) => {
+      if (!have.has(k)) { t = t.replace(/\s*$/, '') + '\n\n' + lines.join('\n') + '\n'; return; }
+      const mine = have.get(k).join('\n');
+      const code = have.get(k).slice(1).filter(l => l.trim() && !/^\s*\/\//.test(l)).join('\n');
+      if (OLD_PROBE[k] && OLD_PROBE[k].test(code) && t.includes(mine)) t = t.replace(mine, lines.join('\n'));
+    });
+    if (id === 'variaxis-from-hermle') {
+      if (!/^\s*DIAMOF\s*=/m.test(t)) t = t.replace(/^(\[KOMUTLAR\][^\n]*\n(?:\/\/[^\n]*\n)*)/m, '$1DIAMOF =\n');
+      if (!/should be smaller from tool rad\.\s*=>/.test(t)) t = t.replace(/^(\[METİN\][^\n]*\n(?:\/\/[^\n]*\n)*)/m, '$1-should be smaller from tool rad. =>\n-for Radius measurement =>\n');
+    }
+    return t;
+  }
   Object.keys(store.overrides).forEach(k => {
     store.overrides[k] = upgradeRules(store.overrides[k]);
-    if (k === 'hermle-c52' || k === 'variaxis-from-hermle') store.overrides[k] = addPatternR(store.overrides[k]);
+    if (k === 'hermle-c52' || k === 'variaxis-from-hermle') store.overrides[k] = addNewSections(addPatternR(store.overrides[k]), k);
   });
   store.custom.forEach(p => { p.rules = upgradeRules(p.rules); });
   function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
