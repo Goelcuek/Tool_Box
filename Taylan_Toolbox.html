@@ -7373,7 +7373,7 @@ ${(extra && extra.text) || ''}`;
   }
   const HERMLE_TO_DMG = sieSieRules('Hermle C52', 'DMG duoBLOCK', 'HERMLE', 'TC1', {
     dir: '1',
-    m: '// Hermle\'ye özel kodlar — DMG karşılıklarını yazın\nM25 =\nM27 =\nM51 =\nM52 =\n',
+    m: '// Hermle\'ye özel kodlar: M25 M27 A ve C eksen kilidi açma (DMG\'de gerekmez) · M51 M52\nM25 =\nM27 =\nM51 =\nM52 =\n',
     text: 'HERMLE  VARI-AXIS => DMG DUOBLOCK\n'
   });
   const DMG_TO_HERMLE = sieSieRules('DMG duoBLOCK', 'Hermle C52', 'TC1', 'HERMLE', {
@@ -7605,7 +7605,7 @@ SON = M17
     .replace(/^\/\/ Mazak Variaxis → Hermle C52 \(Siemens 840D sl\)/m, "// Mazak Variaxis → DMG duoBLOCK (Siemens 840D sl)\n// Hermle kurallarından türetildi — DMG'ye özel M kodlarını ve güvenli konum satırlarını kontrol edin")
     .replace('M8 = M8 | M51', 'M8 = M8').replace('M9 = M9 | M52', 'M9 = M9')
     .replace('MAZAK - VARI-AXIS I700-I800 => HERMLE  VARI-AXIS', 'MAZAK - VARI-AXIS I700-I800 => DMG DUOBLOCK')
-    .replace(/^M25 M27$/m, 'SUPA G0 Z0 D0 ;!! KONTROL: DMG başlangıç konumu')
+    .replace(/^(\/\/ İlk takımdan önceki G28 referans bloğunun yerine)\nM25 M27$/m, "$1 · SİL: hiçbir şey yazılmaz\n// M25 M27 (Hermle'de A ve C eksen kilidi açma) DMG'de gerekmez\nSİL")
     .replace('CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)',
       "// DMG'nin 45° kafası düzlemi B/C ile çoğu zaman tam veremez (kalan dönüş AROT ister): düzlem eksen eksen\n// (_MODE) yazılır, B/C'yi kontrol hesaplar; _DIR = 1 pozitif B'yi seçer. Doğrudan mod için: 192 … {EKSEN1},({EKSEN2}+ R20),0\n" +
       'CYCLE800(1,"TC1",100000,{MOD},{X},{Y},{Z},{A},{B},({C}+ R20),0,0,0,1,,100)');
@@ -8370,7 +8370,7 @@ SON = M17
           else { tpl = R.end; kind = 'end'; }
         }
         if (tpl.length) { // an empty template: the lines are converted one by one instead
-          emitTpl(i, tpl, {});
+          if (!(tpl.length === 1 && /^\s*S[İI]L\s*$/i.test(tpl[0]))) emitTpl(i, tpl, {}); // SİL: the block goes, nothing in its place
           if (units.length && kind === 'start') notes.push(`Başlangıç bloğundaki ${units.join(' ')} yazılmadı — makine bu birimde açılmalı.`);
           // what the block left modal on the Mazak
           for (let k = i; k < j; k++) {
