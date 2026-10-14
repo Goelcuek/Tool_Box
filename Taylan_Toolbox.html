@@ -10025,7 +10025,7 @@ SON = M17
     const code = raw.replace(/\([^()]*\)/g, (m, at) => {
       // a comment is a bracket that doesn't follow "=" (E5=(360:20) is an expression)
       const before = raw.slice(0, at).replace(/\s+$/, '');
-      if (/[=(*:+\-<>]$/.test(before)) return m;
+      if (/[=(*:+\-<>\/\\^]$/.test(before) || /[A-Za-z0-9]$/.test(raw.slice(0, at)) && /(Int|Abs|Sqrt|Round|Sin|Cos|Tan|Asin|Acos|Atan|Ceiling|Floor|Max|Min|Not)$/i.test(before)) return m;
       comments.push(m);
       return ' ';
     });
@@ -10038,7 +10038,8 @@ SON = M17
     const lines = text.split(/\r\n|\r|\n/);
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
     const eToR = n => (R.mp.e2r.has(n) ? R.mp.e2r.get(n) : n);
-    const expr = s => String(s).replace(/\bE(\d+)/g, (m, n) => 'R' + eToR(+n)).replace(/:/g, '/');
+    const expr = s => String(s).replace(/\bE(\d+)/g, (m, n) => 'R' + eToR(+n)).replace(/:/g, '/')
+      .replace(/\s*\bMod\b\s*/gi, ' MOD ').replace(/\\/g, ' DIV ').replace(/\bInt\(/gi, 'TRUNC(').replace(/\bAnd\b/gi, 'AND').replace(/\bOr\b/gi, 'OR').replace(/\bNot\b/gi, 'NOT');
     const cond = s => expr(s).replace(/^\((.*)\)$/, '$1').replace(/([^<>=!])=(?!=)/g, '$1==');
     const flags = new Map(), notes = [];
     const flag = (i, f) => { if (!flags.has(i)) flags.set(i, []); flags.get(i).push(f); };
@@ -10191,12 +10192,17 @@ SON = M17
   function sie2mp(res, R, kin, opts) {
     const rToE = n => (R.mp.r2e.has(n) ? R.mp.r2e.get(n) : n);
     const scratch = R.mp.scratch;
+    // MillPlus takes no space inside an expression (E1=(E2+E3)); Mod, And, Or, Not keep theirs
+    const mpOps = t => String(t).replace(/\s+/g, '')
+      .replace(/MOD/gi, ' Mod ').replace(/DIV/gi, '\\').replace(/TRUNC\(/gi, 'Int(').replace(/ROUND\(/gi, 'Round(')
+      .replace(/(^|[^A-Z])AND(?=[^A-Z])/gi, '$1 And ').replace(/(^|[^A-Z])OR(?=[^A-Z])/gi, '$1 Or ').replace(/(^|[^A-Z(])NOT(?=[\s(E\d])/gi, '$1Not ')
+      .replace(/\s+/g, ' ').trim();
     const expr = s => {
-      const t = String(s).trim().replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':');
+      const t = mpOps(String(s).trim().replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':'));
       if (/^\((-?[\d.]+|E\d+)\)$/.test(t)) return t.slice(1, -1);
       return /^-?[\d.]+$|^E\d+$|^\(.*\)$/.test(t) ? t : '(' + t + ')';
     };
-    const cond = s => String(s).trim().replace(/^\((.*)\)$/, '$1').replace(/==/g, '=').replace(/\s*(<>|>=|<=|=|<|>)\s*/g, '$1').replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':');
+    const cond = s => mpOps(String(s).trim().replace(/^\((.*)\)$/, '$1').replace(/==/g, '=').replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':'));
     const mapLines = new Map(R.mp.lines.filter(x => x.sie).map(x => [mpKey(x.sie), x.mp]));
     const lines = sieFlatten(res.lines);
     // labels: named ones (ENDLABEL:) and block numbers that a jump names
@@ -10272,7 +10278,7 @@ SON = M17
       if ((m = code.match(/^R(\d+)\s*=\s*(.+)$/i))) { emit(`E${rToE(+m[1])}=${expr(m[2])}`); continue; }
       if ((m = code.match(/^IF\s+(.+?)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) {
         emit(`G29 N=${mpLabel(labelNo(m[2].toUpperCase())).slice(1)} ${scratch}=(${cond(m[1])}) ${scratch}`,
-          /\b(AND|OR|NOT|XOR|MOD|DIV|TRUNC|ROUND)\b/i.test(m[1]) ? { flag: 'koşulda MillPlus\'ta olmayabilecek işlem (MOD, AND, NOT …) — kontrol edin' } : null);
+          /\bXOR\b/i.test(m[1]) ? { flag: 'XOR MillPlus\'ta yok — koşulu yeniden yazın' } : null);
         continue;
       }
       if ((m = code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) { emit(`G29 N=${mpLabel(labelNo(m[1].toUpperCase())).slice(1)}`); continue; }
