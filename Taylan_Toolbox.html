@@ -7145,7 +7145,7 @@ MSG (" *** {N}. DELIK *** ")
 [EĞİK DÜZLEM]
 // G68.2 (+ G53.1) — {X} {Y} {Z}: düzlem sıfırı · {I} {J} {K}: G68.2 açıları olduğu gibi
 // {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni (CYCLE800 doğrudan mod, 192)
-// {MOD} {A} {B} {C}: eksen eksen dönüş — CYCLE800 _MODE ve X, Y, Z etrafındaki açılar
+// {MOD} {A} {B} {C}: eksen eksen dönüş — CYCLE800 _MODE ve _MODE sırasıyla 1., 2., 3. dönüşün açısı (27: Z, Y, X)
 // G68.2 P1 (roll-pitch-yaw) ve P'siz G68.2 (Euler) ikisi de okunur. Aynı düzlem art arda gelirse tekrar yazılmaz.
 R20 = 0
 CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)
@@ -7550,7 +7550,7 @@ SUPA G0 X0 Y0 ;!! KONTROL: park konumu
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 
 [EĞİK DÜZLEM]
-// G68.2 (+ G53.1) → CYCLE800 eksen eksen: {MOD}: dönüş sırası (_MODE) · {A} {B} {C}: X, Y, Z etrafındaki açılar
+// G68.2 (+ G53.1) → CYCLE800 eksen eksen: {MOD}: dönüş sırası (_MODE) · {A} {B} {C}: o sırayla 1., 2., 3. dönüşün açısı (27: Z, Y, X)
 // {X} {Y} {Z}: düzlem sıfırı · doğrudan mod için {EKSEN1} {EKSEN2} (hedef makinenin 1. ve 2. döner ekseni)
 CYCLE800(1,"",0,{MOD},{X},{Y},{Z},{A},{B},{C},0,0,0,-1) ;!! KONTROL: döner eksen veri kaydı adı (_TC)
 
@@ -7608,7 +7608,7 @@ SON = M17
     .replace(/^(\/\/ İlk takımdan önceki G28 referans bloğunun yerine)\nM25 M27$/m, "$1 · SİL: hiçbir şey yazılmaz\n// M25 M27 (Hermle'de A ve C eksen kilidi açma) DMG'de gerekmez\nSİL")
     .replace('CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)',
       "// DMG'nin 45° kafası düzlemi B/C ile çoğu zaman tam veremez (kalan dönüş AROT ister): düzlem eksen eksen\n// (_MODE) yazılır, B/C'yi kontrol hesaplar; _DIR = 1 pozitif B'yi seçer. Doğrudan mod için: 192 … {EKSEN1},({EKSEN2}+ R20),0\n" +
-      'CYCLE800(1,"TC1",100000,{MOD},{X},{Y},{Z},{A},{B},({C}+ R20),0,0,0,1,,100)');
+      'CYCLE800(1,"TC1",100000,{MOD},{X},{Y},{Z},({A}+ R20),{B},{C},0,0,0,1,,100)');
   const DMG_TO_VARIAXIS = HERMLE_TO_VARIAXIS
     .replace(/^\/\/ Hermle C52 \(Siemens 840D sl\) → Mazak Variaxis/m, '// DMG duoBLOCK (Siemens 840D sl) → Mazak Variaxis')
     .replace('HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800', 'DMG DUOBLOCK => MAZAK - VARI-AXIS I700-I800');
@@ -8034,7 +8034,7 @@ SON = M17
     let m = null, lin = null, axis = null;
     if (P === 0) { // Euler: Z, new X, new Z
       m = turns([['Z', I], ['X', J], ['Z', K]]);
-      if (z(K)) axis = { MOD: modeOfSeq(['Z', 'X', 'Y']), A: J, B: 0, C: I };
+      if (z(K)) axis = { MOD: modeOfSeq(['Z', 'X', 'Y']), A: I, B: J, C: 0 };
       if (std && std.tilt === 'X' && z(K)) lin = { t: J, c: I };
       if (std && std.tilt === 'Y' && z(K + 90)) lin = { t: J, c: I - 90 };
     } else if (P === 1) { // roll-pitch-yaw: I, J, K about the fixed axes in the Q order
@@ -8044,7 +8044,7 @@ SON = M17
       const by = {};
       by[order[0]] = I; by[order[1]] = J; by[order[2]] = K;
       m = turns([[order[2], K], [order[1], J], [order[0], I]]);
-      axis = { MOD: modeOfSeq([order[2], order[1], order[0]]), A: by.X, B: by.Y, C: by.Z };
+      axis = { MOD: modeOfSeq([order[2], order[1], order[0]]), A: by[order[2]], B: by[order[1]], C: by[order[0]] };
       if (std) {
         const tAx = std.tilt, other = tAx === 'X' ? 'Y' : 'X';
         if (z(by[other]) && inOrder([tAx, 'Z'].filter(a => !z(by[a])), order)) lin = { t: by[tAx], c: by.Z };
@@ -8058,7 +8058,7 @@ SON = M17
       const r = kinSolve(kin, m);
       if (r) { pos = r.vals; rest = r.rest; } else flags.push(`makine (${kin.label}) bu düzlemi veremiyor`);
     }
-    if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.X, B: a.Y, C: a.Z }; }
+    if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.Z, B: a.Y, C: a.X }; }
     const vals = {};
     if (pos) kin.axes.forEach((a, k) => { if (k < 2 && pos[a.name] != null) vals['EKSEN' + (k + 1)] = fmt(pos[a.name]); });
     if (axis) { vals.MOD = String(axis.MOD); vals.A = fmt(axis.A); vals.B = fmt(axis.B); vals.C = fmt(axis.C); }
@@ -8079,10 +8079,10 @@ SON = M17
     let t = null, c = null;
     if (P === 1) {
       if (std) { const other = std.tilt === 'X' ? 'J' : 'I'; if (lit(other) === 0) { t = std.tilt === 'X' ? vals.I : vals.J; c = vals.K; } }
-      Object.assign(vals, { MOD: '27', A: vals.I, B: vals.J, C: vals.K });
+      Object.assign(vals, { MOD: '27', A: vals.K, B: vals.J, C: vals.I }); // Z → Y → X
     } else if (P === 0) {
       if (std && std.tilt === 'X' && lit('K') === 0) { t = vals.J; c = vals.I; }
-      if (lit('K') === 0) Object.assign(vals, { MOD: '39', A: vals.J, B: '0', C: vals.I });
+      if (lit('K') === 0) Object.assign(vals, { MOD: '39', A: vals.I, B: vals.J, C: '0' }); // Z → X → Y
     } else return null;
     let rest = 0;
     if (t != null) {
@@ -8288,8 +8288,8 @@ SON = M17
     // a plane written axis by axis (_MODE): the target machine's own axis positions as a comment, for reference
     const axisNote = (from, pv, kin, tpl) => {
       if (!SIE || tpl.some(l => /\{EKSEN[12]\}/.test(l)) || pv.EKSEN1 == null) return;
-      // ({C}+ R20) in the template: the pattern turn is the Z table's
-      const pat = tpl.map(l => l.match(/\(\{C\}\s*\+\s*(R\d+)\)/)).find(Boolean), zt = zTop(kin);
+      // ({A}+ R20) in the template: the pattern turn is the Z table's
+      const pat = tpl.map(l => l.match(/\(\{[ABC]\}\s*\+\s*(R\d+)\)/)).find(Boolean), zt = zTop(kin);
       const txt = kin.axes.slice(0, 2).map((a, k) => {
         const v = pv['EKSEN' + (k + 1)];
         if (v == null) return '';
@@ -9274,12 +9274,14 @@ SON = M17
         const seq = seqOfMode(mode & 63);
         if (seq.some(x => !x) || new Set(seq).size !== 3) flags.push(`CYCLE800 _MODE ${mode}: eksen sırası okunamadı`);
         else {
-          const by = { X: A, Y: B, Z: C };
+          // _A _B _C are the 1st, 2nd and 3rd turn in the _MODE order (27: _A about Z, _B about Y, _C about X)
+          const by = {};
+          seq.forEach((ax, k) => { by[ax] = [A, B, C][k]; });
           const live = seq.filter(ax => !angZ(by[ax]));
           if (num([A, B, C])) m = turns(seq.map(ax => [ax, by[ax].v]));
-          if (rpy && inOrder(live, ['Z', 'Y', 'X'])) res = { I: A, J: B, K: C };
-          else if (!rpy && inOrder(live, ['Z', 'X'])) res = { I: C, J: A, K: Z0 };
-          else if (!rpy && inOrder(live, ['X', 'Z'])) res = { I: Z0, J: A, K: C };
+          if (rpy && inOrder(live, ['Z', 'Y', 'X'])) res = { I: by.X, J: by.Y, K: by.Z };
+          else if (!rpy && inOrder(live, ['Z', 'X'])) res = { I: by.Z, J: by.X, K: Z0 };
+          else if (!rpy && inOrder(live, ['X', 'Z'])) res = { I: Z0, J: by.X, K: by.Z };
         }
       } else if (kind === 0x40) { // solid angle: about Z by _A, then about the new Y by _B
         flags.push('CYCLE800 uzay açısı (64) — açıları kontrol edin');
@@ -9848,7 +9850,7 @@ SON = M17
         Object.keys(slot).forEach(k => { pos[k] = zs && k === zs.name && zExpr ? 0 : parseFloat(slot[k]); });
         const g = anglesZYX(kinFrame(srcKin, pos));
         args[3] = String(modeOfSeq(['Z', 'Y', 'X']));
-        args[7] = fmt(g.X); args[8] = fmt(g.Y); args[9] = plus(g.Z, zs ? zs.s : 1);
+        args[7] = plus(g.Z, zs ? zs.s : 1); args[8] = fmt(g.Y); args[9] = fmt(g.X); // Z → Y → X: _A, _B, _C
         note = tgtKin.axes.slice(0, 2).map(a => a.name + axisVal(a)).join(' ');
         flags.push(`hedef makine (${tgtKin.label}) bu düzlemi eksen konumlarıyla tam veremiyor — düzlem eksen eksen (_MODE ${args[3]}) yazıldı, eksenleri kontrol hesaplar`);
       }
@@ -10089,7 +10091,9 @@ SON = M17
   const upgradeRules = t => String(t)
     .replace(/CYCLE800\(1,"HERMLE",100000,192,\{X\},\{Y\},\{Z\},\{I\},\(\{J\}\+ R20\),\{K\},/g, 'CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,')
     .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}')
-    .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni');
+    .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni')
+    // {A} {B} {C} are CYCLE800's slots in _MODE order now (27: Z first): the pattern turn rides on {A}
+    .replace(/\{A\},\{B\},\(\{C\}\+ (R\d+)\)/g, '({A}+ $1),{B},{C}');
   // kinematics moved from the rules to the machines: the section is taken out of saved rules
   const KIN_SECTION = /^\[KİNEMATİK\][^\n]*\n(?:(?!\[)[^\n]*\n?)*/m;
   const stripKin = t => String(t).replace(new RegExp(KIN_SECTION.source, 'gm'), '');
