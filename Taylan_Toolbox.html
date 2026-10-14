@@ -2384,6 +2384,8 @@
               <select id="tgtMachSel7" class="select-field"></select>
             </div>
             <button class="btn secondary" id="swapBtn7" title="Kaynak ile hedefi değiştir">⇄</button>
+            <button class="btn secondary" id="newMachineTopBtn7" title="Düzenleyicide seçili makinenin kontrolü ve kinematiği kopyalanır">+ Yeni Makine</button>
+            <button class="btn secondary" id="machImportTopBtn7" title="Dışa aktarılmış bir makine dosyasını (.makine.json) ekler">Makine İçe Aktar</button>
           </div>
           <div class="controls-row" style="flex-wrap:wrap;">
             <label class="checkbox-field"><input type="checkbox" id="renumChk7" checked> 10'ar yeniden numarala</label>
@@ -10938,7 +10940,7 @@ SON = M17
   }
   newMachineBtn7.addEventListener('click', () => {
     const cur = machineById(machEditSel7.value);
-    const name = (prompt('Yeni makinenin adı (seçili makinenin kontrolü ve kinematiği kopyalanır):', cur ? cur.name + ' kopyası' : 'Yeni makine') || '').trim();
+    const name = (prompt(cur ? `Yeni makinenin adı — "${cur.name}" makinesinin kontrolü, kinematiği ve kuralları kopyalanır:` : 'Yeni makinenin adı:', cur ? cur.name + ' kopyası' : 'Yeni makine') || '').trim();
     if (!name) return;
     const m = addMachine(name, cur ? cur.control : 'mazak', cur ? machText7.value : PC.BLANK_MACHINE_DEF);
     if (cur) copyPairs(cur, m);
@@ -11003,6 +11005,9 @@ SON = M17
     return true;
   }
   machImportBtn7.addEventListener('click', () => machImportInput7.click());
+  // the same two, next to the machine pickers
+  $('newMachineTopBtn7').addEventListener('click', () => newMachineBtn7.click());
+  $('machImportTopBtn7').addEventListener('click', () => machImportInput7.click());
   machImportInput7.addEventListener('change', async () => {
     const data = await readJson(machImportInput7);
     if (!data) return;
@@ -11012,6 +11017,7 @@ SON = M17
       store.selected.edit = m.id;
       fillMachineSelects();
       machEditSel7.value = m.id; showMachineEditor();
+      $('machBox7').open = true;
     } else if (!(data.format === 'toolbox-makine' && importOldRules(data))) { alert('Bu bir makine dosyası değil.'); return; }
     if (result) run();
   });
