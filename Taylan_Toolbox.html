@@ -2347,7 +2347,7 @@
       <div class="tool-view" id="tool-convert" style="display:none">
         <header class="tool-header">
           <h1>Program Dönüştürücü (WIP)</h1>
-          <div class="subtitle">Kaynak kontrol, hedef kontrol ve makine seçin. Çevrilemeyen satırlar programda kalır ve <code>!! KONTROL</code> ile işaretlenir.</div>
+          <div class="subtitle">Kaynak ve hedef makineyi seçin; kontrol ve kinematik makineden gelir. Çevrilemeyen satırlar programda kalır ve <code>!! KONTROL</code> ile işaretlenir.</div>
         </header>
 
         <!-- Step 1: files -->
@@ -2370,26 +2370,20 @@
           <div class="file-list" id="fileList7"></div>
         </div>
 
-        <!-- Step 2: what to convert to, and for which machine -->
+        <!-- Step 2: from which machine to which -->
         <div class="panel">
           <div class="col-label">2. Dönüşüm</div>
           <div class="controls-row" style="margin-top:0; flex-wrap:wrap;">
             <div class="field">
-              <label>Kaynak kontrol</label>
-              <select id="srcSel7" class="select-field"></select>
+              <label>Kaynak makine</label>
+              <select id="srcMachSel7" class="select-field"></select>
             </div>
             <div class="conv-arrow">→</div>
             <div class="field">
-              <label>Hedef kontrol</label>
-              <select id="tgtSel7" class="select-field"></select>
+              <label>Hedef makine</label>
+              <select id="tgtMachSel7" class="select-field"></select>
             </div>
-            <div class="field">
-              <label>Makine</label>
-              <select id="machineSel7" class="select-field"></select>
-            </div>
-            <button class="btn secondary" id="newMachineBtn7">Yeni Makine</button>
-            <button class="btn secondary" id="renameMachineBtn7">Adını Değiştir</button>
-            <button class="btn secondary" id="deleteMachineBtn7">Sil</button>
+            <button class="btn secondary" id="swapBtn7" title="Kaynak ile hedefi değiştir">⇄</button>
           </div>
           <div class="controls-row" style="flex-wrap:wrap;">
             <label class="checkbox-field"><input type="checkbox" id="renumChk7" checked> 10'ar yeniden numarala</label>
@@ -2398,8 +2392,31 @@
             <div class="spacer"></div>
             <button class="btn" id="convertBtn7">Dönüştür</button>
           </div>
+          <details class="rules-box" id="machBox7">
+            <summary>Makineler ve kinematik — <span id="machFor7"></span> <span class="rules-state" id="machState7"></span></summary>
+            <div class="controls-row" style="margin-top:10px; flex-wrap:wrap;">
+              <div class="field">
+                <label>Makine</label>
+                <select id="machEditSel7" class="select-field"></select>
+              </div>
+              <div class="field">
+                <label>Kontrol</label>
+                <select id="machCtlSel7" class="select-field"></select>
+              </div>
+              <button class="btn secondary" id="newMachineBtn7">Yeni Makine</button>
+              <button class="btn secondary" id="renameMachineBtn7">Adını Değiştir</button>
+              <button class="btn secondary" id="deleteMachineBtn7">Sil</button>
+            </div>
+            <textarea id="machText7" spellcheck="false" style="height:250px;"></textarea>
+            <div class="controls-row" style="margin-top:10px; flex-wrap:wrap;">
+              <button class="btn secondary" id="machResetBtn7">Varsayılana Dön</button>
+              <button class="btn secondary" id="machExportBtn7">Dışa Aktar</button>
+              <button class="btn secondary" id="machImportBtn7">İçe Aktar</button>
+              <input type="file" id="machImportInput7" accept=".json,application/json" hidden>
+            </div>
+          </details>
           <details class="rules-box" id="rulesBox7">
-            <summary>Makine kuralları ve şablonlar — <span id="rulesFor7"></span> <span class="rules-state" id="rulesState7"></span></summary>
+            <summary>Dönüşüm kuralları ve şablonlar — <span id="rulesFor7"></span> <span class="rules-state" id="rulesState7"></span></summary>
             <textarea id="rulesText7" spellcheck="false"></textarea>
             <div class="controls-row" style="margin-top:10px; flex-wrap:wrap;">
               <button class="btn secondary" id="rulesResetBtn7">Varsayılana Dön</button>
@@ -7125,18 +7142,9 @@ IPTAL
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 MSG (" *** {N}. DELIK *** ")
 
-[KİNEMATİK]
-// Hermle C52: A devirme (X etrafında) + C tabla. Y etrafında devirmeli (B) makinede EKSENLER = B C.
-// G68.2 açıları CYCLE800 doğrudan mod (192) eksen konumlarına bununla çevrilir.
-// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
-EKSENLER = A C
-YÖN A = 1
-YÖN C = 1
-TERCİH = -
-
 [EĞİK DÜZLEM]
 // G68.2 (+ G53.1) — {X} {Y} {Z}: düzlem sıfırı · {I} {J} {K}: G68.2 açıları olduğu gibi
-// {EKSEN1} {EKSEN2}: KİNEMATİK'e göre A ve C konumu (CYCLE800 doğrudan mod, 192)
+// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni (CYCLE800 doğrudan mod, 192)
 // {MOD} {A} {B} {C}: eksen eksen dönüş — CYCLE800 _MODE ve X, Y, Z etrafındaki açılar
 // G68.2 P1 (roll-pitch-yaw) ve P'siz G68.2 (Euler) ikisi de okunur. Aynı düzlem art arda gelirse tekrar yazılmaz.
 R20 = 0
@@ -7274,15 +7282,6 @@ TK1346_SPOTDRILL = 3
 G91 G28 Z0.
 G90
 
-[KİNEMATİK]
-// Hermle C52: A devirme (X etrafında) + C tabla — CYCLE800 doğrudan modda (192) 1. değer A, 2. değer C.
-// Y etrafında devirmeli (B) makinede EKSENLER = B C. G68.2 açıları bununla hesaplanır.
-// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
-EKSENLER = A C
-YÖN A = 1
-YÖN C = 1
-TERCİH = -
-
 [EĞİK DÜZLEM GERİ ÇEKME]
 // CYCLE800'de geri çekme varsa (_FR 1, 2, 4, 5) düzlemden önce yazılır
 G91 G28 Z0.
@@ -7383,15 +7382,6 @@ T{T} M6${mazak ? '' : '\nG43 H{T}'}
 // G75 (sabit nokta) satırının yerine
 G91 G28 Z0
 G90
-
-[KİNEMATİK]
-// Döner eksenler (CYCLE800 doğrudan mod için): devirme ekseni (A: X etrafında, B: Y etrafında) ve üstündeki C tablası.
-// G68.2 açıları ile CYCLE800 doğrudan mod (192) eksen konumları bununla çevrilir.
-// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
-EKSENLER = A C
-YÖN A = 1
-YÖN C = 1
-TERCİH = -
 
 [EĞİK DÜZLEM GERİ ÇEKME]
 // CYCLE800'de geri çekme varsa (_FR 1, 2, 4, 5) düzlemden önce yazılır
@@ -7521,18 +7511,9 @@ SUPA G0 X0 Y0 ;!! KONTROL: park konumu
 [DELİK MESAJI]
 // Her dalıştan önce yazılır — {N}: delik sırası. Boş bırakılırsa yazılmaz.
 
-[KİNEMATİK]
-// Döner eksenler (yalnız {EKSEN1} {EKSEN2} için): devirme ekseni (A: X etrafında, B: Y etrafında) ve üstündeki C tablası.
-// G68.2 açıları ile CYCLE800 doğrudan mod (192) eksen konumları bununla çevrilir.
-// YÖN: eksen ISO yönünün tersine dönüyorsa -1 · TERCİH: iki çözümden devirme ekseninin işareti
-EKSENLER = A C
-YÖN A = 1
-YÖN C = 1
-TERCİH = -
-
 [EĞİK DÜZLEM]
 // G68.2 (+ G53.1) → CYCLE800 eksen eksen: {MOD}: dönüş sırası (_MODE) · {A} {B} {C}: X, Y, Z etrafındaki açılar
-// {X} {Y} {Z}: düzlem sıfırı · doğrudan mod için {EKSEN1} {EKSEN2} (KİNEMATİK'e göre döner eksen konumu)
+// {X} {Y} {Z}: düzlem sıfırı · doğrudan mod için {EKSEN1} {EKSEN2} (hedef makinenin 1. ve 2. döner ekseni)
 CYCLE800(1,"",0,{MOD},{X},{Y},{Z},{A},{B},{C},0,0,0,-1) ;!! KONTROL: döner eksen veri kaydı adı (_TC)
 
 [EĞİK DÜZLEM İPTALİ]
@@ -7549,13 +7530,52 @@ SON = M17
 
   // Machines that come with the tool. Edits to them are kept as overrides;
   // "Varsayılana Dön" brings these back.
+  /* ---------- machines ----------
+     A machine is a control plus its own kinematics. A conversion goes from one
+     machine to another; its rules (M codes, probe macros, templates …) belong to
+     that pair. A pair with no rules of its own starts from the generic ones of
+     its two controls. */
+  const CONTROLS = [
+    { id: 'mazak', name: 'Mazak EIA/ISO', source: 'mazak', target: 'mazak' },
+    { id: 'fanuc', name: 'Fanuc / Haas ISO', source: 'fanuc', target: 'iso' },
+    { id: 'siemens840d', name: 'Siemens 840D', source: 'siemens840d', target: 'siemens840d' }
+  ];
+  const KIN_HELP = `[KİNEMATİK]
+// Döner eksenler, makinenin saydığı sırayla (1. eksen, 2. eksen):  harf = i j k  MASA ya da KAFA
+//   i j k: eksenin yönü. Pozitif komut, takımı parçaya göre bu yön etrafında sağ el kuralıyla döndürür (ISO);
+//   ters dönen eksende eksi yazın (A = -1 0 0 MASA). 45° eğik kafa örneği: B = 0 -0.7071 0.7071 KAFA
+//   MASA: parçayı taşır · KAFA: takımı taşır · iki masa ekseninde önce alttaki (devirme), sonra üstündeki
+//   Örnekler — A/C tabla: A = 1 0 0 MASA, C = 0 0 1 MASA · B kafa + C tabla: B = 0 1 0 KAFA, C = 0 0 1 MASA
+// SINIR: eksenin gidebildiği aralık (iki çözümden uygun olan seçilir) · TERCİH: devirme ekseninin işareti (- / +)
+`;
+  const machineDef = (title, axes) => `// ${title}\n${KIN_HELP}${axes}\n`;
+  const MACHINES = [
+    { id: 'm-variaxis', name: 'Mazak Variaxis i700 / i800', control: 'mazak', def: machineDef('Mazak Variaxis i700 / i800 — A devirme (X etrafında) + C döner tabla', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -120 30\nTERCİH = -') },
+    { id: 'm-hermle-c52', name: 'Hermle C52', control: 'siemens840d', def: machineDef('Hermle C52 — A devirme (X etrafında) + C döner tabla · CYCLE800 doğrudan modda 1. değer A, 2. değer C', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -130 100\nTERCİH = -') },
+    { id: 'm-genel-mazak', name: 'Genel Mazak', control: 'mazak', def: machineDef('Genel Mazak makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
+    { id: 'm-genel-fanuc', name: 'Genel Fanuc / Haas', control: 'fanuc', def: machineDef('Genel Fanuc / Haas makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
+    { id: 'm-genel-siemens', name: 'Genel Siemens 840D', control: 'siemens840d', def: machineDef('Genel Siemens 840D makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') }
+  ];
+  const machineKin = def => parseRules(def || '').kin;
+  const controlOf = id => CONTROLS.find(c => c.id === id) || CONTROLS[0];
+  // can these two machines be converted? (840D → 840D is not there yet)
+  const machineRoute = (srcCtl, tgtCtl) => routeOf(controlOf(srcCtl).source, controlOf(tgtCtl).target);
+
   const PROFILES = [
-    { id: 'hermle-c52', name: 'Hermle C52', source: 'mazak', target: 'siemens840d', rules: DEFAULT_RULES },
-    { id: 'variaxis-from-hermle', name: 'Mazak Variaxis (Hermle C52 programlarından)', source: 'siemens840d', target: 'mazak', rules: HERMLE_TO_VARIAXIS }
+    { id: 'hermle-c52', name: 'Mazak Variaxis i700 / i800 → Hermle C52', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-hermle-c52', rules: DEFAULT_RULES },
+    { id: 'variaxis-from-hermle', name: 'Hermle C52 → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-hermle-c52', tgt: 'm-variaxis', rules: HERMLE_TO_VARIAXIS }
   ];
   SOURCES.forEach(sr => targetsFor(sr.id).forEach(tg => PROFILES.push({
     id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
   })));
+
+  // the built-in rules of a machine pair, or the generic ones of its controls
+  function pairRules(srcMachine, tgtMachine) {
+    const own = PROFILES.find(p => p.src && p.src === srcMachine.id && p.tgt === tgtMachine.id);
+    if (own) return { id: own.id, rules: own.rules, builtin: true };
+    const s = controlOf(srcMachine.control), t = controlOf(tgtMachine.control);
+    return { id: null, rules: genericRules(s.source, t.target), builtin: false };
+  }
 
   /* ---------- rules ---------- */
   function sectionKey(s) {
@@ -7627,16 +7647,8 @@ SON = M17
       r = l.match(/^\s*R(\d+)\s*=\s*#?(\d+)\s*$/i);
       if (r) rmap.set(parseInt(r[1], 10), parseInt(r[2], 10));
     });
-    // [KİNEMATİK] EKSENLER = A C · YÖN A = -1 · TERCİH = -
-    const kin = { tilt: 'A', sign: { A: 1, B: 1, C: 1 }, prefer: -1 };
-    (sections['KINEMATIK'] || []).forEach(l => {
-      const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
-      if (!r) return;
-      const k = sectionKey(r[1]), v = r[2].trim().toUpperCase();
-      if (k === 'EKSENLER') { const t = v.match(/[AB]/); if (t) kin.tilt = t[0]; }
-      else if (/^YON [ABC]$/.test(k)) kin.sign[k.slice(-1)] = parseFloat(v) < 0 ? -1 : 1;
-      else if (k === 'TERCIH') kin.prefer = /^[+]|^ART|^POZ/.test(v) ? 1 : -1;
-    });
+    // the first versions kept the kinematics in the rules; a machine's own now wins (convertSet)
+    const kin = parseKin(sections['KINEMATIK']);
     const sub = { file: 'L{P}.SPF', call: 'L{P} P{L}', end: 'M17' };
     (sections['ALT PROGRAM'] || []).forEach(l => {
       const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
@@ -7769,20 +7781,168 @@ SON = M17
   const seqOfMode = mode => [mode & 3, (mode >> 2) & 3, (mode >> 4) & 3].map(k => [null, 'X', 'Y', 'Z'][k]);
   const modeOfSeq = seq => seq.reduce((m, ax, k) => m + { X: 1, Y: 2, Z: 3 }[ax] * Math.pow(4, k), 0);
   const inOrder = (live, order) => { let k = 0; return live.every(ax => { while (k < order.length && order[k] !== ax) k++; return k++ < order.length; }); };
-  // the machine's rotary positions for a plane: tilt (A about X or B about Y), then C on the table;
-  // rest: turn left over about the plane's Z (0 when the machine shows the plane as it is)
-  function machineAxes(m, kin) {
+  /* ---------- machine kinematics ----------
+     A machine's rotary axes as it numbers them (1st, 2nd), each with its direction
+     vector and whether it carries the part or the tool:   A = 1 0 0 MASA
+     A positive command turns the tool relative to the part right-handed about the
+     vector (ISO), table axes and head axes alike, so from the part to the tool the
+     chain is: the table axes from the one under the part down (the reverse of the
+     listing), then the head axes in the listing order. The tool points +Z at home.
+     A plane is then M = R(axis 1 of the chain)·R(axis 2)…, and turning M back into
+     axis positions works for any two vectors, not only A/C or B/C. */
+  const EZ = [0, 0, 1];
+  const vdot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  function rodrigues(v, d) {
+    const c = Math.cos(d * DEG), s = Math.sin(d * DEG), t = 1 - c, [x, y, z] = v;
+    return [[c + x * x * t, x * y * t - z * s, x * z * t + y * s],
+            [y * x * t + z * s, c + y * y * t, y * z * t - x * s],
+            [z * x * t - y * s, z * y * t + x * s, c + z * z * t]];
+  }
+  const KIN_DEFAULT = ['A = 1 0 0 MASA', 'C = 0 0 1 MASA'];
+  function parseKin(lines) {
+    const axes = [], lim = {};
+    let prefer = -1, legacy = null;
+    (lines || []).forEach(l => {
+      const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
+      if (!r) return;
+      const k = sectionKey(r[1]), v = r[2].trim().toUpperCase();
+      let m;
+      const vm = v.match(/^(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+(-?[\d.]+)\s*(MASA|KAFA|TABLA|TABLE|HEAD)?/);
+      if (/^[A-Z]$/.test(k) && vm) {
+        const vec = [vm[1], vm[2], vm[3]].map(Number), len = Math.hypot(...vec);
+        if (len > 1e-9) axes.push({ name: k, v: vec.map(x => x / len), table: !/KAFA|HEAD/.test(vm[4] || 'MASA') });
+      } else if ((m = k.match(/^([A-Z]) SINIR$/))) {
+        const n = v.match(/-?[\d.]+/g);
+        if (n && n.length >= 2) lim[m[1]] = [Math.min(+n[0], +n[1]), Math.max(+n[0], +n[1])];
+      } else if (k === 'TERCIH') prefer = /^[+]|^ART|^POZ/.test(v) ? 1 : -1;
+      // the first form: EKSENLER = A C · YÖN A = -1
+      else if (k === 'EKSENLER') { legacy = legacy || { sign: {} }; const t = v.match(/[AB]/); legacy.tilt = t ? t[0] : 'A'; }
+      else if ((m = k.match(/^YON ([ABC])$/))) { legacy = legacy || { sign: {} }; legacy.sign[m[1]] = parseFloat(v) < 0 ? -1 : 1; }
+    });
+    if (!axes.length) {
+      const t = (legacy && legacy.tilt) || 'A', sg = l => (legacy && legacy.sign[l]) || 1;
+      axes.push({ name: t, v: t === 'A' ? [sg('A'), 0, 0] : [0, sg('B'), 0], table: true }, { name: 'C', v: [0, 0, sg('C')], table: true });
+    }
+    axes.forEach(a => { a.lim = lim[a.name] || null; });
+    const chain = axes.filter(a => a.table).reverse().concat(axes.filter(a => !a.table));
+    // two axes, the one under the part along Z and the other along X or Y: the angle
+    // formulas are plain sums, so expressions (R20, #999) can pass through them
+    let std = null;
+    const unit = (v, i) => Math.abs(Math.abs(v[i]) - 1) < 1e-9;
+    if (chain.length === 2 && unit(chain[0].v, 2) && (unit(chain[1].v, 0) || unit(chain[1].v, 1))) {
+      const tAx = unit(chain[1].v, 0) ? 'X' : 'Y';
+      std = { tilt: tAx, st: Math.sign(chain[1].v[tAx === 'X' ? 0 : 1]), sc: Math.sign(chain[0].v[2]), tName: chain[1].name, cName: chain[0].name };
+    }
+    return { axes, chain, prefer, std, label: axes.map(a => a.name).join('/') };
+  }
+  // same machine geometry? 'same', 'rename' (same axes, other letters) or 'diff'
+  function kinCompare(a, b) {
+    if (a.chain.length !== b.chain.length) return 'diff';
+    const geo = a.chain.every((x, k) => x.table === b.chain[k].table && x.v.every((c, i) => Math.abs(c - b.chain[k].v[i]) < 1e-9));
+    if (!geo) return 'diff';
+    return a.chain.every((x, k) => x.name === b.chain[k].name) ? 'same' : 'rename';
+  }
+  const kinFrame = (kin, vals) => kin.chain.reduce((m, ax) => mmul(m, rodrigues(ax.v, vals[ax.name] || 0)), I3);
+  // the turn about v that brings u onto w (both seen in the plane normal to v); null when either lies along v
+  function turnAbout(v, u, w) {
+    const up = u.map((x, k) => x - v[k] * vdot(u, v)), wp = w.map((x, k) => x - v[k] * vdot(w, v));
+    if (Math.hypot(...up) < 1e-9 || Math.hypot(...wp) < 1e-9) return null;
+    return atan2d(vdot(v, vcross(up, wp)), vdot(up, wp));
+  }
+  // every set of axis positions that points the tool along n (two for a two-axis machine);
+  // an axis whose value doesn't matter (tool along it) comes back null
+  function kinDirSolutions(kin, n) {
+    const ch = kin.chain;
+    if (ch.length === 1) {
+      const v = ch[0].v;
+      if (Math.abs(vdot(v, EZ) - vdot(v, n)) > 1e-6) return [];
+      return [{ [ch[0].name]: turnAbout(v, EZ, n) }];
+    }
+    if (ch.length !== 2) return [];
+    const [a1, a2] = ch, v1 = a1.v, v2 = a2.v;
+    // u = R2(θ)·ez has to keep n's height along v1:  P·cosθ + Q·sinθ + K = n·v1
+    const k = v2.map(x => x * vdot(v2, EZ)), p = EZ.map((x, i) => x - k[i]), q = vcross(v2, EZ);
+    const P = vdot(p, v1), Q = vdot(q, v1), K = vdot(k, v1), target = vdot(n, v1), Rr = Math.hypot(P, Q);
+    let th2;
+    if (Rr < 1e-12) { if (Math.abs(K - target) > 1e-6) return []; th2 = [0]; }
+    else {
+      const cv = (target - K) / Rr;
+      if (cv > 1 + 1e-7 || cv < -1 - 1e-7) return [];
+      const phi = Math.atan2(Q, P), del = Math.acos(clamp1(cv));
+      th2 = [phi + del, phi - del].map(x => x / DEG);
+    }
+    return th2.map(t2 => ({ [a1.name]: turnAbout(v1, mvec(rodrigues(v2, t2), EZ), n), [a2.name]: t2 }));
+  }
+  const angDiff = (a, b) => { const d = ((a - b) % 360 + 540) % 360 - 180; return d; };
+  // positions as the machine writes them: next to the last ones when there are any, a table
+  // axis along Z in 0…360, the others in -180…180; null when outside an axis' limits
+  function kinNorm(kin, sol, prev) {
+    const out = {};
+    for (const ax of kin.axes) {
+      let a = sol[ax.name] == null ? (prev && prev[ax.name] != null ? prev[ax.name] : 0) : sol[ax.name];
+      const along = Math.abs(Math.abs(ax.v[2]) - 1) < 1e-9;
+      if (prev && prev[ax.name] != null) a = prev[ax.name] + angDiff(a, prev[ax.name]);
+      else a = along ? norm360(a) : -angDiff(0, a);
+      if (ax.lim) {
+        const c = [a, a - 360, a + 360].find(x => x >= ax.lim[0] - 1e-6 && x <= ax.lim[1] + 1e-6);
+        if (c == null) return null;
+        a = c;
+      }
+      out[ax.name] = Math.abs(a) < 5e-10 ? 0 : a;
+    }
+    return out;
+  }
+  function kinPick(kin, sols, prev) {
+    const ok = sols.map(s => kinNorm(kin, s, prev)).filter(Boolean);
+    if (!ok.length) return null;
+    const tilt = (kin.axes.find(a => Math.abs(Math.abs(a.v[2]) - 1) > 1e-9) || kin.axes[0]).name;
+    const dist = s => kin.axes.reduce((d, a) => d + Math.abs(s[a.name] - ((prev && prev[a.name]) || 0)), 0);
+    const pref = s => (Math.abs(s[tilt]) < 1e-9 || Math.sign(s[tilt]) === kin.prefer ? 0 : 1);
+    ok.sort((x, y) => (prev ? dist(x) - dist(y) : pref(x) - pref(y) || Math.abs(x[tilt]) - Math.abs(y[tilt])));
+    return ok[0];
+  }
+  // axis positions for a plane M; rest: the turn about the tool the machine can't show (0 when it can)
+  function kinSolve(kin, m, prev) {
     const n = [m[0][2], m[1][2], m[2][2]];
-    let t = Math.acos(clamp1(n[2])) / DEG * kin.prefer, c;
-    const st = Math.sin(t * DEG);
-    if (Math.abs(st) < 1e-9) { t = 0; c = atan2d(m[1][0], m[0][0]); }
-    else if (kin.tilt === 'A') c = atan2d(n[0] / st, -n[1] / st);
-    else c = atan2d(n[1] / st, n[0] / st);
-    const r = mmul(mtr(turns([['Z', c], [kin.tilt === 'A' ? 'X' : 'Y', t]])), m);
-    return { t: t * kin.sign[kin.tilt], c: norm360(c * kin.sign.C), rest: atan2d(r[1][0], r[0][0]) };
+    const restOf = r => { const q = mmul(mtr(kinFrame(kin, r)), m); return atan2d(q[1][0], q[0][0]); };
+    const sols = kinDirSolutions(kin, n).map(s => {
+      const free = kin.chain.find(a => s[a.name] == null);
+      if (!free) return s;
+      // the tool lies along this axis: it takes the plane's turn about the tool
+      const r = Object.assign({}, s, { [free.name]: 0 });
+      return Object.assign(r, { [free.name]: restOf(r) * Math.sign(vdot(free.v, n)) });
+    });
+    const best = kinPick(kin, sols, prev);
+    return best && { vals: best, rest: restOf(best) };
+  }
+  // rotary words of one machine as another machine's: the tool direction is kept (TCP moves)
+  function rotaryConverter(src, tgt) {
+    const mode = kinCompare(src, tgt);
+    const cur = {}, names = new Map(src.chain.map((a, k) => [a.name, tgt.chain[k] ? tgt.chain[k].name : a.name]));
+    src.axes.forEach(a => { cur[a.name] = 0; });
+    let prev = null;
+    return {
+      mode,
+      has: l => src.axes.some(a => a.name === l),
+      // words: [{name, v (number or null), raw}] → {words: [{name, v, raw}], flag}
+      apply(words, tcp) {
+        if (mode === 'same' || !words.length) return { words, flag: '' };
+        if (mode === 'rename') return { words: words.map(w => Object.assign({}, w, { name: names.get(w.name) || w.name })), flag: '' };
+        if (!tcp) return { words, flag: `kinematik farklı (${src.label} → ${tgt.label}) — TCP'siz döner eksen hareketi çevrilmedi` };
+        if (words.some(w => w.v == null)) return { words, flag: 'değişkenli döner eksen değeri çevrilemedi' };
+        words.forEach(w => { cur[w.name] = w.v; });
+        const n = mvec(kinFrame(src, cur), EZ);
+        const sol = kinPick(tgt, kinDirSolutions(tgt, n), prev);
+        if (!sol) return { words, flag: `hedef makine (${tgt.label}) bu takım yönünü veremiyor` };
+        const out = tgt.axes.filter(a => !prev || Math.abs(sol[a.name] - prev[a.name]) > 5e-5).map(a => ({ name: a.name, v: sol[a.name] }));
+        prev = sol;
+        return { words: out, flag: '' };
+      }
+    };
   }
   // G68.2 words → what a Siemens plane template takes:
-  // {EKSEN1} {EKSEN2} rotary positions (direct, 192) · {MOD} {A} {B} {C} axis by axis
+  // {EKSEN1} {EKSEN2} the machine's 1st and 2nd rotary axis (direct, 192) · {MOD} {A} {B} {C} axis by axis
   function planeFromIso(ws, kin) {
     const val = l => { const w = ws.find(x => x.letter === l); return w ? w.value : 0; };
     const P = Math.round(val('P')), qw = ws.find(x => x.letter === 'Q');
@@ -7790,12 +7950,13 @@ SON = M17
     const I = val('I'), J = val('J'), K = val('K');
     const flags = [];
     const z = v => Math.abs(v) < 1e-9;
+    const std = kin.std;
     let m = null, lin = null, axis = null;
     if (P === 0) { // Euler: Z, new X, new Z
       m = turns([['Z', I], ['X', J], ['Z', K]]);
       if (z(K)) axis = { MOD: modeOfSeq(['Z', 'X', 'Y']), A: J, B: 0, C: I };
-      if (kin.tilt === 'A' && z(K)) lin = { t: J, c: I };
-      if (kin.tilt === 'B' && z(K + 90)) lin = { t: J, c: I - 90 };
+      if (std && std.tilt === 'X' && z(K)) lin = { t: J, c: I };
+      if (std && std.tilt === 'Y' && z(K + 90)) lin = { t: J, c: I - 90 };
     } else if (P === 1) { // roll-pitch-yaw: I, J, K about the fixed axes in the Q order
       let order = Q.split('').map(d => ({ 1: 'X', 2: 'Y', 3: 'Z' })[d]);
       if (order.length !== 3 || order.some(x => !x) || new Set(order).size !== 3) { flags.push(`G68.2 Q${Q} okunamadı`); order = ['X', 'Y', 'Z']; }
@@ -7804,17 +7965,22 @@ SON = M17
       by[order[0]] = I; by[order[1]] = J; by[order[2]] = K;
       m = turns([[order[2], K], [order[1], J], [order[0], I]]);
       axis = { MOD: modeOfSeq([order[2], order[1], order[0]]), A: by.X, B: by.Y, C: by.Z };
-      const tAx = kin.tilt === 'A' ? 'X' : 'Y', other = kin.tilt === 'A' ? 'Y' : 'X';
-      if (z(by[other]) && inOrder([tAx, 'Z'].filter(a => !z(by[a])), order)) lin = { t: by[tAx], c: by.Z };
+      if (std) {
+        const tAx = std.tilt, other = tAx === 'X' ? 'Y' : 'X';
+        if (z(by[other]) && inOrder([tAx, 'Z'].filter(a => !z(by[a])), order)) lin = { t: by[tAx], c: by.Z };
+      }
     } else {
       flags.push(`G68.2 P${P} (nokta / vektör tanımı) çevrilmedi — açıları elle yazın`);
     }
-    let t = null, c = null, rest = 0;
-    if (lin) { t = lin.t * kin.sign[kin.tilt]; c = lin.c * kin.sign.C; }
-    else if (m) { const r = machineAxes(m, kin); t = r.t; c = r.c; rest = r.rest; }
+    let pos = null, rest = 0;
+    if (lin) pos = { [std.tName]: lin.t * std.st, [std.cName]: lin.c * std.sc };
+    else if (m) {
+      const r = kinSolve(kin, m);
+      if (r) { pos = r.vals; rest = r.rest; } else flags.push(`makine (${kin.label}) bu düzlemi veremiyor`);
+    }
     if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.X, B: a.Y, C: a.Z }; }
     const vals = {};
-    if (t != null) { vals.EKSEN1 = fmt(t); vals.EKSEN2 = fmt(c); }
+    if (pos) kin.axes.forEach((a, k) => { if (k < 2 && pos[a.name] != null) vals['EKSEN' + (k + 1)] = fmt(pos[a.name]); });
     if (axis) { vals.MOD = String(axis.MOD); vals.A = fmt(axis.A); vals.B = fmt(axis.B); vals.C = fmt(axis.C); }
     return { vals, rest, flags };
   }
@@ -7829,16 +7995,19 @@ SON = M17
     const P = lit('P') == null ? null : Math.round(lit('P')), Q = lit('Q');
     if (P == null || (Q != null && Q !== 0 && Q !== 123)) return null;
     const vals = { X: txt('X'), Y: txt('Y'), Z: txt('Z'), I: txt('I'), J: txt('J'), K: txt('K') };
+    const std = kin.std;
     let t = null, c = null;
     if (P === 1) {
-      const other = kin.tilt === 'A' ? 'J' : 'I';
-      if (lit(other) === 0) { t = kin.tilt === 'A' ? vals.I : vals.J; c = vals.K; }
+      if (std) { const other = std.tilt === 'X' ? 'J' : 'I'; if (lit(other) === 0) { t = std.tilt === 'X' ? vals.I : vals.J; c = vals.K; } }
       Object.assign(vals, { MOD: '27', A: vals.I, B: vals.J, C: vals.K });
     } else if (P === 0) {
-      if (kin.tilt === 'A' && lit('K') === 0) { t = vals.J; c = vals.I; }
+      if (std && std.tilt === 'X' && lit('K') === 0) { t = vals.J; c = vals.I; }
       if (lit('K') === 0) Object.assign(vals, { MOD: '39', A: vals.J, B: '0', C: vals.I });
     } else return null;
-    if (t != null) { vals.EKSEN1 = signed(t, kin.sign[kin.tilt]); vals.EKSEN2 = signed(c, kin.sign.C); }
+    if (t != null) {
+      const pos = { [std.tName]: signed(t, std.st), [std.cName]: signed(c, std.sc) };
+      kin.axes.forEach((a, k) => { if (k < 2) vals['EKSEN' + (k + 1)] = pos[a.name]; });
+    }
     return vals;
   }
   // an angle that is a number ({v}) or an expression in the target's syntax ({e})
@@ -8004,6 +8173,9 @@ SON = M17
       feedRev: false, vec: false, g52: null, rot2d: null, arot: false
     };
     const forget = () => { st.pos = { X: null, Y: null, Z: null }; };
+    // another machine's axes: TCP moves keep the tool direction (rotaryConverter)
+    const rot = opts.srcKin && opts.tgtKin ? rotaryConverter(opts.srcKin, opts.tgtKin) : null;
+    st.tcp = false;
 
     const emit = (i, text, kind, flag) => out.push({ text, src: i, kind, flag: flag || '' });
     const emitTpl = (i, tpl, vals, kind) => {
@@ -8136,7 +8308,7 @@ SON = M17
         // a tilted plane with angles in variables: the cases where the angle is a plain sum pass through
         const g682v = /G\s*68\.2/i.test(code) && R.plane.length ? wordsOf(code, true) : null;
         if (g682v && g682v.clean) {
-          const pl = planeFromIsoExpr(g682v.words, R.kin, sieOfIso);
+          const pl = planeFromIsoExpr(g682v.words, opts.tgtKin || R.kin, sieOfIso);
           const needs = k => R.plane.some(l => l.includes('{' + k + '}'));
           if (pl && (pl.EKSEN1 != null || !needs('EKSEN1')) && (pl.MOD != null || !needs('MOD'))) {
             const key = code;
@@ -8297,7 +8469,7 @@ SON = M17
           'XYZIJK'.split('').forEach(l => { const w = get(ws, l); vals[l] = fmt(w ? w.value : 0); });
           const key = JSON.stringify(vals) + (get(ws, 'P') ? get(ws, 'P').raw : '') + (get(ws, 'Q') ? get(ws, 'Q').raw : '');
           if (st.plane !== key) {
-            const pl = planeFromIso(ws, R.kin);
+            const pl = planeFromIso(ws, opts.tgtKin || R.kin);
             Object.assign(vals, pl.vals);
             if (st.arot) { emit(i, 'ROT', 'added'); if (st.g52) emit(i, 'TRANS ' + st.g52, 'added'); st.arot = false; } // the last plane's AROT
             emitTpl(i, R.plane, vals);
@@ -8307,7 +8479,7 @@ SON = M17
               emit(i, `AROT Z=${fmt(pl.rest)}`, 'added', 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile');
               st.arot = true;
             }
-            if (['I', 'J', 'K'].some(l => vals[l] !== '0')) fl.push(direct ? `düzlem açıları ${R.kin.tilt}/C kinematiğiyle döner eksen konumuna çevrildi — ilk denemede kontrol edin` : 'eğik düzlem açılarını ilk denemede kontrol edin');
+            if (['I', 'J', 'K'].some(l => vals[l] !== '0')) fl.push(direct ? `düzlem açıları ${(opts.tgtKin || R.kin).label} kinematiğiyle döner eksen konumuna çevrildi — ilk denemede kontrol edin` : 'eğik düzlem açılarını ilk denemede kontrol edin');
             if (fl.length) out[out.length - 1 - (direct && Math.abs(pl.rest) > 5e-5 ? 1 : 0)].flag = fl.join('; ');
             st.plane = key;
           }
@@ -8445,6 +8617,26 @@ SON = M17
         changed = true;
       }
 
+      // ---- rotary axes on another machine ----
+      if (ws.some(w => w.letter === 'G' && (Math.abs(w.value - 43.4) < 1e-9 || Math.abs(w.value - 43.5) < 1e-9))) st.tcp = true;
+      if (has(ws, 'G', 49)) st.tcp = false;
+      if (rot && rot.mode !== 'same') {
+        const rw = ws.filter(w => w.letter && rot.has(w.letter) && w.raw != null);
+        if (rw.length) {
+          if (!st.abs) flags.push('G91 ile döner eksen — başka makineye çevrilmedi');
+          else {
+            const r = rot.apply(rw.map(w => ({ name: w.letter, v: w.value, raw: w.raw })), st.tcp);
+            if (r.flag) flags.push(r.flag);
+            else {
+              // the new axis words go where the first old one stood
+              const at = ws.indexOf(rw[0]), nw = r.words.map(x => ({ letter: x.name, raw: fmt(x.v), value: x.v }));
+              ws = ws.slice(0, at).filter(w => !rw.includes(w)).concat(nw, ws.slice(at).filter(w => !rw.includes(w)));
+              changed = true;
+            }
+          }
+        }
+      }
+
       // ---- word-by-word ----
       const newWs = [];
       let dropQ = false, dropP = false;
@@ -8564,6 +8756,7 @@ SON = M17
       }
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
     });
+    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve TCP'li (G43.4 / TRAORI) döner hareketler hedef makinenin eksenlerine çevrildi; TCP'siz döner hareketler işaretlendi.`);
     return { lines: out, srcLines, notes, calls };
   }
 
@@ -8843,6 +9036,8 @@ SON = M17
 
     const st = { abs: true, pos: { X: null, Y: null, Z: null }, rpos: { A: null, B: null, C: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0, feedRev: false, rot: null, trans: null };
     let usedDC = false;
+    const rot = opts.srcKin && opts.tgtKin ? rotaryConverter(opts.srcKin, opts.tgtKin) : null;
+    st.tcp = false;
     const namedSeen = new Set();
     const toolNo = v => {
       if (v == null) return null;
@@ -8924,7 +9119,7 @@ SON = M17
       const angOf = k => (rawOf(k) ? valOf(rawOf(k)) : { v: 0 });
       const numOf = (k, d) => { const v = rawOf(k) ? evalExpr(rawOf(k), rvals) : null; return v == null ? d : v; };
       const rpy = R.plane.some(l => /G68\.2[^;(]*\bP\s*1\b/i.test(l));
-      const kin = R.kin;
+      const kin = opts.srcKin || R.kin; // the Siemens machine's own axes
       const flags = [];
       const mode = Math.round(numOf('MODE', 57));
       const kind = mode & 0xC0;
@@ -8933,10 +9128,14 @@ SON = M17
       let res = null, m = null;
       if (kind === 0xC0) { // direct: 1st and 2nd rotary axis of the swivel data record
         if (!angZ(C)) flags.push('CYCLE800 3. döner eksen değeri kullanılmadı');
-        const t = angSign(A, kin.sign[kin.tilt], wrapF), c = angSign(B, kin.sign.C, wrapF);
-        if (kin.tilt === 'A') res = rpy ? { I: t, J: Z0, K: c } : { I: c, J: t, K: Z0 };
-        else res = rpy ? { I: Z0, J: t, K: c } : { I: angAdd(c, 90), J: t, K: { v: -90 } };
-        if (num([t, c])) m = turns([['Z', c.v], [kin.tilt === 'A' ? 'X' : 'Y', t.v]]);
+        const slot = {};
+        kin.axes.forEach((a, k) => { if (k < 2) slot[a.name] = k ? B : A; });
+        if (kin.std) {
+          const t = angSign(slot[kin.std.tName], kin.std.st, wrapF), c = angSign(slot[kin.std.cName], kin.std.sc, wrapF);
+          if (kin.std.tilt === 'X') res = rpy ? { I: t, J: Z0, K: c } : { I: c, J: t, K: Z0 };
+          else res = rpy ? { I: Z0, J: t, K: c } : { I: angAdd(c, 90), J: t, K: { v: -90 } };
+        }
+        if (num(Object.values(slot))) { const pos = {}; Object.keys(slot).forEach(k => { pos[k] = slot[k].v; }); m = kinFrame(kin, pos); }
       } else if (kind === 0) { // axis by axis, each turn about the new axes, in the _MODE order
         const seq = seqOfMode(mode & 63);
         if (seq.some(x => !x) || new Set(seq).size !== 3) flags.push(`CYCLE800 _MODE ${mode}: eksen sırası okunamadı`);
@@ -8970,7 +9169,7 @@ SON = M17
       CYCLE800_ARGS.forEach(k => { vals[k] = k === 'TC' ? rawOf(k).replace(/"/g, '') : angText(angOf(k), wrapF); });
       ['X0', 'Y0', 'Z0'].forEach((k, n) => { vals[k] = angText(org[n], wrapF); });
       ['I', 'J', 'K'].forEach(k => { vals[k] = angText(res[k], wrapF); });
-      return { vals, flags, retract: numOf('FR', 0) !== 0, turned: ['I', 'J', 'K'].some(k => vals[k] !== '0'), direct: kind === 0xC0, rpy };
+      return { vals, flags, retract: numOf('FR', 0) !== 0, turned: ['I', 'J', 'K'].some(k => vals[k] !== '0'), direct: kind === 0xC0, rpy, kin };
     }
 
     for (let x = 0; x < exec.length; x++) {
@@ -9219,7 +9418,7 @@ SON = M17
           const from = out.length;
           tplOut(i, R.plane, pl.vals, 'CYCLE800 değeri');
           const fl = pl.flags.slice();
-          if (pl.turned && !pl.flags.some(f => /projeksiyon/.test(f))) fl.push(`düzlem açıları ${pl.direct ? R.kin.tilt + '/C kinematiğiyle ' : ''}G68.2 ${pl.rpy ? 'P1 (roll-pitch-yaw)' : '(Euler)'} açısına çevrildi — ilk denemede kontrol edin`);
+          if (pl.turned && !pl.flags.some(f => /projeksiyon/.test(f))) fl.push(`düzlem açıları ${pl.direct ? pl.kin.label + ' kinematiğiyle ' : ''}G68.2 ${pl.rpy ? 'P1 (roll-pitch-yaw)' : '(Euler)'} açısına çevrildi — ilk denemede kontrol edin`);
           const tgt = out.slice(from).reverse().find(o => /G68\.2/i.test(o.text)) || out[out.length - 1];
           if (fl.length && tgt) tgt.flag = [tgt.flag].concat(fl).filter(Boolean).join('; ');
         } else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
@@ -9253,6 +9452,8 @@ SON = M17
       const bare = code.match(/^([A-Z_][A-Z0-9_]*)(?:\s+P\s*=?\s*(\d+))?$/i);
       if (bare && (!ADDR_RE.test(code) || /^L\d+$/i.test(bare[1]))) {
         const name = bare[1].toUpperCase();
+        if (name === 'TRAORI') st.tcp = true;
+        if (name === 'TRAFOOF') st.tcp = false;
         if (R.cmds.has(name)) {
           // TRANS / ROT alone clear the whole programmable frame: whatever the rule writes, a G52 / G68 set here goes too
           if (/^(TRANS|ROT)$/.test(name)) {
@@ -9353,6 +9554,22 @@ SON = M17
         ws.push(t);
       });
 
+      // rotary axes on another machine: TCP moves (TRAORI) keep the tool direction
+      if (rot && rot.mode !== 'same') {
+        const rw = ws.filter(w => { const m = w.match(/^([A-Z])(-?[\d.]+|\[.*\])$/); return m && rot.has(m[1]); });
+        if (rw.length) {
+          if (!st.abs) flags.push('G91 ile döner eksen — başka makineye çevrilmedi');
+          else {
+            const r = rot.apply(rw.map(w => ({ name: w[0], v: /^\[/.test(w.slice(1)) ? null : parseFloat(w.slice(1)), raw: w.slice(1) })), st.tcp);
+            if (r.flag) flags.push(r.flag);
+            else {
+              const at = ws.indexOf(rw[0]), nw = r.words.map(x => x.name + (x.v != null ? fmt(x.v) : x.raw));
+              const next = ws.slice(0, at).filter(w => !rw.includes(w)).concat(nw, ws.slice(at).filter(w => !rw.includes(w)));
+              ws.length = 0; next.forEach(w => ws.push(w));
+            }
+          }
+        }
+      }
       if (tWord != null) st.tool = tWord;
       if (fixed) {
         // G75 (fixed point) → the rules' safe-height block
@@ -9395,6 +9612,7 @@ SON = M17
       done();
     }
     if (st.cycle) emit(parts.length - 1, 'G80', 'added', 'program açık bir MCALL ile bitiyor');
+    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve TCP'li (TRAORI) döner hareketler hedef makinenin eksenlerine çevrildi; TCP'siz döner hareketler işaretlendi.`);
     if (usedDC) notes.push("DC() (en kısa yoldan) döner eksen hareketleri düz değer olarak yazıldı — Mazak'ta döner eksenin en kısa yoldan gitmesi parametreyle açık olmalı.");
 
     // a number with no decimal point is read in least increments on a Fanuc-type
@@ -9432,12 +9650,17 @@ SON = M17
 
   /* ---------- a set of files: main program + subprograms ---------- */
   // files: [{name, text}] → {programs: [{name, outName, isSub, number, result}], missing, notes}
+  // options: {sourceMachine, targetMachine: {control, def}} — or, as before, {source, target} control ids
   function convertSet(files, options) {
     const rules = parseRules(options.rulesText || DEFAULT_RULES);
-    const target = TARGETS.find(t => t.id === options.target) || TARGETS[0];
-    const route = routeOf(options.source || 'mazak', target.id) || 'iso-siemens';
+    const sm = options.sourceMachine, tm = options.targetMachine;
+    const sourceId = sm ? controlOf(sm.control).source : options.source || 'mazak';
+    const target = TARGETS.find(t => t.id === (tm ? controlOf(tm.control).target : options.target)) || TARGETS[0];
+    const route = routeOf(sourceId, target.id) || 'iso-siemens';
     const writer = target.writer;
     const common = { rules, writer, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
+    // each machine's own kinematics; without machines the rules' [KİNEMATİK] (first versions) serves both
+    if (sm && tm) { common.srcKin = machineKin(sm.def); common.tgtKin = machineKin(tm.def); }
     if (route === 'siemens-iso') {
       // every file one program: .SPF (or a file ending in M17/RET) is a subprogram named by its L number
       const subOf = f => {
@@ -9500,8 +9723,9 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { SOURCES, TARGETS, PROFILES, DEFAULT_RULES, routeOf, targetsFor, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { SOURCES, TARGETS, CONTROLS, MACHINES, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
+
 /* ================= Tool: Program Dönüştürücü ================= */
 (function () {
   const $ = id => document.getElementById(id);
@@ -9519,29 +9743,48 @@ SON = M17
   let current = 0;      // index of the program in the preview
   let flagRows = [], flagAt = -1;
 
-  /* ---- source / target / machine profiles ----
-     Built-in machines come from ProgConvert.PROFILES; an edit to one is kept
-     as an override. Machines the user makes live in `custom`. All of it is
-     stored in this browser; Dışa/İçe Aktar moves a machine between computers. */
+  /* ---- machines and the rules of each machine pair ----
+     A machine (built-in, or one the user makes) is a control plus its kinematics.
+     The rules belong to a source → target machine pair: a built-in pair's edits are
+     kept as an override, any other pair's as `pairs[src|tgt]`. Everything lives in
+     this browser; Dışa/İçe Aktar moves a machine or a pair's rules between computers. */
   const STORE_KEY = 'toolbox.convProfiles';
-  const srcSel7 = $('srcSel7'), tgtSel7 = $('tgtSel7'), machineSel7 = $('machineSel7');
+  const srcMachSel7 = $('srcMachSel7'), tgtMachSel7 = $('tgtMachSel7'), swapBtn7 = $('swapBtn7');
+  const machEditSel7 = $('machEditSel7'), machCtlSel7 = $('machCtlSel7'), machText7 = $('machText7');
+  const machFor7 = $('machFor7'), machState7 = $('machState7');
   const newMachineBtn7 = $('newMachineBtn7'), renameMachineBtn7 = $('renameMachineBtn7'), deleteMachineBtn7 = $('deleteMachineBtn7');
+  const machResetBtn7 = $('machResetBtn7'), machExportBtn7 = $('machExportBtn7'), machImportBtn7 = $('machImportBtn7'), machImportInput7 = $('machImportInput7');
   const exportBtn7 = $('exportBtn7'), importBtn7 = $('importBtn7'), importInput7 = $('importInput7');
   const rulesFor7 = $('rulesFor7'), rulesState7 = $('rulesState7');
-  let store = { custom: [], overrides: {}, selected: { source: 'mazak', target: 'siemens840d', machine: {} } };
+  const PC = ProgConvert;
+  let store = { version: 2, overrides: {}, pairs: {}, machines: [], machineOverrides: {}, selected: {} };
+  let raw1 = null;
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) store = Object.assign(store, JSON.parse(raw));
+    if (raw) raw1 = JSON.parse(raw);
     const old = localStorage.getItem('toolbox.convRules'); // the single rules text of the first version
-    if (old && !store.overrides['hermle-c52']) store.overrides['hermle-c52'] = old;
-    if (old) localStorage.removeItem('toolbox.convRules');
+    if (old) { raw1 = raw1 || { overrides: {} }; raw1.overrides = raw1.overrides || {}; if (!raw1.overrides['hermle-c52']) raw1.overrides['hermle-c52'] = old; localStorage.removeItem('toolbox.convRules'); }
   } catch (e) { /* storage off or unreadable: start fresh */ }
-  if (!store.selected.machine) store.selected.machine = {};
+  if (raw1) store = Object.assign(store, raw1);
+  ['overrides', 'pairs', 'machineOverrides'].forEach(k => { if (!store[k] || typeof store[k] !== 'object') store[k] = {}; });
+  if (!Array.isArray(store.machines)) store.machines = [];
+  if (!store.selected || typeof store.selected !== 'object') store.selected = {};
+  function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
+  const newId = () => 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const ctlName = id => PC.controlOf(id).name;
+  // the default machine of a control, for rules saved before machines existed
+  const defaultMachineOf = ctl => ({ mazak: 'm-variaxis', siemens840d: 'm-hermle-c52', fanuc: 'm-genel-fanuc', iso: 'm-genel-fanuc' })[ctl] || 'm-genel-mazak';
+  const ctlOfOld = id => (id === 'iso' ? 'fanuc' : id);
+
   // tilted-plane lines of the first versions passed the G68.2 / CYCLE800 values
   // through untouched; the core now works the angles out ({EKSEN1}, {I} …)
   const upgradeRules = t => String(t)
     .replace(/CYCLE800\(1,"HERMLE",100000,192,\{X\},\{Y\},\{Z\},\{I\},\(\{J\}\+ R20\),\{K\},/g, 'CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,')
-    .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}');
+    .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}')
+    .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni');
+  // kinematics moved from the rules to the machines: the section is taken out of saved rules
+  const KIN_SECTION = /^\[KİNEMATİK\][^\n]*\n(?:(?!\[)[^\n]*\n?)*/m;
+  const stripKin = t => String(t).replace(new RegExp(KIN_SECTION.source, 'gm'), '');
   // the Hermle pattern variables (R5 counter, R10 angle per feature, R20 current angle) are #990, #995, #999 on the Variaxis
   const PATTERN_R = '// döner desen: sayaç, özellik başına açı, güncel açı\nR5 = 990\nR10 = 995\nR20 = 999';
   const addPatternR = t => {
@@ -9552,7 +9795,7 @@ SON = M17
     }
     return t.replace(/^\[ALT PROGRAM\]/m, '[R PARAMETRELERİ]\n// Mazak #değişkeni → Siemens R: R5 = 990 ile #990 → R5 · listede olmayan #n → Rn\n' + PATTERN_R + '\n\n[ALT PROGRAM]');
   };
-  // a saved copy of a built-in Hermle machine gets what the tool learned since: sections it
+  // a saved copy of a built-in Hermle pair gets what the tool learned since: sections it
   // lacks (new probe macros) are added, a probe macro still at its old default is brought up
   // to date, and a few single lines go in where missing; whatever the user wrote stays
   const OLD_PROBE = {
@@ -9560,7 +9803,7 @@ SON = M17
     'MAKRO P9862 B3': /^S750 M3\nG0 C0\nR80=\{S\}[\s\S]*SUB2000[^\n]*\nM5\nD1$/
   };
   function addNewSections(t, id) {
-    const b = ProgConvert.PROFILES.find(p => p.id === id);
+    const b = PC.PROFILES.find(p => p.id === id);
     if (!b) return t;
     const blocks = src => {
       const m = new Map();
@@ -9586,151 +9829,299 @@ SON = M17
     }
     return t;
   }
+  // kinematics a saved Hermle pair still carried: if they were changed, they go to the Hermle machine
+  const kinKey = def => JSON.stringify(PC.machineKin(def).axes.map(a => [a.name, a.v.map(x => Math.round(x * 1e6)), a.table]));
   Object.keys(store.overrides).forEach(k => {
-    store.overrides[k] = upgradeRules(store.overrides[k]);
-    if (k === 'hermle-c52' || k === 'variaxis-from-hermle') store.overrides[k] = addNewSections(addPatternR(store.overrides[k]), k);
+    let t = upgradeRules(store.overrides[k]);
+    const kinPart = t.match(KIN_SECTION);
+    if (kinPart && (k === 'hermle-c52' || k === 'variaxis-from-hermle') && !store.machineOverrides['m-hermle-c52']) {
+      const mine = '[KİNEMATİK]\n' + kinPart[0].split('\n').slice(1).filter(l => !/^\s*\/\//.test(l)).join('\n');
+      const def = PC.MACHINES.find(m => m.id === 'm-hermle-c52').def;
+      if (kinKey(mine) !== kinKey(def)) store.machineOverrides['m-hermle-c52'] = def.replace(/^\[KİNEMATİK\][\s\S]*$/m, mine.trim() + '\n');
+    }
+    t = stripKin(t);
+    if (k === 'hermle-c52' || k === 'variaxis-from-hermle') t = addNewSections(addPatternR(t), k);
+    store.overrides[k] = t;
   });
-  store.custom.forEach(p => { p.rules = upgradeRules(p.rules); });
-  function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
-
-  const pairKey = () => srcSel7.value + '|' + tgtSel7.value;
-  const builtin = id => ProgConvert.PROFILES.find(p => p.id === id);
-  function profilesFor(source, target) {
-    const b = ProgConvert.PROFILES.filter(p => p.source === source && p.target === target)
-      .map(p => ({ id: p.id, name: p.name, builtin: true, rules: store.overrides[p.id] != null ? store.overrides[p.id] : p.rules }));
-    const c = store.custom.filter(p => p.source === source && p.target === target).map(p => Object.assign({ builtin: false }, p));
-    return b.concat(c);
+  // rule sets of the first versions (a "machine" was a rules text for two controls):
+  // each becomes a machine of its target control and the rules of the pair into it
+  if (Array.isArray(store.custom) && store.custom.length) {
+    store.custom.forEach(c => {
+      const ctl = ctlOfOld(c.target);
+      const base = PC.MACHINES.find(m => m.control === ctl && /^m-genel/.test(m.id));
+      const mc = { id: newId(), name: c.name, control: ctl, def: base ? base.def : '' };
+      store.machines.push(mc);
+      store.pairs[defaultMachineOf(ctlOfOld(c.source)) + '|' + mc.id] = stripKin(upgradeRules(c.rules));
+    });
   }
-  function machine() { return profilesFor(srcSel7.value, tgtSel7.value).find(p => p.id === machineSel7.value); }
-  const defaultRulesOf = m => (m.builtin ? builtin(m.id).rules : ProgConvert.genericRules(srcSel7.value, tgtSel7.value));
+  delete store.custom;
+  if (!store.selected.src || !store.selected.tgt) {
+    const back = store.selected.source === 'siemens840d';
+    store.selected = { src: back ? 'm-hermle-c52' : 'm-variaxis', tgt: back ? 'm-variaxis' : 'm-hermle-c52' };
+  }
+  saveStore();
 
-  ProgConvert.SOURCES.forEach(x => srcSel7.add(new Option(x.name, x.id)));
-  srcSel7.value = store.selected.source; if (!srcSel7.value) srcSel7.selectedIndex = 0;
-  // only the targets this source can be converted to
+  // every machine, built-in first; a built-in machine's edit is kept as an override
+  const machines = () => PC.MACHINES.map(m => Object.assign({}, m, { builtin: true, def: store.machineOverrides[m.id] != null ? store.machineOverrides[m.id] : m.def }))
+    .concat(store.machines.map(m => Object.assign({ builtin: false }, m)));
+  const machineById = id => machines().find(m => m.id === id);
+  const label = m => `${m.name} · ${ctlName(m.control)}`;
+  const pairKey = () => srcMachSel7.value + '|' + tgtMachSel7.value;
+  // the pair's rules: built-in pair (and its override), else the user's, else the controls' generic ones
+  function pairInfo() {
+    const s = machineById(srcMachSel7.value), t = machineById(tgtMachSel7.value);
+    if (!s || !t) return null;
+    const base = PC.pairRules(s, t);
+    const def = base.rules;
+    const rules = base.builtin ? (store.overrides[base.id] != null ? store.overrides[base.id] : def) : (store.pairs[pairKey()] != null ? store.pairs[pairKey()] : def);
+    return { s, t, id: base.id, builtin: base.builtin, def, rules };
+  }
+
+  function fillMachineSelects() {
+    const all = machines();
+    const keepS = srcMachSel7.value || store.selected.src, keepT = tgtMachSel7.value || store.selected.tgt;
+    srcMachSel7.innerHTML = '';
+    all.forEach(m => srcMachSel7.add(new Option(label(m), m.id)));
+    srcMachSel7.value = all.some(m => m.id === keepS) ? keepS : 'm-variaxis';
+    fillTargets(keepT);
+    const keepE = machEditSel7.value || store.selected.edit || tgtMachSel7.value;
+    machEditSel7.innerHTML = '';
+    all.forEach(m => machEditSel7.add(new Option(label(m) + (m.builtin && store.machineOverrides[m.id] != null ? ' (değiştirildi)' : ''), m.id)));
+    machEditSel7.value = all.some(m => m.id === keepE) ? keepE : tgtMachSel7.value;
+    showMachineEditor();
+  }
+  // only the machines this source can be converted to (840D → 840D is not there yet)
   function fillTargets(want) {
-    const keep = want || (store.targetBySource || {})[srcSel7.value] || tgtSel7.value;
-    tgtSel7.innerHTML = '';
-    ProgConvert.targetsFor(srcSel7.value).forEach(x => tgtSel7.add(new Option(x.name, x.id)));
-    tgtSel7.value = keep; if (!tgtSel7.value) tgtSel7.selectedIndex = 0;
+    const s = machineById(srcMachSel7.value);
+    const list = machines().filter(m => s && PC.machineRoute(s.control, m.control));
+    tgtMachSel7.innerHTML = '';
+    list.forEach(m => tgtMachSel7.add(new Option(label(m), m.id)));
+    tgtMachSel7.value = list.some(m => m.id === want) ? want : (list.find(m => m.id !== srcMachSel7.value) || list[0] || {}).id || '';
+    showPair();
   }
-  fillTargets(store.selected.target);
-
-  function fillMachines(selectId) {
-    const list = profilesFor(srcSel7.value, tgtSel7.value);
-    machineSel7.innerHTML = '';
-    list.forEach(p => machineSel7.add(new Option(p.name + (p.builtin && store.overrides[p.id] != null ? ' (değiştirildi)' : ''), p.id)));
-    const want = selectId || store.selected.machine[pairKey()];
-    machineSel7.value = list.some(p => p.id === want) ? want : (list[0] ? list[0].id : '');
-    showMachine();
-  }
-  function showMachine() {
-    const m = machine();
-    store.targetBySource = Object.assign(store.targetBySource || {}, { [srcSel7.value]: tgtSel7.value });
-    store.selected = { source: srcSel7.value, target: tgtSel7.value, machine: Object.assign(store.selected.machine, { [pairKey()]: machineSel7.value }) };
+  function showPair() {
+    const p = pairInfo();
+    store.selected = Object.assign(store.selected, { src: srcMachSel7.value, tgt: tgtMachSel7.value });
     saveStore();
-    rulesText7.value = m ? m.rules : '';
-    rulesFor7.textContent = m ? m.name : '—';
-    renameMachineBtn7.disabled = deleteMachineBtn7.disabled = !m || m.builtin;
-    renameMachineBtn7.title = deleteMachineBtn7.title = m && m.builtin ? 'Hazır makine — değiştirmek için Yeni Makine ile kopyalayın' : '';
+    rulesText7.value = p ? p.rules : '';
+    rulesFor7.textContent = p ? `${p.s.name} → ${p.t.name}` : '—';
     updateRulesState();
-    const src = ProgConvert.SOURCES.find(x => x.id === srcSel7.value), tgt = ProgConvert.TARGETS.find(x => x.id === tgtSel7.value);
-    $('convHeadA7').textContent = src ? src.name : '';
-    $('convHeadB7').textContent = (tgt ? tgt.name : '') + (m ? ' · ' + m.name : '');
+    $('convHeadA7').textContent = p ? label(p.s) : '';
+    $('convHeadB7').textContent = p ? label(p.t) : '';
+    convertBtn7.disabled = !p;
   }
   function updateRulesState() {
-    const m = machine();
-    rulesState7.textContent = m && rulesText7.value !== defaultRulesOf(m) ? 'Varsayılandan farklı' : '';
+    const p = pairInfo();
+    rulesState7.textContent = !p ? '' : rulesText7.value !== p.def ? 'Varsayılandan farklı' : p.builtin ? '' : 'Genel kurallar';
   }
-  srcSel7.addEventListener('change', () => { fillTargets(); fillMachines(); if (result) run(); });
-  tgtSel7.addEventListener('change', () => { fillMachines(); if (result) run(); });
-  machineSel7.addEventListener('change', () => { showMachine(); if (result) run(); });
+  function showMachineEditor() {
+    const m = machineById(machEditSel7.value);
+    store.selected.edit = machEditSel7.value;
+    machCtlSel7.innerHTML = '';
+    PC.CONTROLS.forEach(c => machCtlSel7.add(new Option(c.name, c.id)));
+    machCtlSel7.value = m ? m.control : 'mazak';
+    machCtlSel7.disabled = !m || m.builtin;
+    machCtlSel7.title = m && m.builtin ? 'Hazır makinenin kontrolü değişmez — Yeni Makine ile kopyalayın' : '';
+    machText7.value = m ? m.def : '';
+    machFor7.textContent = m ? label(m) : '—';
+    renameMachineBtn7.disabled = deleteMachineBtn7.disabled = !m || m.builtin;
+    renameMachineBtn7.title = deleteMachineBtn7.title = m && m.builtin ? 'Hazır makine — Yeni Makine ile kopyalayın' : '';
+    updateMachState();
+  }
+  function updateMachState() {
+    const m = machineById(machEditSel7.value);
+    const b = m && m.builtin && PC.MACHINES.find(x => x.id === m.id);
+    let txt = b && machText7.value !== b.def ? 'Varsayılandan farklı' : '';
+    try { const k = PC.machineKin(machText7.value); txt = [txt, 'eksenler: ' + k.label].filter(Boolean).join(' · '); } catch (e) { /* shown as it is */ }
+    machState7.textContent = txt;
+  }
+  srcMachSel7.addEventListener('change', () => { fillTargets(tgtMachSel7.value); if (result) run(); });
+  tgtMachSel7.addEventListener('change', () => { showPair(); if (result) run(); });
+  swapBtn7.addEventListener('click', () => {
+    const s = srcMachSel7.value, t = tgtMachSel7.value;
+    srcMachSel7.value = t;
+    fillTargets(s);
+    if (result) run();
+  });
+  machEditSel7.addEventListener('change', () => { showMachineEditor(); saveStore(); });
 
   let rulesTimer = null;
   rulesText7.addEventListener('input', () => {
-    const m = machine();
-    if (!m) return;
-    if (m.builtin) {
-      if (rulesText7.value === builtin(m.id).rules) delete store.overrides[m.id];
-      else store.overrides[m.id] = rulesText7.value;
-      const opt = machineSel7.options[machineSel7.selectedIndex];
-      opt.text = m.name + (store.overrides[m.id] != null ? ' (değiştirildi)' : '');
-    } else {
-      store.custom.find(p => p.id === m.id).rules = rulesText7.value;
-    }
+    const p = pairInfo();
+    if (!p) return;
+    if (p.builtin) { if (rulesText7.value === p.def) delete store.overrides[p.id]; else store.overrides[p.id] = rulesText7.value; }
+    else { if (rulesText7.value === p.def) delete store.pairs[pairKey()]; else store.pairs[pairKey()] = rulesText7.value; }
     saveStore();
     updateRulesState();
     clearTimeout(rulesTimer);
     if (result) rulesTimer = setTimeout(run, 400);
   });
   rulesResetBtn7.addEventListener('click', () => {
-    const m = machine();
-    if (!m) return;
-    const def = defaultRulesOf(m);
-    if (rulesText7.value === def) return;
-    if (!confirm(`"${m.name}" kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
-    if (m.builtin) delete store.overrides[m.id];
-    else store.custom.find(p => p.id === m.id).rules = def;
+    const p = pairInfo();
+    if (!p || rulesText7.value === p.def) return;
+    if (!confirm(`"${p.s.name} → ${p.t.name}" kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
+    if (p.builtin) delete store.overrides[p.id]; else delete store.pairs[pairKey()];
     saveStore();
-    fillMachines(m.id);
+    showPair();
     if (result) run();
   });
-  const uniqueName = (name, source, target) => {
-    const taken = new Set(profilesFor(source, target).map(p => p.name));
+
+  let machTimer = null;
+  machText7.addEventListener('input', () => {
+    const m = machineById(machEditSel7.value);
+    if (!m) return;
+    if (m.builtin) {
+      const b = PC.MACHINES.find(x => x.id === m.id);
+      if (machText7.value === b.def) delete store.machineOverrides[m.id]; else store.machineOverrides[m.id] = machText7.value;
+      machEditSel7.options[machEditSel7.selectedIndex].text = label(m) + (store.machineOverrides[m.id] != null ? ' (değiştirildi)' : '');
+    } else store.machines.find(x => x.id === m.id).def = machText7.value;
+    saveStore();
+    updateMachState();
+    clearTimeout(machTimer);
+    if (result) machTimer = setTimeout(run, 400);
+  });
+  machCtlSel7.addEventListener('change', () => {
+    const m = store.machines.find(x => x.id === machEditSel7.value);
+    if (!m) return;
+    m.control = machCtlSel7.value;
+    saveStore();
+    fillMachineSelects();
+    if (result) run();
+  });
+  machResetBtn7.addEventListener('click', () => {
+    const m = machineById(machEditSel7.value);
+    if (!m || !m.builtin || store.machineOverrides[m.id] == null) return;
+    if (!confirm(`"${m.name}" kinematiği varsayılana dönsün mü?`)) return;
+    delete store.machineOverrides[m.id];
+    saveStore();
+    fillMachineSelects();
+    if (result) run();
+  });
+  const uniqueName = name => {
+    const taken = new Set(machines().map(m => m.name));
     let n = name, k = 2;
     while (taken.has(n)) n = `${name} (${k++})`;
     return n;
   };
-  function addMachine(name, source, target, rules) {
-    const p = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: uniqueName(name, source, target), source, target, rules };
-    store.custom.push(p);
+  function addMachine(name, control, def) {
+    const m = { id: newId(), name: uniqueName(name), control, def };
+    store.machines.push(m);
     saveStore();
-    return p;
+    return m;
+  }
+  // a copied machine starts with the rules its original has with every other machine
+  function copyPairs(from, to) {
+    machines().forEach(o => {
+      if (o.id === from.id || o.id === to.id) return;
+      [[o, from, o.id + '|' + to.id], [from, o, to.id + '|' + o.id]].forEach(([a, b, key]) => {
+        if (!PC.machineRoute(a.control, b.control)) return;
+        const base = PC.pairRules(a, b);
+        const txt = base.builtin ? (store.overrides[base.id] != null ? store.overrides[base.id] : base.rules) : store.pairs[a.id + '|' + b.id];
+        if (txt != null) store.pairs[key] = txt;
+      });
+    });
+    saveStore();
   }
   newMachineBtn7.addEventListener('click', () => {
-    const m = machine();
-    const name = (prompt('Yeni makinenin adı (mevcut kurallar kopyalanır):', m ? m.name + ' kopyası' : 'Yeni makine') || '').trim();
+    const cur = machineById(machEditSel7.value);
+    const name = (prompt('Yeni makinenin adı (seçili makinenin kontrolü ve kinematiği kopyalanır):', cur ? cur.name + ' kopyası' : 'Yeni makine') || '').trim();
     if (!name) return;
-    const p = addMachine(name, srcSel7.value, tgtSel7.value, m ? rulesText7.value : ProgConvert.genericRules(srcSel7.value, tgtSel7.value));
-    fillMachines(p.id);
-    $('rulesBox7').open = true;
-    if (result) run();
+    const m = addMachine(name, cur ? cur.control : 'mazak', cur ? machText7.value : PC.MACHINES[2].def);
+    if (cur) copyPairs(cur, m);
+    machEditSel7.value = '';
+    store.selected.edit = m.id;
+    fillMachineSelects();
+    machEditSel7.value = m.id; showMachineEditor();
+    $('machBox7').open = true;
   });
   renameMachineBtn7.addEventListener('click', () => {
-    const m = machine();
-    if (!m || m.builtin) return;
+    const m = store.machines.find(x => x.id === machEditSel7.value);
+    if (!m) return;
     const name = (prompt('Makinenin yeni adı:', m.name) || '').trim();
     if (!name || name === m.name) return;
-    store.custom.find(p => p.id === m.id).name = uniqueName(name, srcSel7.value, tgtSel7.value);
+    m.name = uniqueName(name);
     saveStore();
-    fillMachines(m.id);
+    fillMachineSelects();
+    showPair();
   });
   deleteMachineBtn7.addEventListener('click', () => {
-    const m = machine();
-    if (!m || m.builtin) return;
-    if (!confirm(`"${m.name}" silinsin mi? Kuralları da silinir.`)) return;
-    store.custom = store.custom.filter(p => p.id !== m.id);
+    const m = store.machines.find(x => x.id === machEditSel7.value);
+    if (!m) return;
+    if (!confirm(`"${m.name}" silinsin mi? Bu makineyle yapılan dönüşümlerin kuralları da silinir.`)) return;
+    store.machines = store.machines.filter(x => x.id !== m.id);
+    Object.keys(store.pairs).forEach(k => { if (k.split('|').includes(m.id)) delete store.pairs[k]; });
+    if (srcMachSel7.value === m.id) srcMachSel7.value = 'm-variaxis';
+    machEditSel7.value = '';
+    store.selected.edit = srcMachSel7.value;
+    fillMachineSelects();
+    if (result) run();
+  });
+  const fileName = n => n.replace(/[\\/:*?"<>|]+/g, '_');
+  machExportBtn7.addEventListener('click', () => {
+    const m = machineById(machEditSel7.value);
+    if (!m) return;
+    const data = { format: 'toolbox-makine', version: 2, name: m.name, control: m.control, def: machText7.value };
+    download(fileName(m.name) + '.makine.json', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  });
+  // a machine named the same and on the same control is that machine; otherwise a new one is made
+  function machineFor(info) {
+    const ctl = PC.CONTROLS.some(c => c.id === info.control) ? info.control : 'mazak';
+    const hit = machines().find(m => m.name === info.name && m.control === ctl);
+    return hit || addMachine(info.name || 'İçe aktarılan makine', ctl, info.def || PC.MACHINES[2].def);
+  }
+  async function readJson(input) {
+    const f = input.files[0];
+    input.value = '';
+    if (!f) return null;
+    try { return JSON.parse(await f.text()); } catch (e) { alert('Dosya okunamadı: geçerli bir JSON dosyası değil.'); return null; }
+  }
+  // a rules file of the first versions: a "machine" for two controls
+  function importOldRules(data) {
+    const okSrc = PC.SOURCES.some(x => x.id === data.source), okTgt = PC.routeOf(data.source, data.target) != null;
+    if (!okSrc || !okTgt || typeof data.rules !== 'string') return false;
+    const t = addMachine(String(data.name || 'İçe aktarılan makine'), ctlOfOld(data.target), PC.MACHINES[2].def);
+    const s = defaultMachineOf(ctlOfOld(data.source));
+    store.pairs[s + '|' + t.id] = stripKin(upgradeRules(data.rules));
     saveStore();
-    fillMachines();
+    srcMachSel7.value = s;
+    fillMachineSelects();
+    fillTargets(t.id);
+    return true;
+  }
+  machImportBtn7.addEventListener('click', () => machImportInput7.click());
+  machImportInput7.addEventListener('change', async () => {
+    const data = await readJson(machImportInput7);
+    if (!data) return;
+    if (data.format === 'toolbox-makine' && data.version === 2 && typeof data.def === 'string') {
+      const ctl = PC.CONTROLS.some(c => c.id === data.control) ? data.control : 'mazak';
+      const m = addMachine(String(data.name || 'İçe aktarılan makine'), ctl, data.def);
+      store.selected.edit = m.id;
+      fillMachineSelects();
+      machEditSel7.value = m.id; showMachineEditor();
+    } else if (!(data.format === 'toolbox-makine' && importOldRules(data))) { alert('Bu bir makine dosyası değil.'); return; }
     if (result) run();
   });
   exportBtn7.addEventListener('click', () => {
-    const m = machine();
-    if (!m) return;
-    const data = { format: 'toolbox-makine', version: 1, name: m.name, source: srcSel7.value, target: tgtSel7.value, rules: rulesText7.value };
-    download(m.name.replace(/[\\/:*?"<>|]+/g, '_') + '.json', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const p = pairInfo();
+    if (!p) return;
+    const data = { format: 'toolbox-kurallar', version: 1,
+      source: { name: p.s.name, control: p.s.control, def: p.s.def }, target: { name: p.t.name, control: p.t.control, def: p.t.def }, rules: rulesText7.value };
+    download(fileName(`${p.s.name} → ${p.t.name}`) + '.kurallar.json', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   });
   importBtn7.addEventListener('click', () => importInput7.click());
   importInput7.addEventListener('change', async () => {
-    const f = importInput7.files[0];
-    importInput7.value = '';
-    if (!f) return;
-    let data;
-    try { data = JSON.parse(await f.text()); } catch (e) { alert('Dosya okunamadı: geçerli bir makine dosyası değil.'); return; }
-    const okSrc = ProgConvert.SOURCES.some(x => x.id === data.source), okTgt = ProgConvert.routeOf(data.source, data.target) != null;
-    if (data.format !== 'toolbox-makine' || typeof data.rules !== 'string' || !okSrc || !okTgt) { alert('Bu bir makine dosyası değil ya da kaynak/hedef bu sürümde yok.'); return; }
-    const p = addMachine(String(data.name || 'İçe aktarılan makine'), data.source, data.target, upgradeRules(data.rules));
-    srcSel7.value = data.source; fillTargets(data.target);
-    fillMachines(p.id);
+    const data = await readJson(importInput7);
+    if (!data) return;
+    if (data.format === 'toolbox-kurallar' && data.source && data.target && typeof data.rules === 'string') {
+      const s = machineFor(data.source), t = machineFor(data.target);
+      if (!PC.machineRoute(s.control, t.control)) { alert('Bu iki kontrol arasında dönüşüm bu sürümde yok.'); return; }
+      const base = PC.pairRules(s, t);
+      if (base.builtin) store.overrides[base.id] = data.rules; else store.pairs[s.id + '|' + t.id] = data.rules;
+      saveStore();
+      srcMachSel7.value = s.id;
+      fillMachineSelects();
+      fillTargets(t.id);
+    } else if (!(data.format === 'toolbox-makine' && importOldRules(data))) { alert('Bu bir kural dosyası değil.'); return; }
     if (result) run();
   });
 
@@ -9787,9 +10178,11 @@ SON = M17
   /* ---- convert ---- */
   function run() {
     if (!files.length) return;
+    const sm = machineById(srcMachSel7.value), tm = machineById(tgtMachSel7.value);
+    if (!sm || !tm || !PC.machineRoute(sm.control, tm.control)) return;
     result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
-      source: srcSel7.value,
-      target: tgtSel7.value,
+      sourceMachine: sm,
+      targetMachine: tm,
       rulesText: rulesText7.value,
       renumber: optRenum.checked,
       suppress: optSupp.checked,
@@ -9959,7 +10352,7 @@ SON = M17
     end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
     return new Blob([...parts, ...central, end], { type: 'application/zip' });
   }
-  fillMachines();
+  fillMachineSelects();
 })();
 </script>
 
