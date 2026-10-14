@@ -7062,7 +7062,7 @@ const ProgConvert = (function () {
     if (s.family === 'iso' && t.family === 'siemens') return 'iso-siemens';
     if (s.family === 'iso' && t.family === 'iso') return 'iso-iso';
     if (s.family === 'siemens' && t.family === 'iso') return 'siemens-iso';
-    return null; // 840D → 840D: not yet
+    return 'siemens-siemens'; // the program stays; kinematics, CYCLE800 and the rules' lines change
   };
   const targetsFor = sourceId => TARGETS.filter(t => routeOf(sourceId, t.id));
 
@@ -7346,6 +7346,44 @@ DOSYA = O{P}.EIA
 SON = M99
 `;
 
+  /* ---------- 840D → 840D ----------
+     The program is kept line for line; what changes is what belongs to the machine:
+     CYCLE800's data record (_TC) and direction (_DIR), axis positions of the direct
+     mode (192) and TCP moves (TRAORI) worked out for the other kinematics, and the
+     rules' M codes, commands and texts. */
+  function sieSieRules(srcName, tgtName, tcFrom, tcTo, extra) {
+    return `// ${srcName} → ${tgtName} (Siemens 840D sl → 840D sl)
+${HEADER}// Program satır satır korunur; yalnız aşağıdakiler ve kinematiğe bağlı satırlar değişir:
+// CYCLE800 doğrudan mod (192) eksen konumları ve TRAORI altındaki döner eksen hareketleri hedef makineye göre hesaplanır.
+
+[CYCLE800]
+// "kaynaktaki _TC" = "hedefteki _TC" · DIR: hedef makinenin _DIR değeri (+1 / -1; satır yoksa olduğu gibi)
+${tcFrom ? `"${tcFrom}" = "${tcTo}"` : '// "TC1" = "TC1"'}
+${extra && extra.dir ? 'DIR = ' + extra.dir : '// DIR = -1'}
+
+[M KODLARI]
+// Kaynak = Hedef   ·   boş: sil   ·   | : alt alta satırlar
+${(extra && extra.m) || ''}
+[KOMUTLAR]
+// Satırın tamamı olan komut ya da alt program adı = hedef satırları (| alt alta, boş: sil)
+${(extra && extra.cmdNote) || ''}${(extra && extra.cmds) || ''}
+[METİN]
+// Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
+${(extra && extra.text) || ''}`;
+  }
+  const HERMLE_TO_DMG = sieSieRules('Hermle C52', 'DMG duoBLOCK', 'HERMLE', 'TC1', {
+    dir: '1',
+    m: '// Hermle\'ye özel kodlar — DMG karşılıklarını yazın\nM25 =\nM27 =\nM51 =\nM52 =\n',
+    cmdNote: '// L_M54: Hermle\'nin güvenli Z alt programı — DMG\'deki karşılığını yazın\n',
+    cmds: 'L_M54 = SUPA G0 Z0 D0\n',
+    text: 'HERMLE  VARI-AXIS => DMG DUOBLOCK\n'
+  });
+  const DMG_TO_HERMLE = sieSieRules('DMG duoBLOCK', 'Hermle C52', 'TC1', 'HERMLE', {
+    dir: '-1',
+    m: 'M8 = M8 | M51\nM9 = M9 | M52\n',
+    text: 'DMG DUOBLOCK => HERMLE  VARI-AXIS\n'
+  });
+
   function genericFromSiemens(targetId) {
     const tgt = TARGETS.find(x => x.id === targetId) || TARGETS[1];
     const mazak = targetId === 'mazak';
@@ -7422,6 +7460,7 @@ SON = M99
   // A starting point for any machine of a source/target pair; the user
   // copies it to a machine profile and fills in that machine's habits.
   function genericRules(sourceId, targetId) {
+    if (sourceId === 'siemens840d' && targetId === 'siemens840d') return sieSieRules('Siemens 840D', 'Siemens 840D', '', '');
     if (sourceId === 'siemens840d') return genericFromSiemens(targetId);
     const src = (SOURCES.find(x => x.id === sourceId) || SOURCES[0]).name;
     const tgt = TARGETS.find(x => x.id === targetId) || TARGETS[0];
@@ -7552,18 +7591,37 @@ SON = M17
   const MACHINES = [
     { id: 'm-variaxis', name: 'Mazak Variaxis i700 / i800', control: 'mazak', def: machineDef('Mazak Variaxis i700 / i800 — A devirme (X etrafında) + C döner tabla', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -120 30\nTERCİH = -') },
     { id: 'm-hermle-c52', name: 'Hermle C52', control: 'siemens840d', def: machineDef('Hermle C52 — A devirme (X etrafında) + C döner tabla · CYCLE800 doğrudan modda 1. değer A, 2. değer C', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -130 100\nTERCİH = -') },
+    { id: 'm-dmg-duoblock', name: 'DMG duoBLOCK', control: 'siemens840d', def: machineDef('DMG MORI duoBLOCK — 45° eğik B kafa (-30 / +180) + C döner tabla · CYCLE800 doğrudan modda 1. değer B, 2. değer C', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') },
     { id: 'm-genel-mazak', name: 'Genel Mazak', control: 'mazak', def: machineDef('Genel Mazak makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
     { id: 'm-genel-fanuc', name: 'Genel Fanuc / Haas', control: 'fanuc', def: machineDef('Genel Fanuc / Haas makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
     { id: 'm-genel-siemens', name: 'Genel Siemens 840D', control: 'siemens840d', def: machineDef('Genel Siemens 840D makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') }
   ];
   const machineKin = def => parseRules(def || '').kin;
   const controlOf = id => CONTROLS.find(c => c.id === id) || CONTROLS[0];
-  // can these two machines be converted? (840D → 840D is not there yet)
+  // can these two machines be converted?
   const machineRoute = (srcCtl, tgtCtl) => routeOf(controlOf(srcCtl).source, controlOf(tgtCtl).target);
+
+  // Variaxis ↔ DMG: the Hermle pairs' rules with the DMG's data record, direction and safe positions
+  const VARIAXIS_TO_DMG = DEFAULT_RULES
+    .replace(/^\/\/ Mazak Variaxis → Hermle C52 \(Siemens 840D sl\)/m, "// Mazak Variaxis → DMG duoBLOCK (Siemens 840D sl)\n// Hermle kurallarından türetildi — DMG'ye özel M kodlarını ve güvenli konum satırlarını kontrol edin")
+    .replace('M8 = M8 | M51', 'M8 = M8').replace('M9 = M9 | M52', 'M9 = M9')
+    .replace('MAZAK - VARI-AXIS I700-I800 => HERMLE  VARI-AXIS', 'MAZAK - VARI-AXIS I700-I800 => DMG DUOBLOCK')
+    .replace(/^M25 M27$/m, 'SUPA G0 Z0 D0 ;!! KONTROL: DMG başlangıç konumu')
+    .replace(/^L_M54$/gm, 'SUPA G0 Z0 D0')
+    .replace('CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)',
+      "// DMG'nin 45° kafası düzlemi B/C ile çoğu zaman tam veremez (kalan dönüş AROT ister): düzlem eksen eksen\n// (_MODE) yazılır, B/C'yi kontrol hesaplar; _DIR = 1 pozitif B'yi seçer. Doğrudan mod için: 192 … {EKSEN1},({EKSEN2}+ R20),0\n" +
+      'CYCLE800(1,"TC1",100000,{MOD},{X},{Y},{Z},{A},{B},({C}+ R20),0,0,0,1,,100)');
+  const DMG_TO_VARIAXIS = HERMLE_TO_VARIAXIS
+    .replace(/^\/\/ Hermle C52 \(Siemens 840D sl\) → Mazak Variaxis/m, '// DMG duoBLOCK (Siemens 840D sl) → Mazak Variaxis')
+    .replace('HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800', 'DMG DUOBLOCK => MAZAK - VARI-AXIS I700-I800');
 
   const PROFILES = [
     { id: 'hermle-c52', name: 'Mazak Variaxis i700 / i800 → Hermle C52', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-hermle-c52', rules: DEFAULT_RULES },
-    { id: 'variaxis-from-hermle', name: 'Hermle C52 → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-hermle-c52', tgt: 'm-variaxis', rules: HERMLE_TO_VARIAXIS }
+    { id: 'variaxis-from-hermle', name: 'Hermle C52 → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-hermle-c52', tgt: 'm-variaxis', rules: HERMLE_TO_VARIAXIS },
+    { id: 'dmg-from-variaxis', name: 'Mazak Variaxis i700 / i800 → DMG duoBLOCK', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-dmg-duoblock', rules: VARIAXIS_TO_DMG },
+    { id: 'variaxis-from-dmg', name: 'DMG duoBLOCK → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-dmg-duoblock', tgt: 'm-variaxis', rules: DMG_TO_VARIAXIS },
+    { id: 'dmg-from-hermle', name: 'Hermle C52 → DMG duoBLOCK', source: 'siemens840d', target: 'siemens840d', src: 'm-hermle-c52', tgt: 'm-dmg-duoblock', rules: HERMLE_TO_DMG },
+    { id: 'hermle-from-dmg', name: 'DMG duoBLOCK → Hermle C52', source: 'siemens840d', target: 'siemens840d', src: 'm-dmg-duoblock', tgt: 'm-hermle-c52', rules: DMG_TO_HERMLE }
   ];
   SOURCES.forEach(sr => targetsFor(sr.id).forEach(tg => PROFILES.push({
     id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
@@ -7658,7 +7716,16 @@ SON = M17
       else if (k === 'CAGRI') sub.call = r[2].trim();
       else if (k === 'SON') sub.end = r[2].trim();
     });
+    // [CYCLE800] (840D → 840D): "HERMLE" = "TC1" · DIR = 1
+    const c800 = { tc: new Map(), dir: null };
+    (sections['CYCLE800'] || []).forEach(l => {
+      let r = l.match(/^\s*"([^"]*)"\s*=\s*"([^"]*)"\s*$/);
+      if (r) { c800.tc.set(r[1].toUpperCase(), r[2]); return; }
+      r = l.match(/^\s*DIR\s*=\s*([-+]?\d+)\s*$/i);
+      if (r) c800.dir = String(parseInt(r[1], 10));
+    });
     return {
+      c800,
       m: mapOf(sections['M KODLARI'], 'M'),
       g: mapOf(sections['G KODLARI'], 'G'),
       text: text2,
@@ -7916,6 +7983,9 @@ SON = M17
     const best = kinPick(kin, sols, prev);
     return best && { vals: best, rest: restOf(best) };
   }
+  // the axis right under the part when it turns about Z (a C table): a turn of the part about
+  // its own Z is a turn of that axis, so an angle in a variable (R20, #999) can ride on it
+  const zTop = kin => { const a = kin.chain[0]; return a && a.table && Math.abs(Math.abs(a.v[2]) - 1) < 1e-9 ? { name: a.name, s: Math.sign(a.v[2]) } : null; };
   // rotary words of one machine as another machine's: the tool direction is kept (TCP moves)
   function rotaryConverter(src, tgt) {
     const mode = kinCompare(src, tgt);
@@ -7929,7 +7999,13 @@ SON = M17
       apply(words, tcp) {
         if (mode === 'same' || !words.length) return { words, flag: '' };
         if (mode === 'rename') return { words: words.map(w => Object.assign({}, w, { name: names.get(w.name) || w.name })), flag: '' };
-        if (!tcp) return { words, flag: `kinematik farklı (${src.label} → ${tgt.label}) — TCP'siz döner eksen hareketi çevrilmedi` };
+        if (!tcp) {
+          // the axis right under the part, alike on both machines (a C table), turns the part the same way
+          const top = (k, n) => k.chain[0] && k.chain[0].name === n && k.chain[0].table;
+          const alike = n => top(src, n) && top(tgt, n) && src.chain[0].v.every((c, i) => Math.abs(c - tgt.chain[0].v[i]) < 1e-9);
+          if (words.every(w => alike(w.name))) { words.forEach(w => { if (w.v != null) { cur[w.name] = w.v; if (prev) prev[w.name] = w.v; } }); return { words, flag: '' }; }
+          return { words, flag: `kinematik farklı (${src.label} → ${tgt.label}) — TCP'siz döner eksen hareketi çevrilmedi` };
+        }
         if (words.some(w => w.v == null)) return { words, flag: 'değişkenli döner eksen değeri çevrilemedi' };
         words.forEach(w => { cur[w.name] = w.v; });
         const n = mvec(kinFrame(src, cur), EZ);
@@ -8004,10 +8080,28 @@ SON = M17
       if (std && std.tilt === 'X' && lit('K') === 0) { t = vals.J; c = vals.I; }
       if (lit('K') === 0) Object.assign(vals, { MOD: '39', A: vals.J, B: '0', C: vals.I });
     } else return null;
+    let rest = 0;
     if (t != null) {
       const pos = { [std.tName]: signed(t, std.st), [std.cName]: signed(c, std.sc) };
       kin.axes.forEach((a, k) => { if (k < 2) vals['EKSEN' + (k + 1)] = pos[a.name]; });
+    } else if (zTop(kin) && kin.axes.length === 2) {
+      // any other machine with a Z table: the plane without its turn about Z is solved,
+      // that turn (the variable part) is added to the table axis
+      const zt = zTop(kin);
+      let m0 = null, zText = null;
+      if (P === 1 && lit('I') != null && lit('J') != null) { m0 = turns([['Y', lit('J')], ['X', lit('I')]]); zText = vals.K; }
+      else if (P === 0 && lit('J') != null && lit('K') != null) { m0 = turns([['X', lit('J')], ['Z', lit('K')]]); zText = vals.I; }
+      const r = m0 && kinSolve(kin, m0);
+      if (r) {
+        const pos = {};
+        kin.axes.forEach(a => { pos[a.name] = fmt(r.vals[a.name]); });
+        const zs = signed(zText, zt.s);
+        pos[zt.name] = Math.abs(r.vals[zt.name]) < 5e-5 ? zs : '(' + fmt(r.vals[zt.name]) + (/^-/.test(zs) ? '' : '+') + zs + ')';
+        kin.axes.forEach((a, k) => { vals['EKSEN' + (k + 1)] = pos[a.name]; });
+        rest = r.rest;
+      }
     }
+    Object.defineProperty(vals, 'rest', { value: rest, enumerable: false });
     return vals;
   }
   // an angle that is a number ({v}) or an expression in the target's syntax ({e})
@@ -8321,6 +8415,10 @@ SON = M17
                 .map(l => l.replace(/\(\{(\w+)\}\s*\+\s*(R\d+)\)/g, (m, k, r) => (used.has(r) ? '{' + k + '}' : m)));
               emitTpl(i, tpl, pl);
               out[out.length - 1].flag = [out[out.length - 1].flag, 'değişkenli düzlem açıları — ilk denemede kontrol edin'].filter(Boolean).join('; ');
+              if (Math.abs(pl.rest || 0) > 5e-5 && R.plane.some(l => /\{EKSEN[12]\}/.test(l))) {
+                emit(i, `AROT Z=${fmt(pl.rest)}`, 'added', 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile');
+                st.arot = true;
+              }
               st.plane = key;
             }
             if (comments.length) emit(i, withComments('', comments), 'changed');
@@ -9136,6 +9234,16 @@ SON = M17
           else res = rpy ? { I: Z0, J: t, K: c } : { I: angAdd(c, 90), J: t, K: { v: -90 } };
         }
         if (num(Object.values(slot))) { const pos = {}; Object.keys(slot).forEach(k => { pos[k] = slot[k].v; }); m = kinFrame(kin, pos); }
+        const zt = zTop(kin);
+        if (!res && !m && zt && slot[zt.name] && Object.keys(slot).every(k => k === zt.name || slot[k].v != null)) {
+          // a variable on the table under the part (R20): the rest of the plane in numbers, that turn added about Z
+          const pos = { [zt.name]: 0 };
+          Object.keys(slot).forEach(k => { if (k !== zt.name) pos[k] = slot[k].v; });
+          const m0 = kinFrame(kin, pos), za = angSign(slot[zt.name], zt.s, wrapF);
+          const plus = (a, k) => (Math.abs(k) < 5e-5 ? a : angAdd(a, k));
+          if (rpy) { const g = anglesZYX(m0); res = { I: { v: g.X }, J: { v: g.Y }, K: plus(za, g.Z) }; }
+          else { const g = anglesZXZ(m0); res = { I: plus(za, g.I), J: { v: g.J }, K: { v: g.K } }; }
+        }
       } else if (kind === 0) { // axis by axis, each turn about the new axes, in the _MODE order
         const seq = seqOfMode(mode & 63);
         if (seq.some(x => !x) || new Set(seq).size !== 3) flags.push(`CYCLE800 _MODE ${mode}: eksen sırası okunamadı`);
@@ -9648,6 +9756,174 @@ SON = M17
 
   const lineText = o => (o.n ? o.n + (o.text ? ' ' + o.text : '') : o.text);
 
+  /* ---------- Siemens 840D → Siemens 840D (another machine) ----------
+     Every line stays as written unless it belongs to the machine: CYCLE800's data
+     record and direction, the axis positions of its direct mode (192) and rotary
+     moves under TRAORI (worked out for the other kinematics), and the rules'
+     M codes, whole-line commands and comment texts. */
+  const SIE_NOT_MOVE = /^(IF|WHILE|FOR|CASE|DEF|MSG|CALL|MCALL|CYCLE|POCKET|SLOT|LONGHOLE|HOLES|REPEAT|GOTO|ELSE|END|LOOP|UNTIL|R\d+\s*=|\$)/i;
+  const SIE_ROT_WORD = /(^|\s)([A-Z])(?:\s*=\s*(DC|ACP|ACN|AC|IC)\s*\(\s*([^()]*?)\s*\)|\s*=\s*([^\s;]+)|(-?(?:\d+\.?\d*|\.\d+)))(?=\s|$)/gi;
+  function convertSieSie(src, opts) {
+    const R = opts.rules;
+    const srcLines = src.split(/\r\n|\r|\n/);
+    if (srcLines.length && srcLines[srcLines.length - 1] === '') srcLines.pop();
+    const out = [], notes = [];
+    const emit = (i, text, kind, flag) => out.push({ text, src: i, kind, flag: flag || '' });
+    const srcKin = opts.srcKin || R.kin, tgtKin = opts.tgtKin || R.kin;
+    const rot = rotaryConverter(srcKin, tgtKin);
+    const diff = rot.mode === 'diff';
+    const st = { tcp: false, abs: true, arot: 0 };
+    const isNum = t => /^[-+]?(\d+\.?\d*|\.\d+)$/.test(String(t).trim());
+    let planes = 0;
+
+    // CYCLE800 arguments for the target machine → {args, flags, rest}
+    function cycle800(args) {
+      const flags = [];
+      let rest = 0;
+      const tc = (args[1] || '').replace(/"/g, '').trim();
+      if (tc && R.c800.tc.has(tc.toUpperCase())) args[1] = `"${R.c800.tc.get(tc.toUpperCase())}"`;
+      else if (tc && tc !== '0' && R.c800.tc.size) flags.push(`veri kaydı "${tc}" CYCLE800 kuralında yok`);
+      if (R.c800.dir != null && (args[13] || '').trim()) args[13] = R.c800.dir;
+      const mode = evalExpr(args[3] || '', new Map());
+      if (mode == null || (Math.round(mode) & 0xC0) !== 0xC0 || !diff) return { args, flags, rest };
+      // direct mode: the source machine's axis positions → the plane → the target's positions
+      planes++;
+      const slot = {};
+      srcKin.axes.forEach((a, k) => { if (k < 2) slot[a.name] = (args[7 + k] || '0').trim() || '0'; });
+      const zs = zTop(srcKin), zt = zTop(tgtKin);
+      let r = null, zExpr = null;
+      if (Object.values(slot).every(isNum)) {
+        const pos = {};
+        Object.keys(slot).forEach(k => { pos[k] = parseFloat(slot[k]); });
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
+      } else if (zs && zt && Object.keys(slot).every(k => k === zs.name || isNum(slot[k]))) {
+        // a variable on the Z table (R20): solved without it, then carried over onto the target's Z table
+        const pos = { [zs.name]: 0 };
+        Object.keys(slot).forEach(k => { if (k !== zs.name) pos[k] = parseFloat(slot[k]); });
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
+        zExpr = { text: slot[zs.name], s: zs.s * zt.s };
+      } else { flags.push('değişkenli eksen konumu — hedef makineye çevrilmedi'); return { args, flags, rest }; }
+      if (!r) { flags.push(`hedef makine (${tgtKin.label}) bu düzlemi veremiyor`); return { args, flags, rest }; }
+      // an angle plus the variable turn (sign s): 84.39 + (348.41+ R20)
+      const plus = (a, s) => {
+        if (!zExpr) return fmt(a);
+        const e = zExpr.text, term = s > 0 ? e : '-(' + e.replace(/^\((.*)\)$/, '$1') + ')';
+        return Math.abs(a) < 5e-5 ? term : `(${fmt(a)}${/^-/.test(term) ? '' : '+'}${term})`;
+      };
+      if (Math.abs(r.rest) <= 5e-5) {
+        const val = {};
+        tgtKin.axes.forEach(a => { val[a.name] = a.name === (zt && zt.name) ? plus(r.vals[a.name], zExpr && zExpr.s) : fmt(r.vals[a.name]); });
+        tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = val[a.name]; });
+        flags.push(`düzlem ${srcKin.label} → ${tgtKin.label} eksen konumlarına çevrildi — ilk denemede kontrol edin`);
+      } else {
+        // the target's axes alone can't give this plane (a turn about the tool is left over):
+        // the plane itself, axis by axis Z → Y → X, and the control works out its axes
+        const pos = {};
+        Object.keys(slot).forEach(k => { pos[k] = zs && k === zs.name && zExpr ? 0 : parseFloat(slot[k]); });
+        const g = anglesZYX(kinFrame(srcKin, pos));
+        args[3] = String(modeOfSeq(['Z', 'Y', 'X']));
+        args[7] = fmt(g.X); args[8] = fmt(g.Y); args[9] = plus(g.Z, zs ? zs.s : 1);
+        flags.push(`hedef makine (${tgtKin.label}) bu düzlemi eksen konumlarıyla tam veremiyor — düzlem eksen eksen (_MODE ${args[3]}) yazıldı, eksenleri kontrol hesaplar`);
+      }
+      return { args, flags, rest };
+    }
+
+    srcLines.forEach((raw, i) => {
+      const p = splitSie(raw);
+      let comment = p.comment;
+      if (comment) {
+        let cc = comment, drop = false;
+        R.text.forEach(r => { if (cc.includes(r.find)) { if (!r.repl) drop = true; else cc = cc.split(r.find).join(r.repl); } });
+        comment = drop ? null : cc;
+      }
+      const head = (p.n ? 'N' + p.n + ' ' : '') + (p.label ? p.label + ': ' : '');
+      const line = (code, c) => (head + code + (c != null && c !== '' ? (code ? ' ' : '') + ';' + c : '')).trim();
+      let code = p.code;
+      const flags = [], before = [], after = [];
+      const upper = code.toUpperCase();
+      if (/^TRAORI\b/.test(upper)) st.tcp = true;
+      if (/^TRAFOOF\b/.test(upper)) st.tcp = false;
+      // a whole-line command of the rules (L_M54 = …)
+      if (code && R.cmds.has(upper)) {
+        const ls = R.cmds.get(upper);
+        if (!ls.length) { if (comment) emit(i, line('', comment), 'changed'); return; }
+        ls.forEach((l, k) => emit(i, k ? l : line(l, comment), 'changed'));
+        return;
+      }
+      // CYCLE800
+      const cm = code.match(/\bCYCLE800\s*\((.*)\)/i);
+      if (cm) {
+        const args = splitArgs(cm[1]);
+        const cancel = args.every((a, k) => !a || (k === 1 && /^"0?"$/.test(a)));
+        if (st.arot) { before.push({ text: `AROT Z=${fmt(-st.arot)}`, flag: 'önceki düzlemin AROT\'u geri alındı' }); st.arot = 0; }
+        if (!cancel) {
+          const res = cycle800(args);
+          flags.push(...res.flags);
+          code = code.replace(cm[0], 'CYCLE800(' + res.args.join(',') + ')');
+          if (Math.abs(res.rest) > 5e-5) {
+            after.push({ text: `AROT Z=${fmt(res.rest)}`, flag: 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile' });
+            st.arot = res.rest;
+          }
+        }
+      } else if (code && !SIE_NOT_MOVE.test(code)) {
+        if (/\bG91\b/i.test(code)) st.abs = false;
+        if (/\bG90\b/i.test(code)) st.abs = true;
+        // rotary axis words: TRAORI moves keep the tool direction on the other machine
+        const words = [];
+        let m;
+        SIE_ROT_WORD.lastIndex = 0;
+        while ((m = SIE_ROT_WORD.exec(code)) !== null) {
+          const name = m[2].toUpperCase();
+          if (!rot.has(name)) continue;
+          const wrap = m[3] ? m[3].toUpperCase() : null, txt = m[4] != null ? m[4] : m[5] != null ? m[5] : m[6];
+          words.push({ name, raw: txt, wrap, v: wrap === 'IC' || !isNum(txt) ? null : parseFloat(txt), at: m.index + m[1].length, len: m[0].length - m[1].length });
+        }
+        if (words.length && rot.mode !== 'same') {
+          if (!st.abs || words.some(w => w.wrap === 'IC')) flags.push('artımlı döner eksen — başka makineye çevrilmedi');
+          else {
+            const r = rot.apply(words.map(w => ({ name: w.name, v: w.v, raw: w.raw })), st.tcp);
+            if (r.flag) flags.push(r.flag);
+            else {
+              const wrapOf = new Map(words.map(w => [w.name, w.wrap]));
+              const text = r.words.map(x => {
+                const v = x.v != null ? fmt(x.v) : x.raw, wr = wrapOf.get(x.name) || (words[0].wrap && words[0].wrap !== 'IC' ? words[0].wrap : null);
+                return wr ? `${x.name}=${wr}(${v})` : x.name + v;
+              }).join(' ');
+              let nc = '';
+              let last = 0;
+              words.forEach((w, k) => { nc += code.slice(last, w.at) + (k === 0 ? text : ''); last = w.at + w.len; });
+              code = (nc + code.slice(last)).replace(/\s+/g, ' ').trim();
+            }
+          }
+        }
+      }
+      // M codes of the rules
+      if (code && R.m.size) {
+        const extra = [];
+        code = code.replace(/(^|\s)M0*(\d+)(?=\s|$)/gi, (mm, sp, num) => {
+          const k = codeKey('M', num);
+          if (!R.m.has(k)) return mm;
+          const ls = R.m.get(k);
+          extra.push(...ls.slice(1));
+          return ls.length ? sp + ls[0] : sp;
+        }).replace(/\s+/g, ' ').trim();
+        extra.forEach(t => after.push({ text: t }));
+      }
+      before.forEach(b => emit(i, b.text, 'added', b.flag));
+      const same = code === p.code && comment === p.comment && !flags.length;
+      if (same && !/!!\s*KONTROL/i.test(raw)) emit(i, raw.replace(/\s+$/, ''), 'same');
+      else if (code || comment || head.trim() || flags.length) emit(i, line(code, comment), 'changed', flags.join('; '));
+      after.forEach(a => emit(i, a.text, 'added', a.flag));
+    });
+    out.forEach(o => {
+      o.n = null;
+      if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${o.flag}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${o.flag}`;
+      else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
+    });
+    if (diff) notes.push(`Kinematik: ${srcKin.label} → ${tgtKin.label}. CYCLE800 doğrudan mod (192) eksen konumları${planes ? ` (${planes} düzlem)` : ''} ve TRAORI altındaki döner hareketler hedef makinenin eksenlerine çevrildi; diğer CYCLE800 modları makineden bağımsızdır, yalnız _TC / _DIR değişti.`);
+    return { lines: out, srcLines, notes, calls: [] };
+  }
+
   /* ---------- a set of files: main program + subprograms ---------- */
   // files: [{name, text}] → {programs: [{name, outName, isSub, number, result}], missing, notes}
   // options: {sourceMachine, targetMachine: {control, def}} — or, as before, {source, target} control ids
@@ -9679,6 +9955,10 @@ SON = M17
         if (isSub && !num) result.notes.push(`${f.name}: alt program adında numara yok — ALT PROGRAM NUMARALARI'na ${base.toUpperCase()} = numara yazın.`);
         return { srcName: f.name, outName, isSub, number: num || null, result };
       });
+      return { programs, missing: [], rules, target, route };
+    }
+    if (route === 'siemens-siemens') {
+      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: /\.SPF$/i.test(f.name), number: null, result: convertSieSie(f.text, common) }));
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'iso-iso') {
@@ -9890,7 +10170,7 @@ SON = M17
     machEditSel7.value = all.some(m => m.id === keepE) ? keepE : tgtMachSel7.value;
     showMachineEditor();
   }
-  // only the machines this source can be converted to (840D → 840D is not there yet)
+  // the machines this source can be converted to
   function fillTargets(want) {
     const s = machineById(srcMachSel7.value);
     const list = machines().filter(m => s && PC.machineRoute(s.control, m.control));
