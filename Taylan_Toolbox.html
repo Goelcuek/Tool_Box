@@ -5838,7 +5838,15 @@ const LatheCore = (function () {
       flushRun();
     }
 
-    // N number and feed of each program line, at its first move, as small text on its own layer
+    // User offsets — each its own line or arc
+    if (userOffsets5.length > 0) {
+      lines.push('CECOLOR');
+      lines.push(resolveColorValue5(colorSelOffsetLathe, customColorOffsetLathe));
+      userOffsets5.forEach(o => emitPath([o]));
+    }
+
+    // N number and feed of each program line, at its first move, as small text on its own layer —
+    // last, so the drawing is complete even if a text command stops the script
     if (segments.length && scrLabelsChk5.checked) {
       let minH = Infinity, maxH = -Infinity, minV = Infinity, maxV = -Infinity;
       segments.forEach(sg => [[sg.x1, sg.z1], [sg.x2, sg.z2]].forEach(([x, z]) => { const q = plotOf5(x, z); minH = Math.min(minH, q.h); maxH = Math.max(maxH, q.h); minV = Math.min(minV, q.v); maxV = Math.max(maxV, q.v); }));
@@ -5855,16 +5863,14 @@ const LatheCore = (function () {
         const perRev = sg.thread || sg.feedMode !== 'perMin';
         const f = sg.type === 'rapid' ? 'G0' : sg.F != null ? `F${num(sg.F)}${perRev ? '/dev' : '/dk'}` : 'F?';
         const mid = isArc(sg) ? arcThree(sg)[1] : { x: (sg.x1 + sg.x2) / 2, z: (sg.z1 + sg.z2) / 2 };
-        lines.push('_-MTEXT', P(mid), '_H', th.toFixed(Math.max(p, 4)), '_W', '0', `${n} ${f}`, '');
+        // single-line -TEXT: point, height, rotation, text (MTEXT from a script crashes AutoCAD LT);
+        // the Standard style first, so a style with a fixed height can't skip the height prompt
+        const first = seen.size === 1;
+        lines.push('_-TEXT');
+        if (first) lines.push('_S', 'Standard');
+        lines.push(P(mid), th.toFixed(Math.max(p, 4)), '0', `${n} ${f}`);
       });
       lines.push('_-LAYER', '_S', '0', '');
-    }
-
-    // User offsets — each its own line or arc
-    if (userOffsets5.length > 0) {
-      lines.push('CECOLOR');
-      lines.push(resolveColorValue5(colorSelOffsetLathe, customColorOffsetLathe));
-      userOffsets5.forEach(o => emitPath([o]));
     }
 
     return lines.join('\n') + '\n';
