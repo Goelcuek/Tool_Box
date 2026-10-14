@@ -7613,12 +7613,10 @@ SON = M17
     { id: 'm-variaxis', name: 'Mazak Variaxis i700 / i800', control: 'mazak', def: machineDef('Mazak Variaxis i700 / i800 — A devirme (X etrafında) + C döner tabla', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -120 30\nTERCİH = -') },
     { id: 'm-hermle-c52', name: 'Hermle C52', control: 'siemens840d', def: machineDef('Hermle C52 — A devirme (X etrafında) + C döner tabla · CYCLE800 doğrudan modda 1. değer A, 2. değer C', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -130 100\nTERCİH = -') },
     { id: 'm-dmg-duoblock', name: 'DMG duoBLOCK', control: 'siemens840d', def: machineDef('DMG MORI duoBLOCK — 45° eğik B kafa (-30 / +180) + C döner tabla · CYCLE800 doğrudan modda 1. değer B, 2. değer C', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') },
-    { id: 'm-dmg-duoblock-mp', name: 'DMG duoBLOCK MillPlus', control: 'millplus', def: machineDef('DMG MORI duoBLOCK (Heidenhain MillPlus) — 45° eğik B kafa (-30 / +180) + C döner tabla', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') },
-    { id: 'm-genel-millplus', name: 'Genel MillPlus', control: 'millplus', def: machineDef('Genel Heidenhain MillPlus makinesi — kinematiğini kendi makinenize göre yazın', 'B = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nTERCİH = +') },
-    { id: 'm-genel-mazak', name: 'Genel Mazak', control: 'mazak', def: machineDef('Genel Mazak makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
-    { id: 'm-genel-fanuc', name: 'Genel Fanuc / Haas', control: 'fanuc', def: machineDef('Genel Fanuc / Haas makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
-    { id: 'm-genel-siemens', name: 'Genel Siemens 840D', control: 'siemens840d', def: machineDef('Genel Siemens 840D makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') }
+    { id: 'm-dmg-duoblock-mp', name: 'DMG duoBLOCK MillPlus', control: 'millplus', def: machineDef('DMG MORI duoBLOCK (Heidenhain MillPlus) — 45° eğik B kafa (-30 / +180) + C döner tabla', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') }
   ];
+  // what a new machine starts from when there is nothing to copy
+  const BLANK_MACHINE_DEF = machineDef('Yeni makine — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -');
   const machineKin = def => parseRules(def || '').kin;
   const controlOf = id => CONTROLS.find(c => c.id === id) || CONTROLS[0];
   // can these two machines be converted?
@@ -10634,7 +10632,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { SOURCES, TARGETS, CONTROLS, MACHINES, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -10684,7 +10682,7 @@ SON = M17
   const newId = () => 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const ctlName = id => PC.controlOf(id).name;
   // the default machine of a control, for rules saved before machines existed
-  const defaultMachineOf = ctl => ({ mazak: 'm-variaxis', siemens840d: 'm-hermle-c52', fanuc: 'm-genel-fanuc', iso: 'm-genel-fanuc' })[ctl] || 'm-genel-mazak';
+  const defaultMachineOf = ctl => ({ siemens840d: 'm-hermle-c52', millplus: 'm-dmg-duoblock-mp' })[ctl] || 'm-variaxis';
   const ctlOfOld = id => (id === 'iso' ? 'fanuc' : id);
 
   // tilted-plane lines of the first versions passed the G68.2 / CYCLE800 values
@@ -10761,13 +10759,16 @@ SON = M17
   if (Array.isArray(store.custom) && store.custom.length) {
     store.custom.forEach(c => {
       const ctl = ctlOfOld(c.target);
-      const base = PC.MACHINES.find(m => m.control === ctl && /^m-genel/.test(m.id));
-      const mc = { id: newId(), name: c.name, control: ctl, def: base ? base.def : '' };
+      const mc = { id: newId(), name: c.name, control: ctl, def: PC.BLANK_MACHINE_DEF };
       store.machines.push(mc);
       store.pairs[defaultMachineOf(ctlOfOld(c.source)) + '|' + mc.id] = stripKin(upgradeRules(c.rules));
     });
   }
   delete store.custom;
+  // the generic machines were removed: their kinematics edits and pair rules go with them
+  Object.keys(store.machineOverrides).forEach(k => { if (/^m-genel-/.test(k)) delete store.machineOverrides[k]; });
+  Object.keys(store.pairs).forEach(k => { if (/(^|\|)m-genel-/.test(k)) delete store.pairs[k]; });
+  ['src', 'tgt', 'edit'].forEach(k => { if (/^m-genel-/.test(store.selected[k] || '')) delete store.selected[k]; });
   if (!store.selected.src || !store.selected.tgt) {
     const back = store.selected.source === 'siemens840d';
     store.selected = { src: back ? 'm-hermle-c52' : 'm-variaxis', tgt: back ? 'm-variaxis' : 'm-hermle-c52' };
@@ -10939,7 +10940,7 @@ SON = M17
     const cur = machineById(machEditSel7.value);
     const name = (prompt('Yeni makinenin adı (seçili makinenin kontrolü ve kinematiği kopyalanır):', cur ? cur.name + ' kopyası' : 'Yeni makine') || '').trim();
     if (!name) return;
-    const m = addMachine(name, cur ? cur.control : 'mazak', cur ? machText7.value : PC.MACHINES[2].def);
+    const m = addMachine(name, cur ? cur.control : 'mazak', cur ? machText7.value : PC.BLANK_MACHINE_DEF);
     if (cur) copyPairs(cur, m);
     machEditSel7.value = '';
     store.selected.edit = m.id;
@@ -10980,7 +10981,7 @@ SON = M17
   function machineFor(info) {
     const ctl = PC.CONTROLS.some(c => c.id === info.control) ? info.control : 'mazak';
     const hit = machines().find(m => m.name === info.name && m.control === ctl);
-    return hit || addMachine(info.name || 'İçe aktarılan makine', ctl, info.def || PC.MACHINES[2].def);
+    return hit || addMachine(info.name || 'İçe aktarılan makine', ctl, info.def || PC.BLANK_MACHINE_DEF);
   }
   async function readJson(input) {
     const f = input.files[0];
@@ -10992,7 +10993,7 @@ SON = M17
   function importOldRules(data) {
     const okSrc = PC.SOURCES.some(x => x.id === data.source), okTgt = PC.routeOf(data.source, data.target) != null;
     if (!okSrc || !okTgt || typeof data.rules !== 'string') return false;
-    const t = addMachine(String(data.name || 'İçe aktarılan makine'), ctlOfOld(data.target), PC.MACHINES[2].def);
+    const t = addMachine(String(data.name || 'İçe aktarılan makine'), ctlOfOld(data.target), PC.BLANK_MACHINE_DEF);
     const s = defaultMachineOf(ctlOfOld(data.source));
     store.pairs[s + '|' + t.id] = stripKin(upgradeRules(data.rules));
     saveStore();
