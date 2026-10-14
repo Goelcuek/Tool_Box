@@ -1957,7 +1957,8 @@
             <div class="spacer"></div>
             <div class="legend" id="simLegend5">
               <div class="legend-item"><span class="legend-dot" style="background:#8a8a8e"></span>Hızlı (G00)</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#0071e3"></span>Kesme (G01/G02/G03)</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#0071e3"></span>Kesme · devir başı (G95/G99)</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#9b51e0"></span>Dakika başı (G94/G98)</div>
               <div class="legend-item"><span class="legend-dot" style="background:#ff3b30"></span>Geçerli satır</div>
               <div class="legend-item" id="legendRough5" style="display:none;"><span class="legend-dot" style="background:#b3521f"></span>Kaba</div>
               <div class="legend-item" id="legendFinish5" style="display:none;"><span class="legend-dot" style="background:#17181c"></span>Finiş</div>
@@ -2021,6 +2022,25 @@
               </div>
             </div>
             <div class="field">
+              <label>Dakika başı (G94) renk</label>
+              <div class="color-field">
+                <span class="color-swatch" id="colorSwatchPerMinLathe"></span>
+                <select id="colorSelPerMinLathe" class="select-field">
+                  <option value="bylayer">Katman rengi (ByLayer)</option>
+                  <option value="6" selected>Macenta</option>
+                  <option value="1">Kırmızı</option><option value="2">Sarı</option><option value="3">Yeşil</option>
+                  <option value="4">Cyan</option><option value="5">Mavi</option><option value="7">Beyaz / Siyah</option>
+                  <option value="custom">Özel ACI no…</option>
+                </select>
+              </div>
+              <div class="stepper custom-aci" id="customColorPerMinLatheField" style="display:none;">
+                <input type="number" id="customColorPerMinLathe" value="30" min="1" max="255">
+                <div class="divider"></div>
+                <button data-target="customColorPerMinLathe" data-dir="-1" title="Azalt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+                <button data-target="customColorPerMinLathe" data-dir="1" title="Artır"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+              </div>
+            </div>
+            <div class="field">
               <label>Ofset renk</label>
               <div class="color-field">
                 <span class="color-swatch" id="colorSwatchOffsetLathe"></span>
@@ -2048,6 +2068,10 @@
                 <button data-target="precision5" data-dir="1" title="Artır"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
               </div>
             </div>
+            <label class="checkbox-field" title="Her hareketin yanına satırın N numarası ve ilerlemesi, NC_ETIKET katmanına">
+              <input type="checkbox" id="scrLabelsChk5" checked>
+              N / F etiketi
+            </label>
             <div class="spacer"></div>
             <button class="btn" id="downloadScrBtn5">SCR İndir</button>
           </div>
@@ -4587,6 +4611,11 @@ const LatheCore = (function () {
   const colorSwatchOrigLathe = document.getElementById('colorSwatchOrigLathe');
   const customColorOrigLatheField = document.getElementById('customColorOrigLatheField');
   const customColorOrigLathe = document.getElementById('customColorOrigLathe');
+  const colorSelPerMinLathe = document.getElementById('colorSelPerMinLathe');
+  const colorSwatchPerMinLathe = document.getElementById('colorSwatchPerMinLathe');
+  const customColorPerMinLatheField = document.getElementById('customColorPerMinLatheField');
+  const customColorPerMinLathe = document.getElementById('customColorPerMinLathe');
+  const scrLabelsChk5 = document.getElementById('scrLabelsChk5');
   const colorSelOffsetLathe = document.getElementById('colorSelOffsetLathe');
   const colorSwatchOffsetLathe = document.getElementById('colorSwatchOffsetLathe');
   const customColorOffsetLatheField = document.getElementById('customColorOffsetLatheField');
@@ -4672,6 +4701,7 @@ const LatheCore = (function () {
     update();
   }
   wireColorPicker5(colorSelOrigLathe, colorSwatchOrigLathe, customColorOrigLatheField, '#0071e3');
+  wireColorPicker5(colorSelPerMinLathe, colorSwatchPerMinLathe, customColorPerMinLatheField, '#9b51e0');
   wireColorPicker5(colorSelOffsetLathe, colorSwatchOffsetLathe, customColorOffsetLatheField, '#1f8a4c');
   colorSelOffsetLathe.addEventListener('change', () => { updateOffsetButtons5(); renderToolpath(); });
   function offsetHex5() {
@@ -4683,6 +4713,9 @@ const LatheCore = (function () {
     if (sel.value === 'custom') return String(Math.max(1, Math.min(255, parseInt(customInput.value, 10) || 1)));
     return sel.value;
   }
+
+  // a feed move given per minute (G94/G98): on a lathe that is mostly traversing, not cutting
+  const isPerMin5 = seg => seg.type !== 'rapid' && !seg.thread && seg.feedMode === 'perMin';
 
   // A quarter of the last exported decimal: the SCR points are then accurate
   // to what the precision field promises.
@@ -5220,7 +5253,7 @@ const LatheCore = (function () {
       const isRapid = seg.type === 'rapid';
       root.appendChild(strokedEl('path', {
         d: segPath(seg), fill: 'none',
-        stroke: isRapid ? '#8a8a8e' : '#0071e3',
+        stroke: isRapid ? '#8a8a8e' : isPerMin5(seg) ? '#9b51e0' : '#0071e3',
         'stroke-width': isRapid ? 1 : 1.4,
         'stroke-dasharray': isRapid ? '3,2' : 'none'
       }));
@@ -5790,11 +5823,41 @@ const LatheCore = (function () {
       flush();
     }
 
-    // Original toolpath, in program order
+    // Original toolpath, in program order: per-revolution moves (and rapids) in the
+    // toolpath colour, per-minute moves in their own, the colour switched between runs
     if (segments.length) {
-      lines.push('CECOLOR');
-      lines.push(resolveColorValue5(colorSelOrigLathe, customColorOrigLathe));
-      emitPath(segments);
+      const colMain = resolveColorValue5(colorSelOrigLathe, customColorOrigLathe);
+      const colMin = resolveColorValue5(colorSelPerMinLathe, customColorPerMinLathe);
+      let run = [], runCol = null;
+      const flushRun = () => { if (run.length) { lines.push('CECOLOR', runCol); emitPath(run); } run = []; };
+      segments.forEach(sg => {
+        const col = isPerMin5(sg) ? colMin : colMain;
+        if (col !== runCol) { flushRun(); runCol = col; }
+        run.push(sg);
+      });
+      flushRun();
+    }
+
+    // N number and feed of each program line, at its first move, as small text on its own layer
+    if (segments.length && scrLabelsChk5.checked) {
+      let minH = Infinity, maxH = -Infinity, minV = Infinity, maxV = -Infinity;
+      segments.forEach(sg => [[sg.x1, sg.z1], [sg.x2, sg.z2]].forEach(([x, z]) => { const q = plotOf5(x, z); minH = Math.min(minH, q.h); maxH = Math.max(maxH, q.h); minV = Math.min(minV, q.v); maxV = Math.max(maxV, q.v); }));
+      const th = Math.max(Math.pow(10, -p), Math.max(maxH - minH, maxV - minV) * 0.006);
+      const num = v => String(Math.round(v * 10000) / 10000);
+      lines.push('_-LAYER', '_M', 'NC_ETIKET', '');
+      lines.push('CECOLOR', 'BYLAYER');
+      const seen = new Set();
+      segments.forEach(sg => {
+        if (seen.has(sg.lineNo)) return;
+        seen.add(sg.lineNo);
+        const nm = (rawLines[sg.lineNo - 1] || '').match(/^\s*N(\d+)/i);
+        const n = nm ? 'N' + nm[1] : 'Satir ' + sg.lineNo;
+        const perRev = sg.thread || sg.feedMode !== 'perMin';
+        const f = sg.type === 'rapid' ? 'G0' : sg.F != null ? `F${num(sg.F)}${perRev ? '/dev' : '/dk'}` : 'F?';
+        const mid = isArc(sg) ? arcThree(sg)[1] : { x: (sg.x1 + sg.x2) / 2, z: (sg.z1 + sg.z2) / 2 };
+        lines.push('_-MTEXT', P(mid), '_H', th.toFixed(Math.max(p, 4)), '_W', '0', `${n} ${f}`, '');
+      });
+      lines.push('_-LAYER', '_S', '0', '');
     }
 
     // User offsets — each its own line or arc
