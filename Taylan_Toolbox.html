@@ -7068,6 +7068,7 @@ M9 = M9 | M52
 [G KODLARI]
 // Siemens'te karşılığı olmayan ya da gereksiz Mazak G kodları
 G61.1 = CYCLE832(0.001,1,1)
+G5 = CYCLE832(0.001,1,1)
 G5.1 =
 G49 =
 G67 =
@@ -7303,11 +7304,10 @@ G69
 
 [YÜKSEK HIZ]
 // CYCLE832(tolerans, ...) — {TOL}: tolerans
-G61.1
+G05 P2
 
 [YÜKSEK HIZ İPTALİ]
-// CYCLE832() ya da CYCLE832(,0)
-G64
+// CYCLE832() ya da CYCLE832(,0) — boş: yazılmaz
 
 [ÇAĞRI SUB2000]
 // CALL ".../_N_SUB2000_SPF" — {Rnn}: çağrıdan önce verilen R parametresi
@@ -7409,10 +7409,10 @@ G69
 
 [YÜKSEK HIZ]
 // CYCLE832(tolerans, ...) — {TOL}: tolerans
-${mazak ? 'G61.1' : 'G05.1 Q1'}
+${mazak ? 'G05 P2' : 'G05.1 Q1'}
 
 [YÜKSEK HIZ İPTALİ]
-${mazak ? 'G64' : 'G05.1 Q0'}
+${mazak ? '' : 'G05.1 Q0'}
 
 [R PARAMETRELERİ]
 // Rn → #(TABAN+n) · tek tek başka numara: R5 = 990
@@ -7485,6 +7485,7 @@ ${mazakM}
 [G KODLARI]
 // Siemens'te karşılığı olmayan ya da gereksiz G kodları
 G61.1 =
+G5 = CYCLE832(0.001,1,1)
 G5.1 =
 G49 =
 G67 =${sourceId === 'fanuc' ? '\nG187 =' : ''}
@@ -8446,7 +8447,7 @@ SON = M17
 
       // ---- word-by-word ----
       const newWs = [];
-      let dropQ = false;
+      let dropQ = false, dropP = false;
       ws.forEach(w => {
         if (w.letter === 'G') {
           const key = codeKey('G', w.raw);
@@ -8455,6 +8456,7 @@ SON = M17
             const rep = R.g.get(key);
             if (rep.length) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
             if (Math.abs(w.value - 5.1) < 1e-9) dropQ = true; // G05.1 Q1: the Q belongs to the G
+            if (w.value === 5) dropP = true;                     // G05 P2: so does the P
             changed = true; return;
           }
           if (!SIE) { newWs.push(w); return; }
@@ -8494,7 +8496,7 @@ SON = M17
         if (SIE && w.letter === 'D' && ws.some(x => x.letter === 'G' && (x.value === 41 || x.value === 42))) { changed = true; return; }
         newWs.push(w);
       });
-      ws = dropQ ? newWs.filter(w => w.letter !== 'Q') : newWs;
+      ws = newWs.filter(w => !(dropQ && w.letter === 'Q') && !(dropP && w.letter === 'P'));
 
       // dwell: Mazak P milliseconds / X seconds → Siemens F seconds
       if (SIE && has(ws, 'G', 4)) {
@@ -9229,6 +9231,7 @@ SON = M17
         const args = splitArgs(c832[1]);
         const tpl = args.every(v => v === '') || evalExpr(args[1] || '0', rvals) === 0 ? R.hscOff : R.hsc;
         if (tpl.length) tplOut(i, tpl, { TOL: args[0] || '' });
+        else if (tpl === R.hscOff) { if (comment) emit(i, comment, 'changed'); }
         else emit(i, withC(code, comment), 'same', 'CYCLE832 için kural yok');
         done(); continue;
       }
@@ -9573,7 +9576,11 @@ SON = M17
       const code = have.get(k).slice(1).filter(l => l.trim() && !/^\s*\/\//.test(l)).join('\n');
       if (OLD_PROBE[k] && OLD_PROBE[k].test(code) && t.includes(mine)) t = t.replace(mine, lines.join('\n'));
     });
+    if (id === 'hermle-c52' && !/^\s*G0?5\s*=/m.test(t)) t = t.replace(/^(\s*G61\.1\s*=.*)$/m, '$1\nG5 = CYCLE832(0.001,1,1)');
     if (id === 'variaxis-from-hermle') {
+      // CYCLE832 → G05 P2, its cancel writes nothing (old defaults G61.1 / G64 only)
+      t = t.replace(/^(\[YÜKSEK HIZ\][^\n]*\n(?:\/\/[^\n]*\n)*)G61\.1[ \t]*$/m, '$1G05 P2')
+        .replace(/^(\[YÜKSEK HIZ İPTALİ\][^\n]*\n(?:\/\/[^\n]*\n)*)G64[ \t]*\n/m, '$1');
       if (!/^\s*DIAMOF\s*=/m.test(t)) t = t.replace(/^(\[KOMUTLAR\][^\n]*\n(?:\/\/[^\n]*\n)*)/m, '$1DIAMOF =\n');
       if (!/should be smaller from tool rad\.\s*=>/.test(t)) t = t.replace(/^(\[METİN\][^\n]*\n(?:\/\/[^\n]*\n)*)/m, '$1-should be smaller from tool rad. =>\n-for Radius measurement =>\n');
     }
