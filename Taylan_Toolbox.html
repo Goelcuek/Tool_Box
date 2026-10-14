@@ -8657,6 +8657,21 @@ SON = M17
     });
     const dropR = new Set();
     if (!unmappedCall) rConst.forEach((v, k) => { if (!isNaN(v) && !rRead.has(k)) dropR.add(k); });
+    // the R lines straight before a CALL that has a rule (TP1LASER: R80=… R92=… CALL) are that
+    // call's arguments: they go whatever else the program calls, unless the program reads them
+    parts.forEach((p, k) => { p.k = k; });
+    const probeArg = new Set();
+    parts.forEach((p, k) => {
+      const call = p.code.match(/^CALL\s*"([^"]*)"/i);
+      if (!call || !R.calls.has(callName(call[1]))) return;
+      for (let j = k - 1; j >= 0; j--) {
+        const c = parts[j].code;
+        if (!c) continue; // blank lines, comments, the TP1LASER: label
+        const a = c.match(/^R(\d+)\s*=/i);
+        if (!a) break;
+        if (!rRead.has(a[1])) probeArg.add(j);
+      }
+    });
     // R parameters the program changes as it runs (counters, and what is worked
     // out from them) are never replaced by the number they hold at that line:
     // a jump back gives them another one
@@ -8892,7 +8907,7 @@ SON = M17
       if (asg) {
         const v = varying.has(asg[1]) ? null : evalExpr(asg[2], rvals);
         if (v != null) rvals.set(asg[1], v); else rvals.delete(asg[1]);
-        if (dropR.has(asg[1])) { done(); continue; }
+        if (dropR.has(asg[1]) || probeArg.has(p.k)) { done(); continue; }
         emit(i, withC(`${base(parseInt(asg[1], 10))}=${fanucExpr(asg[2].trim(), base)}`, comment), 'changed');
         done(); continue;
       }
