@@ -7374,8 +7374,6 @@ ${(extra && extra.text) || ''}`;
   const HERMLE_TO_DMG = sieSieRules('Hermle C52', 'DMG duoBLOCK', 'HERMLE', 'TC1', {
     dir: '1',
     m: '// Hermle\'ye özel kodlar — DMG karşılıklarını yazın\nM25 =\nM27 =\nM51 =\nM52 =\n',
-    cmdNote: '// L_M54: Hermle\'nin güvenli Z alt programı — DMG\'deki karşılığını yazın\n',
-    cmds: 'L_M54 = SUPA G0 Z0 D0\n',
     text: 'HERMLE  VARI-AXIS => DMG DUOBLOCK\n'
   });
   const DMG_TO_HERMLE = sieSieRules('DMG duoBLOCK', 'Hermle C52', 'TC1', 'HERMLE', {
@@ -7404,6 +7402,7 @@ G500 =
 
 [KOMUTLAR]
 // Siemens komutu ya da alt program adı = hedef satırları (| alt alta, boş: sil)
+L_M54 = G91 G28 Z0. | G90
 STOPRE =
 TRANS =
 TRAFOOF = G49
@@ -7525,8 +7524,8 @@ G21 = G710
 // Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
 
 [BAŞLANGIÇ]
-// İlk takımdan önceki G28 referans bloğunun yerine
-SUPA G0 Z0 D0 ;!! KONTROL: makinenin güvenli başlangıç konumu
+// İlk takımdan önceki G28 referans bloğunun yerine · L_M54: güvenli Z alt programı (her Siemens makinede)
+L_M54
 
 [TAKIM DEĞİŞTİRME]
 // T.. M06 — {T}: takım numarası
@@ -7540,11 +7539,11 @@ D1
 
 [ARA DÖNÜŞ]
 // İki takım arasındaki G28 referans bloğunun yerine
-SUPA G0 Z0 D0 ;!! KONTROL: takım değiştirme konumu
+L_M54
 
 [PROGRAM SONU]
 // Son takımdan sonraki G28 referans bloğunun yerine
-SUPA G0 Z0 D0
+L_M54
 SUPA G0 X0 Y0 ;!! KONTROL: park konumu
 
 [DELİK MESAJI]
@@ -7607,7 +7606,6 @@ SON = M17
     .replace('M8 = M8 | M51', 'M8 = M8').replace('M9 = M9 | M52', 'M9 = M9')
     .replace('MAZAK - VARI-AXIS I700-I800 => HERMLE  VARI-AXIS', 'MAZAK - VARI-AXIS I700-I800 => DMG DUOBLOCK')
     .replace(/^M25 M27$/m, 'SUPA G0 Z0 D0 ;!! KONTROL: DMG başlangıç konumu')
-    .replace(/^L_M54$/gm, 'SUPA G0 Z0 D0')
     .replace('CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,0,0,0,-1,,100)',
       "// DMG'nin 45° kafası düzlemi B/C ile çoğu zaman tam veremez (kalan dönüş AROT ister): düzlem eksen eksen\n// (_MODE) yazılır, B/C'yi kontrol hesaplar; _DIR = 1 pozitif B'yi seçer. Doğrudan mod için: 192 … {EKSEN1},({EKSEN2}+ R20),0\n" +
       'CYCLE800(1,"TC1",100000,{MOD},{X},{Y},{Z},{A},{B},({C}+ R20),0,0,0,1,,100)');
