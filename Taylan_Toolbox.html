@@ -8761,7 +8761,7 @@ SON = M17
     const targets = new Set();
     parts.forEach(p => { for (const g of p.code.matchAll(/GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)/gi)) targets.add(g[1].toUpperCase()); });
 
-    const st = { abs: true, pos: { X: null, Y: null, Z: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0, feedRev: false, rot: null, trans: null };
+    const st = { abs: true, pos: { X: null, Y: null, Z: null }, rpos: { A: null, B: null, C: null }, F: null, S: null, tool: null, cycle: null, whileDepth: 0, feedRev: false, rot: null, trans: null };
     let usedDC = false;
     const namedSeen = new Set();
     const toolNo = v => {
@@ -8803,10 +8803,24 @@ SON = M17
     // a position inside MCALL: the first one carries the whole ISO cycle
     function cyclePos(i, xy, rest, comment, flags) {
       const c = st.cycle;
+      // a rotary word that doesn't move (C=DC(0) with C already at 0) stays out of the cycle block;
+      // one that does goes with its hole, next to X / Y
+      const rot = [];
+      rest = rest.filter(w => {
+        const m = w.match(/^([ABC])(-?[\d.]+)$/);
+        if (!m) return true;
+        if (st.rpos[m[1]] != null && Math.abs(st.rpos[m[1]] - parseFloat(m[2])) < 1e-9) return false;
+        st.rpos[m[1]] = parseFloat(m[2]);
+        rot.push(w);
+        return false;
+      });
+      // a hole reached by turning C only: Siemens drills there, a Fanuc-type cycle needs X / Y in the block
+      if (rot.length && !xy.length && st.pos.X != null && st.pos.Y != null) xy = ['X' + fmt(st.pos.X), 'Y' + fmt(st.pos.Y)];
+      xy = xy.concat(rot);
       const line = c.started ? xy.join(' ') : cycleLine(c, xy);
       emit(i, withC([line].concat(rest).filter(Boolean).join(' '), comment), 'changed', [c.started ? '' : c.flag].concat(flags).filter(Boolean).join('; '));
       c.started = true;
-      xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs) st.pos[x[0]] = v; });
+      xy.forEach(x => { const v = parseFloat(x.slice(1)); if (!isNaN(v) && st.abs && 'XYZ'.includes(x[0])) st.pos[x[0]] = v; });
     }
     // subprogram called by name (SUBIT14): its number from ALT PROGRAM NUMARALARI, or the
     // number its file was given in this conversion; one that stays on the machine needs a rule
@@ -9287,6 +9301,7 @@ SON = M17
       }
       // track where the tool is (for the cycle retract height)
       ws.forEach(w => { const mm = w.match(/^([XYZ])(-?[\d.]+)$/); if (mm) st.pos[mm[1]] = st.abs ? parseFloat(mm[2]) : (st.pos[mm[1]] != null ? st.pos[mm[1]] + parseFloat(mm[2]) : null); });
+      ws.forEach(w => { const mm = w.match(/^([ABC])(-?[\d.]+|\[.*\])$/); if (mm) st.rpos[mm[1]] = st.abs && !/\[/.test(mm[2]) ? parseFloat(mm[2]) : null; });
 
       const text = withC(ws.join(' '), comment);
       const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase();
