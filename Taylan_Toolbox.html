@@ -7049,16 +7049,19 @@ const ProgConvert = (function () {
   const SOURCES = [
     { id: 'mazak', name: 'Mazak EIA/ISO', family: 'iso' },
     { id: 'fanuc', name: 'Fanuc / Haas ISO', family: 'iso' },
-    { id: 'siemens840d', name: 'Siemens 840D', family: 'siemens' }
+    { id: 'siemens840d', name: 'Siemens 840D', family: 'siemens' },
+    { id: 'millplus', name: 'Heidenhain MillPlus', family: 'millplus' }
   ];
   const TARGETS = [
     { id: 'siemens840d', name: 'Siemens 840D', family: 'siemens', writer: 'siemens', mainExt: '.MPF' },
     { id: 'mazak', name: 'Mazak EIA/ISO', family: 'iso', writer: 'iso', mainExt: '.EIA' },
-    { id: 'iso', name: 'Fanuc / Haas ISO', family: 'iso', writer: 'iso', mainExt: '.NC' }
+    { id: 'iso', name: 'Fanuc / Haas ISO', family: 'iso', writer: 'iso', mainExt: '.NC' },
+    { id: 'millplus', name: 'Heidenhain MillPlus', family: 'millplus', writer: 'millplus', mainExt: '.pm' }
   ];
   const routeOf = (sourceId, targetId) => {
     const s = SOURCES.find(x => x.id === sourceId), t = TARGETS.find(x => x.id === targetId);
     if (!s || !t) return null;
+    if (s.family === 'millplus' || t.family === 'millplus') return s.family + '-' + t.family; // through 840D
     if (s.family === 'iso' && t.family === 'siemens') return 'iso-siemens';
     if (s.family === 'iso' && t.family === 'iso') return 'iso-iso';
     if (s.family === 'siemens' && t.family === 'iso') return 'siemens-iso';
@@ -7338,6 +7341,26 @@ DOSYA = O{P}.EIA
 SON = M99
 `;
 
+  /* ---------- MillPlus sections of a pair's rules ---------- */
+  function MP_SECTIONS(o) {
+    return `[MILLPLUS]
+// MillPlus satırı = 840D karşılığı · MillPlus okunurken soldan sağa, yazılırken sağdan sola · SİL: o tarafta satır yok
+// Kurallar 840D üzerinden çalışır: MillPlus önce 840D'ye çevrilir (ya da 840D'den MillPlus'a yazılır)
+${o.lines || 'G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL'}
+
+[MILLPLUS TAKIM DEĞİŞTİRME]
+// 840D'deki T.. / M6 (/ D1) yerine yazılır — {T}: takım numarası
+${o.tool || 'G17 M55\nE53=6 ( AUTOMATIC/MANUEL TOOL CHANGE )\nT{T} S3000 F2000 M=E53 ( Search satiri )'}
+
+[E PARAMETRELERİ]
+// MillPlus E = 840D R · listede olmayan En = Rn · KOŞUL: G29 koşulu için kullanılan E
+// döner desen: E10 sayaç, E5 özellik başına açı, E20 güncel açı (840D R5, R10, R20 · Mazak #990, #995, #999)
+E10 = R5
+E5 = R10
+KOŞUL = E1
+`;
+  }
+
   /* ---------- 840D → 840D ----------
      The program is kept line for line; what changes is what belongs to the machine:
      CYCLE800's data record (_TC) and direction (_DIR), axis positions of the direct
@@ -7453,6 +7476,10 @@ SON = M99
   // A starting point for any machine of a source/target pair; the user
   // copies it to a machine profile and fills in that machine's habits.
   function genericRules(sourceId, targetId) {
+    if (sourceId === 'millplus' || targetId === 'millplus') {
+      const base = genericRules(sourceId === 'millplus' ? 'siemens840d' : sourceId, targetId === 'millplus' ? 'siemens840d' : targetId);
+      return base.replace(/^\/\/ (.*?) — genel makine/m, (m, t) => `// ${t.replace(/Siemens 840D/g, 'MillPlus (840D üzerinden)')} — genel makine`) + '\n' + MP_SECTIONS({});
+    }
     if (sourceId === 'siemens840d' && targetId === 'siemens840d') return sieSieRules('Siemens 840D', 'Siemens 840D', '', '');
     if (sourceId === 'siemens840d') return genericFromSiemens(targetId);
     const src = (SOURCES.find(x => x.id === sourceId) || SOURCES[0]).name;
@@ -7570,7 +7597,8 @@ SON = M17
   const CONTROLS = [
     { id: 'mazak', name: 'Mazak EIA/ISO', source: 'mazak', target: 'mazak' },
     { id: 'fanuc', name: 'Fanuc / Haas ISO', source: 'fanuc', target: 'iso' },
-    { id: 'siemens840d', name: 'Siemens 840D', source: 'siemens840d', target: 'siemens840d' }
+    { id: 'siemens840d', name: 'Siemens 840D', source: 'siemens840d', target: 'siemens840d' },
+    { id: 'millplus', name: 'Heidenhain MillPlus', source: 'millplus', target: 'millplus' }
   ];
   const KIN_HELP = `[KİNEMATİK]
 // Döner eksenler, makinenin saydığı sırayla (1. eksen, 2. eksen):  harf = i j k  MASA ya da KAFA
@@ -7585,6 +7613,8 @@ SON = M17
     { id: 'm-variaxis', name: 'Mazak Variaxis i700 / i800', control: 'mazak', def: machineDef('Mazak Variaxis i700 / i800 — A devirme (X etrafında) + C döner tabla', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -120 30\nTERCİH = -') },
     { id: 'm-hermle-c52', name: 'Hermle C52', control: 'siemens840d', def: machineDef('Hermle C52 — A devirme (X etrafında) + C döner tabla · CYCLE800 doğrudan modda 1. değer A, 2. değer C', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nA SINIR = -130 100\nTERCİH = -') },
     { id: 'm-dmg-duoblock', name: 'DMG duoBLOCK', control: 'siemens840d', def: machineDef('DMG MORI duoBLOCK — 45° eğik B kafa (-30 / +180) + C döner tabla · CYCLE800 doğrudan modda 1. değer B, 2. değer C', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') },
+    { id: 'm-dmg-duoblock-mp', name: 'DMG duoBLOCK MillPlus', control: 'millplus', def: machineDef('DMG MORI duoBLOCK (Heidenhain MillPlus) — 45° eğik B kafa (-30 / +180) + C döner tabla', '// B180: mil yatay, Y yönünde. B90\'da takım ucu +X yerine -X\'e yatıyorsa: B = 0 -0.7071 -0.7071 KAFA\nB = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nB SINIR = -30 180\nTERCİH = +') },
+    { id: 'm-genel-millplus', name: 'Genel MillPlus', control: 'millplus', def: machineDef('Genel Heidenhain MillPlus makinesi — kinematiğini kendi makinenize göre yazın', 'B = 0 0.7071 0.7071 KAFA\nC = 0 0 1 MASA\nTERCİH = +') },
     { id: 'm-genel-mazak', name: 'Genel Mazak', control: 'mazak', def: machineDef('Genel Mazak makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
     { id: 'm-genel-fanuc', name: 'Genel Fanuc / Haas', control: 'fanuc', def: machineDef('Genel Fanuc / Haas makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') },
     { id: 'm-genel-siemens', name: 'Genel Siemens 840D', control: 'siemens840d', def: machineDef('Genel Siemens 840D makinesi — kinematiğini kendi makinenize göre yazın', 'A = 1 0 0 MASA\nC = 0 0 1 MASA\nTERCİH = -') }
@@ -7609,13 +7639,28 @@ SON = M17
     .replace(/^\/\/ Hermle C52 \(Siemens 840D sl\) → Mazak Variaxis/m, '// DMG duoBLOCK (Siemens 840D sl) → Mazak Variaxis')
     .replace('HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800', 'DMG DUOBLOCK => MAZAK - VARI-AXIS I700-I800');
 
+  // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
+  const mpHead = (t, title) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS({});
+  const VARIAXIS_TO_DMGMP = mpHead(VARIAXIS_TO_DMG, 'Mazak Variaxis → DMG duoBLOCK MillPlus');
+  const DMGMP_TO_VARIAXIS = mpHead(DMG_TO_VARIAXIS, 'DMG duoBLOCK MillPlus → Mazak Variaxis');
+  const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG, 'Hermle C52 → DMG duoBLOCK MillPlus');
+  const DMGMP_TO_HERMLE = mpHead(DMG_TO_HERMLE, 'DMG duoBLOCK MillPlus → Hermle C52');
+  const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus');
+  const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
+
   const PROFILES = [
     { id: 'hermle-c52', name: 'Mazak Variaxis i700 / i800 → Hermle C52', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-hermle-c52', rules: DEFAULT_RULES },
     { id: 'variaxis-from-hermle', name: 'Hermle C52 → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-hermle-c52', tgt: 'm-variaxis', rules: HERMLE_TO_VARIAXIS },
     { id: 'dmg-from-variaxis', name: 'Mazak Variaxis i700 / i800 → DMG duoBLOCK', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-dmg-duoblock', rules: VARIAXIS_TO_DMG },
     { id: 'variaxis-from-dmg', name: 'DMG duoBLOCK → Mazak Variaxis i700 / i800', source: 'siemens840d', target: 'mazak', src: 'm-dmg-duoblock', tgt: 'm-variaxis', rules: DMG_TO_VARIAXIS },
     { id: 'dmg-from-hermle', name: 'Hermle C52 → DMG duoBLOCK', source: 'siemens840d', target: 'siemens840d', src: 'm-hermle-c52', tgt: 'm-dmg-duoblock', rules: HERMLE_TO_DMG },
-    { id: 'hermle-from-dmg', name: 'DMG duoBLOCK → Hermle C52', source: 'siemens840d', target: 'siemens840d', src: 'm-dmg-duoblock', tgt: 'm-hermle-c52', rules: DMG_TO_HERMLE }
+    { id: 'hermle-from-dmg', name: 'DMG duoBLOCK → Hermle C52', source: 'siemens840d', target: 'siemens840d', src: 'm-dmg-duoblock', tgt: 'm-hermle-c52', rules: DMG_TO_HERMLE },
+    { id: 'dmgmp-from-variaxis', name: 'Mazak Variaxis → DMG duoBLOCK MillPlus', source: 'mazak', target: 'millplus', src: 'm-variaxis', tgt: 'm-dmg-duoblock-mp', rules: VARIAXIS_TO_DMGMP },
+    { id: 'variaxis-from-dmgmp', name: 'DMG duoBLOCK MillPlus → Mazak Variaxis', source: 'millplus', target: 'mazak', src: 'm-dmg-duoblock-mp', tgt: 'm-variaxis', rules: DMGMP_TO_VARIAXIS },
+    { id: 'dmgmp-from-hermle', name: 'Hermle C52 → DMG duoBLOCK MillPlus', source: 'siemens840d', target: 'millplus', src: 'm-hermle-c52', tgt: 'm-dmg-duoblock-mp', rules: HERMLE_TO_DMGMP },
+    { id: 'hermle-from-dmgmp', name: 'DMG duoBLOCK MillPlus → Hermle C52', source: 'millplus', target: 'siemens840d', src: 'm-dmg-duoblock-mp', tgt: 'm-hermle-c52', rules: DMGMP_TO_HERMLE },
+    { id: 'dmgmp-from-dmg', name: 'DMG duoBLOCK → DMG duoBLOCK MillPlus', source: 'siemens840d', target: 'millplus', src: 'm-dmg-duoblock', tgt: 'm-dmg-duoblock-mp', rules: DMG_TO_DMGMP },
+    { id: 'dmg-from-dmgmp', name: 'DMG duoBLOCK MillPlus → DMG duoBLOCK', source: 'millplus', target: 'siemens840d', src: 'm-dmg-duoblock-mp', tgt: 'm-dmg-duoblock', rules: DMGMP_TO_DMG }
   ];
   SOURCES.forEach(sr => targetsFor(sr.id).forEach(tg => PROFILES.push({
     id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
@@ -7718,7 +7763,18 @@ SON = M17
       r = l.match(/^\s*DIR\s*=\s*([-+]?\d+)\s*$/i);
       if (r) c800.dir = String(parseInt(r[1], 10));
     });
+    // [MILLPLUS] lines, [MILLPLUS TAKIM DEĞİŞTİRME], [E PARAMETRELERİ]
+    const mpSide = t => (/^S[İI]L$/i.test(t.trim()) ? '' : t.trim());
+    const mp = { lines: [], tool: trimBlock(sections['MILLPLUS TAKIM DEGISTIRME']), e2r: new Map(), r2e: new Map(), scratch: 'E1' };
+    (sections['MILLPLUS'] || []).forEach(l => { const r = l.match(/^(.*?)\s=\s(.*)$/); if (r) mp.lines.push({ mp: mpSide(r[1]), sie: mpSide(r[2]) }); });
+    (sections['E PARAMETRELERI'] || []).forEach(l => {
+      let r = l.match(/^\s*E(\d+)\s*=\s*R(\d+)\s*$/i);
+      if (r) { mp.e2r.set(+r[1], +r[2]); mp.r2e.set(+r[2], +r[1]); return; }
+      r = l.match(/^\s*KO[SŞ]UL\s*=\s*(E\d+)\s*$/i);
+      if (r) mp.scratch = r[1].toUpperCase();
+    });
     return {
+      mp,
       c800,
       m: mapOf(sections['M KODLARI'], 'M'),
       g: mapOf(sections['G KODLARI'], 'G'),
@@ -9950,10 +10006,419 @@ SON = M17
     return { lines: out, srcLines, notes, calls: [] };
   }
 
+  /* ---------- Heidenhain MillPlus ----------
+     MillPlus is read and written through 840D: a MillPlus program is first put into
+     840D words line for line (mp2sie) and converted from there; a conversion into
+     MillPlus is made to 840D first and then written as MillPlus (sie2mp). So every
+     840D rule, the kinematics and the plane math work for MillPlus as they are, and
+     the pair's [MILLPLUS] lines carry what differs between the two (G74 Z-1 L1 = L_M54).
+       E parameters ↔ R (E PARAMETRELERİ: E10 = R5), ":" ↔ "/"
+       G29 N=0201 E1=(E10=1) E1 ↔ IF R5==1 GOTOF N201 · G29 N=0101 ↔ GOTOB N101
+       G7 A5 B5 C5 L1=1 (about X, then Y, then Z, fixed axes) ↔ CYCLE800 _MODE 27
+       G7 L1=1 ↔ CYCLE800() · G93 X Y Z ↔ TRANS X Y Z · G141 ↔ TRAORI · G40 ↔ TRAFOOF
+       G23 N=2001 N5="\blum\" ↔ CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB2001_SPF"
+       G54 I1 ↔ G54 · T9 … M=E53 ↔ T9 M6 · R ↔ CR= · I1= J1= K1= ↔ A3= B3= C3= */
+  const MP_ADDR_EXPR = /\b([A-Z][0-9]?)\s*=\s*(\([^()]*(?:\([^()]*\)[^()]*)*\)|-?[\w.]+)/gi;
+  // "(a) (b)" comments of a MillPlus line and the code between them
+  function mpSplit(raw) {
+    const comments = [];
+    const code = raw.replace(/\([^()]*\)/g, (m, at) => {
+      // a comment is a bracket that doesn't follow "=" (E5=(360:20) is an expression)
+      const before = raw.slice(0, at).replace(/\s+$/, '');
+      if (/[=(*:+\-<>]$/.test(before)) return m;
+      comments.push(m);
+      return ' ';
+    });
+    return { code: code.replace(/\s+/g, ' ').trim(), comments };
+  }
+  const mpLabel = n => 'N' + String(n).padStart(4, '0');
+
+  // MillPlus → 840D, line for line; flags per line for the KONTROL notes
+  function mp2sie(text, R) {
+    const lines = text.split(/\r\n|\r|\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    const eToR = n => (R.mp.e2r.has(n) ? R.mp.e2r.get(n) : n);
+    const expr = s => String(s).replace(/\bE(\d+)/g, (m, n) => 'R' + eToR(+n)).replace(/:/g, '/');
+    const cond = s => expr(s).replace(/^\((.*)\)$/, '$1').replace(/([^<>=!])=(?!=)/g, '$1==');
+    const flags = new Map(), notes = [];
+    const flag = (i, f) => { if (!flags.has(i)) flags.set(i, []); flags.get(i).push(f); };
+    // block numbers a G29 jumps to are kept; every other N goes (MillPlus repeats them)
+    const nOf = l => { const m = l.match(/^\s*N0*(\d+)/i); return m ? +m[1] : null; };
+    const targets = new Set(), probeFlags = new Set(), mVars = new Set();
+    lines.forEach(l => {
+      const c = mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code;
+      if (/^G29\b/i.test(c)) { const t = c.match(/\bN\s*=\s*0*(\d+)/i); if (t) targets.add(+t[1]); }
+      const g = c.match(/^G327\b.*?\bE(\d+)\s*$/i); if (g) probeFlags.add(g[1]);
+      const mv = c.match(/\bM\s*=\s*E(\d+)/i); if (mv) mVars.add(mv[1]);
+    });
+    // the lines of the tool-change template around a T … M=E53 (G17 M55, E53=6) belong to it
+    const toolSkip = new Set();
+    const tplKeys = new Set(R.mp.tool.filter(t => !/\{T\}/.test(t)).map(t => mpKey(mpSplit(t).code)).filter(Boolean));
+    lines.forEach((l, i) => {
+      if (!/\bM\s*=\s*E\d+/i.test(l)) return;
+      for (let j = i - 1; j >= 0 && i - j <= 4; j--) {
+        const c = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
+        if (!c) continue;
+        if (tplKeys.has(mpKey(c)) || (/^E(\d+)\s*=/i.test(c) && mVars.has(c.match(/^E(\d+)/i)[1]))) toolSkip.add(j); else break;
+      }
+    });
+    const lineOfN = new Map();
+    lines.forEach((l, i) => { const n = nOf(l); if (n != null && targets.has(n) && !lineOfN.has(n)) lineOfN.set(n, i); });
+    const mapLines = new Map(R.mp.lines.filter(x => x.mp).map(x => [mpKey(x.mp), x.sie]));
+    let tcp = false, comp = false;
+    const out = lines.map((raw, i) => {
+      const n = nOf(raw);
+      const body = raw.replace(/^\s*N\d+\s*/i, '');
+      if (/^\s*%/.test(body)) return ';' + body.trim();
+      const { code, comments } = mpSplit(body);
+      const head = n != null && targets.has(n) ? "N" + n + " " : "";
+      if (toolSkip.has(i)) return head.trim();
+      const com = comments.length ? ' ;' + comments.join(' ') : '';
+      const line = c => (head + c + com).replace(/\s+;/, ' ;').trim();
+      if (!code) return line('');
+      const U = mpKey(code);
+      if (mapLines.has(U)) return line(mapLines.get(U));
+      // E parameters
+      let m = code.match(/^E(\d+)\s*=\s*(.+)$/i);
+      if (m) {
+        if (mVars.has(m[1])) return line(''); // E53=6: the tool-change M code, part of T … M=E53
+        return line(`R${eToR(+m[1])}=${expr(m[2])}`);
+      }
+      // jumps
+      if (/^G29\b/i.test(code)) {
+        const t = code.match(/\bN\s*=\s*0*(\d+)/i);
+        const c = code.match(/\bE\d+\s*=\s*(\([^]*\)|[^\s]+)/i);
+        if (!t) { flag(i, 'G29 hedefi okunamadı'); return line(code); }
+        if (c && [...probeFlags].some(p => new RegExp('\\bE' + p + '\\b').test(c[1]))) {
+          notes.push(`${n != null ? 'N' + n : 'Satır ' + (i + 1)}: takım ölçüm atlaması (G327 / G29) çevrilmedi — ölçüm her seferinde yapılır.`);
+          return line('');
+        }
+        const dir = (lineOfN.get(+t[1]) ?? i + 1) > i ? 'GOTOF' : 'GOTOB';
+        return line(c ? `IF ${cond(c[1])} ${dir} N${+t[1]}` : `${dir} N${+t[1]}`);
+      }
+      if (/^G327\b/i.test(code)) return line('');
+      // tilted plane, origin, TCP
+      if (/^G7\b/i.test(code)) {
+        const ang = k => { const w = code.match(new RegExp('\\b' + k + '5\\s*=\\s*(\\([^]*?\\)|[^\\s]+)', 'i')); return w ? expr(w[1]) : '0'; };
+        const L1 = (code.match(/\bL1\s*=\s*(\d)/i) || [])[1];
+        const a = ang('A'), b = ang('B'), c = ang('C');
+        if ([a, b, c].every(v => /^0*\.?0*$/.test(v))) return line('CYCLE800()');
+        if (L1 === '0') flag(i, 'G7 L1=0: döner eksenler hareket etmez');
+        if (a !== '0' && b !== '0') flag(i, 'G7 A5 ve B5 birlikte: dönüş sırası (önce A5) kontrol edilmeli');
+        return line(`CYCLE800(1,"TC1",0,27,0,0,0,${c},${b},${a},0,0,0,1)`);
+      }
+      if (/^G93\b/i.test(code)) {
+        const ax = (code.match(/\b[XYZ]\s*=?\s*[-+]?[\w.()]+/gi) || []).map(w => w.replace(/\s+/g, '').replace(/=/, ''));
+        return line(ax.some(w => !/^[XYZ]-?0*\.?0*$/i.test(w)) ? 'TRANS ' + ax.map(expr).join(' ') : 'TRANS');
+      }
+      if (/^G141\b/i.test(code)) { tcp = true; return line('TRAORI'); }
+      if (/^G40$/i.test(code) && tcp) { tcp = false; if (comp) flag(i, 'G40 hem G141 hem yarıçap telafisini kapatır'); comp = false; return line('TRAFOOF'); }
+      // calls
+      m = code.match(/^G23\b.*?\bN\s*=\s*(\d+)(?:.*?\bN5\s*=\s*"([^"]*)")?/i);
+      if (m) {
+        const dirs = (m[2] || '').split(/[\\/]+/).filter(Boolean).map(d => `_N_${d.toUpperCase()}_DIR`);
+        return line(`CALL"/_N_CUS_DIR/${dirs.length ? dirs.join('/') + '/' : ''}_N_SUB${m[1]}_SPF"`);
+      }
+      if (/^G22\b/i.test(code)) { flag(i, 'G22 alt program çağrısı çevrilmedi'); return line(code); }
+      if (/^G74\b/i.test(code)) {
+        flag(i, 'G74 makine konumu — SUPA ile yazıldı, [MILLPLUS] satırlarına ekleyin');
+        return line('SUPA G0 ' + (code.match(/\b[XYZ]-?[\d.]+/gi) || []).join(' '));
+      }
+      if (/^G(8[1-9]|7[3-9])\b/i.test(code)) { flag(i, 'MillPlus delme döngüsü çevrilmedi'); return line(code); }
+      // words of a plain block
+      let ws = code;
+      if (/\bM\s*=\s*E\d+/i.test(ws)) ws = ws.replace(/\b[SF][\d.]+\s*/gi, '').replace(/\bM\s*=\s*E\d+/i, 'M6');
+      ws = ws.replace(/\bG54\s+I(\d+)/i, (mm, k) => (+k <= 4 ? 'G' + (53 + +k) : 'G' + (500 + +k)));
+      if (/\bG4[12]\b/i.test(ws)) comp = true;
+      if (/^G40\b/i.test(ws)) comp = false;
+      if (/\bG0?[23]\b/i.test(ws) && /\b[IJ]-?[\d.]/i.test(ws)) flag(i, 'MillPlus yay merkezi (I J) — mutlak/artımlı kontrol edilmeli');
+      ws = ws.replace(/\bR(-?[\d.]+)/g, (mm, v) => (/\bG0?[23]\b/i.test(code) ? 'CR=' + v : mm));
+      ws = ws.replace(/\bI1\s*=\s*/gi, 'A3=').replace(/\bJ1\s*=\s*/gi, 'B3=').replace(/\bK1\s*=\s*/gi, 'C3=');
+      if (tcp && /\b[IJK]-?[\d.]/i.test(ws) && !/\bG0?[23]\b/i.test(ws)) flag(i, 'G141 yüzey normali (I J K) çevrilmedi');
+      ws = ws.replace(/\b([XYZABCF])\s*=\s*(\([^()]*\)|E\d+)/gi, (mm, a, v) => `${a}=${expr(v)}`).replace(/\bE(\d+)\b/g, (mm, k) => 'R' + eToR(+k)).replace(/:/g, '/');
+      return line(ws);
+    });
+    return { text: out.join('\n'), lines, flags, notes };
+  }
+
+  // a line as a rule key: one space, upper case, numbers as numbers (G75 Z1. = G75 Z1.0)
+  const mpKey = t => String(t).replace(/\s+/g, ' ').trim().toUpperCase().replace(/-?\d*\.\d+|-?\d+\.?/g, n => String(parseFloat(n)));
+  // 840D block structures as jumps (MillPlus has G29 only): IF/ELSE/ENDIF, WHILE, LOOP,
+  // FOR, and REPEAT of a labelled section written out again
+  function sieFlatten(lines) {
+    const codeOf = o => { const t = o.text.replace(/^\s*N\d+\s*/i, ''); let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k).trim(); } return t.trim(); };
+    const comOf = o => { const c = codeOf(o), t = o.text.replace(/^\s*N\d+\s*/i, ''); return t.slice(t.indexOf(c) + c.length).trim(); };
+    const inv = c => {
+      const m = c.trim().replace(/^\((.*)\)$/, '$1').match(/^([^<>=]+?)\s*(==|<>|>=|<=|>|<)\s*([^<>=]+)$/);
+      return m && !/\b(AND|OR|NOT|XOR)\b/i.test(c) ? `${m[1].trim()} ${CMP_NOT[m[2]]} ${m[3].trim()}` : `NOT (${c})`;
+    };
+    const out = [], stack = [];
+    let id = 0;
+    const add = (o, text) => out.push(Object.assign({}, o, { text, kind: o.kind === 'same' ? 'changed' : o.kind }));
+    for (let k = 0; k < lines.length; k++) {
+      const o = lines[k], c = codeOf(o), com = comOf(o);
+      const withCom = t => t + (com ? ' ' + com : '');
+      let m;
+      if ((m = c.match(/^IF\s+(.+)$/i)) && !/\bGOTO[FBC]?\b/i.test(c)) { const n = ++id; stack.push({ t: 'IF', n, els: false }); add(o, withCom(`IF ${inv(m[1])} GOTOF _IF${n}E`)); continue; }
+      if (/^ELSE$/i.test(c) && stack.length && stack[stack.length - 1].t === 'IF') { const s = stack[stack.length - 1]; s.els = true; add(o, `GOTOF _IF${s.n}X`); add(o, withCom(`_IF${s.n}E:`)); continue; }
+      if (/^ENDIF$/i.test(c) && stack.length && stack[stack.length - 1].t === 'IF') { const s = stack.pop(); add(o, withCom(`_IF${s.n}${s.els ? 'X' : 'E'}:`)); continue; }
+      if ((m = c.match(/^WHILE\s+(.+)$/i))) { const n = ++id; stack.push({ t: 'W', n }); add(o, `_W${n}:`); add(o, withCom(`IF ${inv(m[1])} GOTOF _W${n}X`)); continue; }
+      if (/^ENDWHILE$/i.test(c) && stack.length && stack[stack.length - 1].t === 'W') { const s = stack.pop(); add(o, withCom(`GOTOB _W${s.n}`)); add(o, `_W${s.n}X:`); continue; }
+      if (/^LOOP$/i.test(c)) { const n = ++id; stack.push({ t: 'L', n }); add(o, withCom(`_L${n}:`)); continue; }
+      if (/^ENDLOOP$/i.test(c) && stack.length && stack[stack.length - 1].t === 'L') { const s = stack.pop(); add(o, withCom(`GOTOB _L${s.n}`)); continue; }
+      if ((m = c.match(/^FOR\s+(R\d+)\s*=\s*(.+?)\s+TO\s+(.+)$/i))) { const n = ++id; stack.push({ t: 'F', n, v: m[1], to: m[3] }); add(o, withCom(`${m[1]}=${m[2]}`)); add(o, `_F${n}:`); continue; }
+      if (/^ENDFOR$/i.test(c) && stack.length && stack[stack.length - 1].t === 'F') { const s = stack.pop(); add(o, withCom(`${s.v}=${s.v}+1`)); add(o, `IF ${s.v} <= ${s.to} GOTOB _F${s.n}`); continue; }
+      if ((m = c.match(/^(REPEATB?)\s+([A-Z_][A-Z0-9_]*)(?:\s+([A-Z_][A-Z0-9_]*))?(?:\s+P\s*=\s*(\d+))?$/i))) {
+        // as the 840D runs it: a label alone to ENDLABEL: (or else to here), two labels between them, REPEATB the label's line
+        const at = name => { let f = -1; out.forEach((x, j) => { if (new RegExp('^' + name + ':', 'i').test(codeOf(x))) f = j; }); return f; };
+        const from = at(m[2]);
+        let to = -1;
+        if (/B$/i.test(m[1])) to = from;
+        else if (m[3]) { to = out.findIndex((x, j) => j >= from && new RegExp('^' + m[3] + ':', 'i').test(codeOf(x))); }
+        else { const e = out.findIndex((x, j) => j > from && /^ENDLABEL:/i.test(codeOf(x))); to = e >= 0 ? e : out.length - 1; }
+        if (from < 0 || to < from) { add(o, withCom(c)); continue; }
+        const times = m[4] ? +m[4] : 1;
+        add(o, '(' + c + ')' + (com ? ' ' + com : ''));
+        for (let r = 0; r < times; r++) out.slice(from, to + 1).forEach(x => { const t = x.text.replace(/^(\s*N\d+\s*)?[A-Z_][A-Z0-9_]*:\s*/i, ''); if (t.trim()) out.push(Object.assign({}, x, { src: o.src, kind: 'added', text: t })); });
+        continue;
+      }
+      out.push(o);
+    }
+    return out;
+  }
+
+  // 840D lines (a conversion's result) → MillPlus
+  function sie2mp(res, R, kin, opts) {
+    const rToE = n => (R.mp.r2e.has(n) ? R.mp.r2e.get(n) : n);
+    const scratch = R.mp.scratch;
+    const expr = s => {
+      const t = String(s).trim().replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':');
+      if (/^\((-?[\d.]+|E\d+)\)$/.test(t)) return t.slice(1, -1);
+      return /^-?[\d.]+$|^E\d+$|^\(.*\)$/.test(t) ? t : '(' + t + ')';
+    };
+    const cond = s => String(s).trim().replace(/^\((.*)\)$/, '$1').replace(/==/g, '=').replace(/\s*(<>|>=|<=|=|<|>)\s*/g, '$1').replace(/\bR(\d+)/g, (m, n) => 'E' + rToE(+n)).replace(/\//g, ':');
+    const mapLines = new Map(R.mp.lines.filter(x => x.sie).map(x => [mpKey(x.sie), x.mp]));
+    const lines = sieFlatten(res.lines);
+    // labels: named ones (ENDLABEL:) and block numbers that a jump names
+    const named = new Map(), used = new Set();
+    lines.forEach(o => {
+      const g = o.text.replace(/;.*$/, '').match(/\bGOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)/i);
+      if (g) used.add(g[1].toUpperCase());
+    });
+    let nextLabel = 901;
+    const labelNo = name => { if (/^N\d+$/i.test(name)) return +name.slice(1); if (!named.has(name)) named.set(name, nextLabel++); return named.get(name); };
+    const split = t => {
+      let q = false, cut = -1;
+      for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) { cut = k; break; } }
+      return cut < 0 ? { code: t.trim(), com: '' } : { code: t.slice(0, cut).trim(), com: t.slice(cut + 1).trim() };
+    };
+    // a 840D comment as MillPlus brackets: "(* X *) !! KONTROL: y" → "(* X *) (!! KONTROL: y)"
+    const mpCom = c => {
+      if (!c) return '';
+      const k = c.search(/!!\s*KONTROL/i);
+      const main = (k < 0 ? c : c.slice(0, k)).trim(), note = k < 0 ? '' : c.slice(k).trim();
+      const sq = t => t.replace(/\(/g, '[').replace(/\)/g, ']');
+      const groups = /^(\([^()]*\)\s*)+$/.test(main);
+      // the target's axis positions note (B81.5 C(58.6+ R20)) speaks in E parameters too
+      if (/^[A-C]-?[\d(]/.test(main)) return [('(' + sq(main.replace(/\bR(\d+)\b/g, (m, n) => 'E' + rToE(+n))) + ')').replace(/\[\s*(E\d+)\s*\]/g, '$1'), note ? '(' + sq(note) + ')' : ''].filter(Boolean).join(' ');
+      return [main ? (groups ? main : '(' + sq(main) + ')') : '', note ? '(' + sq(note) + ')' : ''].filter(Boolean).join(' ');
+    };
+    const out = [];
+    let tcp = false;
+    const push = (o, text, extra) => {
+      const e = Object.assign({}, extra || {});
+      if (e.flag || o.flag) e.flag = [o.flag, e.flag].filter(Boolean).join('; ');
+      out.push(Object.assign({}, o, { text, n: null }, e));
+    };
+    for (let k = 0; k < lines.length; k++) {
+      const o = lines[k];
+      let { code, com } = split(o.text);
+      const flags = [];
+      let label = null;
+      // a block number kept in the text (840D → 840D keeps the program's own)
+      const nm = code.match(/^N(\d+)\s*/i);
+      if (nm) { if (used.has('N' + +nm[1])) label = +nm[1]; code = code.slice(nm[0].length).trim(); }
+      const lm = code.match(/^([A-Z_][A-Z0-9_]*):\s*/i);
+      if (lm) { if (used.has(lm[1].toUpperCase())) label = labelNo(lm[1].toUpperCase()); code = code.slice(lm[0].length).trim(); }
+      if (o.n && /^N\d+$/.test(o.n) && used.has(o.n.toUpperCase())) label = +o.n.slice(1);
+      const emit = (text, extra) => { push(o, [text, mpCom(com)].filter(Boolean).join(' '), Object.assign({ mpLabel: label }, extra || {})); label = null; com = ''; };
+      const U = mpKey(code);
+      // the pair's own lines first (L_M54 → G74 Z-1 L1)
+      if (U && mapLines.has(U)) { const m = mapLines.get(U); if (m) m.split('|').forEach(t => emit(t.trim())); else if (com || label != null) emit(''); continue; }
+      // tool change: T.. then M6 (and D1) → the template
+      const tm = code.match(/^T(\d+)$/i), tm6 = code.match(/^T(\d+)\s+M0?6$/i);
+      if (tm6 && R.mp.tool.length) {
+        com = '';
+        R.mp.tool.forEach(t => emit(fill(t, { T: tm6[1] }).out));
+        let j = k + 1;
+        while (j < lines.length && !split(lines[j].text).code) j++;
+        if (j < lines.length && /^D\d+$/i.test(split(lines[j].text).code)) lines[j].mpSkip = true;
+        continue;
+      }
+      if (tm && R.mp.tool.length) {
+        let j = k + 1;
+        while (j < lines.length && !split(lines[j].text).code) j++;
+        if (j < lines.length && /^M0?6$/i.test(split(lines[j].text).code)) {
+          com = ''; // the template carries its own comment
+          R.mp.tool.forEach(t => emit(fill(t, { T: tm[1] }).out));
+          for (let q = k + 1; q <= j; q++) lines[q].mpSkip = true;
+          if (j + 1 < lines.length && /^D\d+$/i.test(split(lines[j + 1].text).code)) lines[j + 1].mpSkip = true;
+          continue;
+        }
+      }
+      if (o.mpSkip) continue;
+      let m;
+      if (!code) { emit(''); continue; }
+      if ((m = code.match(/^R(\d+)\s*=\s*(.+)$/i))) { emit(`E${rToE(+m[1])}=${expr(m[2])}`); continue; }
+      if ((m = code.match(/^IF\s+(.+?)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) {
+        emit(`G29 N=${mpLabel(labelNo(m[2].toUpperCase())).slice(1)} ${scratch}=(${cond(m[1])}) ${scratch}`,
+          /\b(AND|OR|NOT|XOR|MOD|DIV|TRUNC|ROUND)\b/i.test(m[1]) ? { flag: 'koşulda MillPlus\'ta olmayabilecek işlem (MOD, AND, NOT …) — kontrol edin' } : null);
+        continue;
+      }
+      if ((m = code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) { emit(`G29 N=${mpLabel(labelNo(m[1].toUpperCase())).slice(1)}`); continue; }
+      if ((m = code.match(/^CYCLE800\s*\((.*)\)$/i))) { mpPlane(splitArgs(m[1])).forEach((t, x) => emit(t.text, t.flag ? { flag: t.flag } : null)); continue; }
+      if (/^TRANS$/i.test(code)) { emit('G93 X0 Y0 Z0'); continue; }
+      if ((m = code.match(/^TRANS\s+(.+)$/i))) { emit('G93 ' + m[1].replace(/=/g, '').replace(/\bR(\d+)/g, (mm, n) => 'E' + rToE(+n))); continue; }
+      if (/^TRAORI\b/i.test(code)) { tcp = true; emit('G141'); continue; }
+      if (/^TRAFOOF$/i.test(code)) { tcp = false; emit('G40'); continue; }
+      if (/^(STOPRE|DIAMOF|ORIWKS|ORIMKS|ORIAXES|ORIVECT|SOFT|BRISK|FFWON|FFWOF|CFC|CFTCP|UPATH|SPATH|G500)$/i.test(code)) { if (com || label != null) emit(''); continue; }
+      if ((m = code.match(/^CALL\s*"([^"]*)"$/i))) {
+        const segs = m[1].split('/').filter(Boolean);
+        const file = (segs.pop() || '').replace(/^_N_/i, '').replace(/_(SPF|MPF)$/i, '');
+        const dirs = segs.filter(s => !/^_N_CUS_DIR$/i.test(s)).map(s => s.replace(/^_N_/i, '').replace(/_DIR$/i, '').toLowerCase());
+        const num = (file.match(/(\d+)$/) || [])[1];
+        if (num) emit(`G23 N=${num}${dirs.length ? ` N5="\\${dirs.join('\\')}\\"` : ''}`);
+        else emit(code, { flag: 'alt program adında numara yok — G23 N= yazılamadı' });
+        continue;
+      }
+      if ((m = code.match(/^MSG\s*\(\s*"?(.*?)"?\s*\)$/i))) { emit(m[1] ? '(' + m[1].replace(/[()]/g, '') + ')' : ''); continue; }
+      if (/^(MCALL|CYCLE\d+|HOLES|POCKET|SLOT|WHILE|ENDWHILE|REPEAT|UNTIL|FOR|ENDFOR|LOOP|ENDLOOP|CASE|ELSE|ENDIF|IF\b|L\d+|M17$|RET$)/i.test(code)) {
+        emit(code, { flag: /^CYCLE832/i.test(code) ? 'CYCLE832 MillPlus karşılığı yok — yüksek hız ayarını yazın' : '840D satırı MillPlus\'a çevrilmedi' });
+        continue;
+      }
+      // words of a plain block
+      let ws = code;
+      ws = ws.replace(/\b([A-Z])\s*=\s*(?:DC|AC|ACP|ACN)\s*\(\s*([^()]*?)\s*\)/gi, (mm, a, v) => a + v);
+      ws = ws.replace(/\bCR\s*=\s*/gi, 'R').replace(/\bA3\s*=\s*/gi, 'I1=').replace(/\bB3\s*=\s*/gi, 'J1=').replace(/\bC3\s*=\s*/gi, 'K1=');
+      ws = ws.replace(/\bG(5[4-7])\b/g, (mm, g) => 'G54 I' + (+g - 53)).replace(/\bG(50[5-9]|5[1-9]\d)\b/g, (mm, g) => 'G54 I' + (+g - 500));
+      ws = ws.replace(/\bG700\b/g, 'G70').replace(/\bG710\b/g, 'G71');
+      ws = ws.replace(/(^|\s)D\d+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+      if (/^T\s*=/i.test(ws)) flags.push('takım adı — MillPlus\'ta takım numarası yazın');
+      else if (/^[A-Z_][A-Z0-9_]*$/i.test(ws) && !/^[A-Z]\d+$/i.test(ws)) flags.push(`${ws}: 840D komutu — MillPlus karşılığını [MILLPLUS] satırlarına yazın`);
+      else if (/^G75\b/i.test(ws)) flags.push('G75 sabit nokta — MillPlus karşılığını [MILLPLUS] satırlarına yazın');
+      if (/\bSUPA\b/i.test(ws)) { ws = 'G74 ' + ws.replace(/\bSUPA\b|\bG0\b/gi, '').replace(/\s+/g, ' ').trim() + ' L1'; flags.push('SUPA → G74 … L1: makine konumunu kontrol edin'); }
+      if (/\bG0?[23]\b/.test(ws) && /\b[IJ]-?[\d.]/.test(ws)) flags.push('yay merkezi (I J) — MillPlus\'ta mutlak/artımlı kontrol edilmeli');
+      ws = ws.replace(/\b([A-Z])\s*=\s*([^\s]+)/g, (mm, a, v) => (/^[IJKN]1?$/.test(a) || /^[\d.-]+$/.test(v) ? mm : a + '=' + expr(v))).replace(/\bR(\d+)\b(?!=)/g, (mm, n) => (/\bG0?[23]\b/.test(ws) ? mm : 'E' + rToE(+n)));
+      if (!ws && !com && label == null) continue;
+      emit(ws, flags.length ? { flag: flags.join('; ') } : null);
+    }
+    // 840D CYCLE800 → G93 (origin) and G7 (angles X → Y → Z, fixed axes)
+    function mpPlane(args) {
+      const rawOf = i => (args[i] || '').trim();
+      if (args.every((a, i) => !a.trim() || (i === 1 && /^"0?"$/.test(a.trim())))) return [{ text: 'G7 L1=1' }];
+      const mode = evalExpr(rawOf(3) || '57', new Map());
+      const num = s => evalExpr(s || '0', new Map());
+      const res = [];
+      const org = [4, 5, 6].map(rawOf);
+      if (org.some(v => v && num(v) !== 0)) res.push({ text: 'G93 ' + ['X', 'Y', 'Z'].map((a, i) => a + (org[i] ? expr(org[i]).replace(/^\((-?[\d.]+)\)$/, '$1') : '0')).join(' ') });
+      const fl = [];
+      if ([10, 11, 12].some(i => rawOf(i) && num(rawOf(i)) !== 0)) fl.push('CYCLE800 dönüş sonrası kaydırma (X1 Y1 Z1) yazılmadı');
+      let A = null, B = null, C = null;
+      const kind = mode == null ? -1 : Math.round(mode) & 0xC0;
+      const seq = mode == null ? [] : seqOfMode(Math.round(mode) & 63);
+      if (kind === 0 && seq.join('') === 'ZYX') { C = rawOf(7) || '0'; B = rawOf(8) || '0'; A = rawOf(9) || '0'; }
+      else {
+        // any other form: the plane in numbers, then its X → Y → Z angles
+        let m = null, zExtra = null;
+        const v = [7, 8, 9].map(i => num(rawOf(i)));
+        if (kind === 0 && seq.every(Boolean) && v.every(x => x != null)) m = turns(seq.map((ax, i) => [ax, v[i]]));
+        else if (kind === 0x40 && v.every(x => x != null)) m = turns([['Z', v[0]], ['Y', v[1]], ['Z', v[2]]]);
+        else if (kind === 0xC0) {
+          const slot = {};
+          kin.axes.forEach((a, i) => { if (i < 2) slot[a.name] = rawOf(7 + i) || '0'; });
+          const zt = zTop(kin), pos = {};
+          let ok = true;
+          Object.keys(slot).forEach(k2 => { const x = num(slot[k2]); if (x != null) pos[k2] = x; else if (zt && k2 === zt.name) { pos[k2] = 0; zExtra = { e: slot[k2], s: zt.s }; } else ok = false; });
+          if (ok) m = kinFrame(kin, pos);
+        }
+        if (!m) return [{ text: `CYCLE800(${args.join(',')})`, flag: 'CYCLE800 G7\'ye çevrilemedi — açıları elle yazın' }];
+        const g = anglesZYX(m);
+        A = fmt(g.X); B = fmt(g.Y);
+        C = zExtra ? addAngle(g.Z, zExtra.s > 0 ? zExtra.e : '-(' + zExtra.e + ')') : fmt(g.Z);
+      }
+      const w = [['A5', A], ['B5', B], ['C5', C]].filter(([, x]) => !/^\(?-?0*\.?0*\)?$/.test(String(x).trim())).map(([k, x]) => `${k}=${expr(x)}`);
+      res.push({ text: `G7 ${w.join(' ')}${w.length ? ' ' : ''}L1=1`, flag: fl.join('; ') });
+      return res;
+    }
+    // block numbers: jump targets keep theirs (N0201), the rest count on
+    const taken = new Set(out.filter(o => o.mpLabel != null).map(o => o.mpLabel));
+    let n = 0;
+    const step = opts.renumber ? 10 : 1;
+    out.forEach(o => {
+      if (o.mpLabel != null) o.n = mpLabel(o.mpLabel);
+      else { do { n += step; } while (taken.has(n)); o.n = 'N' + n; }
+      if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
+      else if (o.flag) o.text = o.text.replace(/\(!! KONTROL:[^)]*\)|!!\s*KONTROL:.*$/, '(!! KONTROL: ' + o.flag.replace(/[()]/g, '') + ')');
+    });
+    return out;
+  }
+
   /* ---------- a set of files: main program + subprograms ---------- */
   // files: [{name, text}] → {programs: [{name, outName, isSub, number, result}], missing, notes}
   // options: {sourceMachine, targetMachine: {control, def}} — or, as before, {source, target} control ids
+  // MillPlus on either side: through 840D (see sie2mp / mp2sie)
+  function convertMillPlus(files, options, mpS, mpT) {
+    const rules = parseRules(options.rulesText || DEFAULT_RULES);
+    const sm = options.sourceMachine, tm = options.targetMachine;
+    const sie = m => m && Object.assign({}, m, { control: 'siemens840d' });
+    const read = new Map();
+    const inFiles = files.map(f => {
+      if (!mpS) return f;
+      const r = mp2sie(f.text, rules);
+      const name = f.name.replace(/\.[^.]*$/, '') + '.MPF';
+      read.set(name, { r, orig: f.name });
+      return { name, text: r.text };
+    });
+    const inner = convertSet(inFiles, Object.assign({}, options, {
+      sourceMachine: mpS ? sie(sm) : sm, targetMachine: mpT ? sie(tm) : tm,
+      source: mpS ? 'siemens840d' : options.source, target: mpT ? 'siemens840d' : options.target,
+      renumber: mpT ? true : options.renumber, _pivot: true
+    }));
+    const writer = inner.target.writer;
+    const tgtKin = tm ? machineKin(tm.def) : rules.kin;
+    inner.programs.forEach(pg => {
+      const rd = read.get(pg.srcName);
+      if (rd) {
+        pg.srcName = rd.orig;
+        pg.result.srcLines = rd.r.lines;
+        rd.r.flags.forEach((fl, i) => {
+          const o = pg.result.lines.find(x => x.src === i);
+          const f = fl.join('; ');
+          if (!o) { pg.result.notes.push(`Satır ${i + 1}: ${f}`); return; }
+          o.flag = [o.flag, f].filter(Boolean).join('; ');
+          o.kind = o.kind === 'same' ? 'changed' : o.kind;
+          if (writer === 'siemens') o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${f}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${f}`;
+          else o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${f.replace(/[()]/g, '')})`;
+        });
+        pg.result.notes.unshift(...rd.r.notes);
+      }
+      if (mpT) {
+        pg.result.lines = sie2mp(pg.result, rules, tgtKin, options);
+        pg.outName = pg.outName.replace(/\.[^.]*$/, '') + '.pm';
+        pg.result.notes.push('MillPlus 840D üzerinden yazıldı: E parametreleri, G29 atlamaları, G7 / G93 düzlemleri, G141 ve G23 çağrıları çevrildi; delme döngüleri işaretlendi.');
+      }
+    });
+    const target = mpT ? TARGETS.find(t => t.id === 'millplus') : inner.target;
+    return Object.assign(inner, { target, route: (mpS ? 'millplus' : inner.route.split('-')[0]) + '-' + (mpT ? 'millplus' : inner.route.split('-')[1]) });
+  }
+
   function convertSet(files, options) {
+    {
+      const sm0 = options.sourceMachine, tm0 = options.targetMachine;
+      const mpS = (sm0 ? controlOf(sm0.control).source : options.source) === 'millplus';
+      const mpT = (tm0 ? controlOf(tm0.control).target : options.target) === 'millplus';
+      if ((mpS || mpT) && !options._pivot) return convertMillPlus(files, options, mpS, mpT);
+    }
     const rules = parseRules(options.rulesText || DEFAULT_RULES);
     const sm = options.sourceMachine, tm = options.targetMachine;
     const sourceId = sm ? controlOf(sm.control).source : options.source || 'mazak';
