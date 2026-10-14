@@ -7984,6 +7984,12 @@ SON = M17
   // the axis right under the part when it turns about Z (a C table): a turn of the part about
   // its own Z is a turn of that axis, so an angle in a variable (R20, #999) can ride on it
   const zTop = kin => { const a = kin.chain[0]; return a && a.table && Math.abs(Math.abs(a.v[2]) - 1) < 1e-9 ? { name: a.name, s: Math.sign(a.v[2]) } : null; };
+  // a number plus an angle term: 18.38 and (80.53+ R20) → (98.91+ R20)
+  function addAngle(a, term) {
+    const f = term.match(/^\(\s*(-?(?:\d+\.?\d*|\.\d+))\s*\+\s*([^()]+)\)$/);
+    if (f) { let n = a + parseFloat(f[1]); if (n >= 360) n -= 360 * Math.floor(n / 360); return Math.abs(n) < 5e-5 ? f[2].trim() : `(${fmt(n)}+ ${f[2].trim()})`; }
+    return Math.abs(a) < 5e-5 ? term : `(${fmt(a)}${/^-/.test(term) ? '' : '+'}${term})`;
+  }
   // rotary words of one machine as another machine's: the tool direction is kept (TCP moves)
   function rotaryConverter(src, tgt) {
     const mode = kinCompare(src, tgt);
@@ -8094,7 +8100,7 @@ SON = M17
         const pos = {};
         kin.axes.forEach(a => { pos[a.name] = fmt(r.vals[a.name]); });
         const zs = signed(zText, zt.s);
-        pos[zt.name] = Math.abs(r.vals[zt.name]) < 5e-5 ? zs : '(' + fmt(r.vals[zt.name]) + (/^-/.test(zs) ? '' : '+') + zs + ')';
+        pos[zt.name] = addAngle(r.vals[zt.name], zs);
         kin.axes.forEach((a, k) => { vals['EKSEN' + (k + 1)] = pos[a.name]; });
         rest = r.rest;
       }
@@ -8279,6 +8285,24 @@ SON = M17
       });
     };
     const withComments = (code, comments) => [code, comments.length ? (SIE ? ';' : '') + comments.join(' ') : ''].filter(Boolean).join(' ');
+    // a plane written axis by axis (_MODE): the target machine's own axis positions as a comment, for reference
+    const axisNote = (from, pv, kin, tpl) => {
+      if (!SIE || tpl.some(l => /\{EKSEN[12]\}/.test(l)) || pv.EKSEN1 == null) return;
+      // ({C}+ R20) in the template: the pattern turn is the Z table's
+      const pat = tpl.map(l => l.match(/\(\{C\}\s*\+\s*(R\d+)\)/)).find(Boolean), zt = zTop(kin);
+      const txt = kin.axes.slice(0, 2).map((a, k) => {
+        const v = pv['EKSEN' + (k + 1)];
+        if (v == null) return '';
+        return a.name + (pat && zt && a.name === zt.name ? (isFinite(+v) ? addAngle(+v, '(0+ ' + pat[1] + ')') : v) : v);
+      }).filter(Boolean).join(' ');
+      for (let k = out.length - 1; k >= from; k--) {
+        const t = out[k].text;
+        if (!/\bCYCLE800\s*\(\s*[^)\s]/i.test(t)) continue;
+        const at = t.indexOf(';');
+        out[k].text = at < 0 ? `${t} ;${txt}` : `${t.slice(0, at)};${txt} ${t.slice(at + 1)}`;
+        break;
+      }
+    };
     const applyText = comments => {
       const res = [];
       comments.forEach(c => {
@@ -8411,7 +8435,9 @@ SON = M17
               const tpl = R.plane
                 .filter(l => { const a = l.match(/^\s*(R\d+)\s*=/); return !(a && used.has(a[1])); })
                 .map(l => l.replace(/\(\{(\w+)\}\s*\+\s*(R\d+)\)/g, (m, k, r) => (used.has(r) ? '{' + k + '}' : m)));
+              const from = out.length;
               emitTpl(i, tpl, pl);
+              axisNote(from, pl, opts.tgtKin || R.kin, tpl);
               out[out.length - 1].flag = [out[out.length - 1].flag, 'değişkenli düzlem açıları — ilk denemede kontrol edin'].filter(Boolean).join('; ');
               if (Math.abs(pl.rest || 0) > 5e-5 && R.plane.some(l => /\{EKSEN[12]\}/.test(l))) {
                 emit(i, `AROT Z=${fmt(pl.rest)}`, 'added', 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile');
@@ -8568,7 +8594,9 @@ SON = M17
             const pl = planeFromIso(ws, opts.tgtKin || R.kin);
             Object.assign(vals, pl.vals);
             if (st.arot) { emit(i, 'ROT', 'added'); if (st.g52) emit(i, 'TRANS ' + st.g52, 'added'); st.arot = false; } // the last plane's AROT
+            const from = out.length;
             emitTpl(i, R.plane, vals);
+            axisNote(from, vals, opts.tgtKin || R.kin, R.plane);
             const fl = pl.flags.slice();
             const direct = R.plane.some(l => /\{EKSEN[12]\}/.test(l));
             if (direct && Math.abs(pl.rest) > 5e-5) {
@@ -9777,7 +9805,7 @@ SON = M17
     // CYCLE800 arguments for the target machine → {args, flags, rest}
     function cycle800(args) {
       const flags = [];
-      let rest = 0;
+      let rest = 0, note = '';
       const tc = (args[1] || '').replace(/"/g, '').trim();
       if (tc && R.c800.tc.has(tc.toUpperCase())) args[1] = `"${R.c800.tc.get(tc.toUpperCase())}"`;
       else if (tc && tc !== '0' && R.c800.tc.size) flags.push(`veri kaydı "${tc}" CYCLE800 kuralında yok`);
@@ -9806,12 +9834,12 @@ SON = M17
       const plus = (a, s) => {
         if (!zExpr) return fmt(a);
         const e = zExpr.text, term = s > 0 ? e : '-(' + e.replace(/^\((.*)\)$/, '$1') + ')';
-        return Math.abs(a) < 5e-5 ? term : `(${fmt(a)}${/^-/.test(term) ? '' : '+'}${term})`;
+        return addAngle(a, term);
       };
+      // the target's own axis positions (the table one with the variable turn)
+      const axisVal = a => (zt && a.name === zt.name ? plus(r.vals[a.name], zExpr && zExpr.s) : fmt(r.vals[a.name]));
       if (Math.abs(r.rest) <= 5e-5) {
-        const val = {};
-        tgtKin.axes.forEach(a => { val[a.name] = a.name === (zt && zt.name) ? plus(r.vals[a.name], zExpr && zExpr.s) : fmt(r.vals[a.name]); });
-        tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = val[a.name]; });
+        tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = axisVal(a); });
         flags.push(`düzlem ${srcKin.label} → ${tgtKin.label} eksen konumlarına çevrildi — ilk denemede kontrol edin`);
       } else {
         // the target's axes alone can't give this plane (a turn about the tool is left over):
@@ -9821,9 +9849,10 @@ SON = M17
         const g = anglesZYX(kinFrame(srcKin, pos));
         args[3] = String(modeOfSeq(['Z', 'Y', 'X']));
         args[7] = fmt(g.X); args[8] = fmt(g.Y); args[9] = plus(g.Z, zs ? zs.s : 1);
+        note = tgtKin.axes.slice(0, 2).map(a => a.name + axisVal(a)).join(' ');
         flags.push(`hedef makine (${tgtKin.label}) bu düzlemi eksen konumlarıyla tam veremiyor — düzlem eksen eksen (_MODE ${args[3]}) yazıldı, eksenleri kontrol hesaplar`);
       }
-      return { args, flags, rest };
+      return { args, flags, rest, note };
     }
 
     srcLines.forEach((raw, i) => {
@@ -9858,6 +9887,7 @@ SON = M17
           const res = cycle800(args);
           flags.push(...res.flags);
           code = code.replace(cm[0], 'CYCLE800(' + res.args.join(',') + ')');
+          if (res.note) comment = [res.note, comment].filter(Boolean).join(' ');
           if (Math.abs(res.rest) > 5e-5) {
             after.push({ text: `AROT Z=${fmt(res.rest)}`, flag: 'makine bu düzlemi döner eksenlerle tam gösteremiyor — kalan dönüş AROT ile' });
             st.arot = res.rest;
