@@ -8657,20 +8657,25 @@ SON = M17
     });
     const dropR = new Set();
     if (!unmappedCall) rConst.forEach((v, k) => { if (!isNaN(v) && !rRead.has(k)) dropR.add(k); });
-    // the R lines straight before a CALL that has a rule (TP1LASER: R80=… R92=… CALL) are that
-    // call's arguments: they go whatever else the program calls, unless the program reads them
+    // the R lines straight before a CALL (TP1LASER: R80=… R92=… CALL) are that call's arguments:
+    // they go whatever else the program calls, unless the program reads them; for a CALL with
+    // no rule yet they are listed in its KONTROL note
     parts.forEach((p, k) => { p.k = k; });
-    const probeArg = new Set();
+    const probeArg = new Set(), callArgs = new Map();
     parts.forEach((p, k) => {
-      const call = p.code.match(/^CALL\s*"([^"]*)"/i);
-      if (!call || !R.calls.has(callName(call[1]))) return;
+      const cm = p.code.match(/^CALL\s*"([^"]*)"/i);
+      if (!cm) return;
+      const cn = callName(cm[1]);
+      if (!R.calls.has(cn) && (R.subNames.has(cn) || (opts.localSubs && opts.localSubs.has(cn)))) return; // a subprogram of this set reads them itself
+      const args = [];
       for (let j = k - 1; j >= 0; j--) {
         const c = parts[j].code;
         if (!c) continue; // blank lines, comments, the TP1LASER: label
         const a = c.match(/^R(\d+)\s*=/i);
         if (!a) break;
-        if (!rRead.has(a[1])) probeArg.add(j);
+        if (!rRead.has(a[1])) { probeArg.add(j); args.unshift(c.replace(/\s+/g, '')); }
       }
+      callArgs.set(k, args);
     });
     // R parameters the program changes as it runs (counters, and what is worked
     // out from them) are never replaced by the number they hold at that line:
@@ -9163,7 +9168,10 @@ SON = M17
         if (tpl) { tplOut(i, tpl, { T: toolNo(st.tool) || '' }); if (comment) emit(i, comment, 'changed'); }
         else if (/^[A-Z_][A-Z0-9_]*$/.test(name) && R.cmds.has(name)) { R.cmds.get(name).forEach(l => emit(i, l, 'template')); if (comment) emit(i, comment, 'changed'); }
         else if (R.subNames.has(name) || (opts.localSubs && opts.localSubs.has(name))) subCall(i, name, null, code, comment);
-        else emit(i, withC(code, comment), 'same', `CALL ${name} için kural yok`);
+        else {
+          const args = callArgs.get(p.k) || [];
+          emit(i, withC(code, comment), 'same', `CALL ${name} için kural yok — ÇAĞRI ${name} bölümü ekleyin` + (args.length ? ` · değerler: ${args.join(' ')}` : ''));
+        }
         done(); continue;
       }
       const bare = code.match(/^([A-Z_][A-Z0-9_]*)(?:\s+P\s*=?\s*(\d+))?$/i);
