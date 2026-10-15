@@ -7278,7 +7278,17 @@ TRAORI = G43.4 (!! KONTROL: 5 eksen dönüşümü)
 DIAMOF =
 
 [TAKIM DEĞİŞTİRME]
-// T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan)
+// T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan) · {BIRIM}: G20 / G21 (programdaki G700 / G710, G70 / G71)
+// Mazak güvenlik bloğu her takım değişiminden önce yazılır
+G0 G17 G94 G97 G90 {BIRIM}
+G40 G49 G80 G67 G69
+G91 G28 Z0
+G28 X0 Y0
+M46 M43
+G28 A0 C0
+
+#987=0
+G90
 #989={T} (* TAKIM NO *)
 T[#989] M06
 
@@ -9179,6 +9189,11 @@ SON = M17
     const emit = (i, text, kind, flag, extra) => out.push(Object.assign({ text, src: i, kind, flag: flag || '' }, extra || {}));
     const withC = (code, c) => [code, c].filter(Boolean).join(' ');
     const wrapF = e => '[' + e + ']';
+    // inch or metric, for the target's safety block ({BIRIM}): G700 / G70 inch, G710 / G71 metric
+    const progUnit = (() => {
+      const t = src.replace(/;.*$/gm, '');
+      return /\bG(70|700)\b/i.test(t) ? 'G20' : /\bG(71|710)\b/i.test(t) ? 'G21' : null;
+    })();
     // $P_TOOLNO, $TC_DPn[T,D] and a sum of two of them → the rules' tool data lines
     // a control that reads the tool table through a selection (Mazak #700001={T}) gets that line first
     const tdSel = R.toolData.get('sel');
@@ -9344,7 +9359,9 @@ SON = M17
     const tplOut = (i, tpl, vals, flagFor) => {
       tpl.forEach(t => {
         const f = fillExpr(t, vals, rvals);
-        emit(i, f.out, 'template', f.missing.length ? (flagFor || 'şablonda değer yok') + ': ' + f.missing.join(', ') : '');
+        const unit = f.missing.filter(k => k === 'BIRIM'), other = f.missing.filter(k => k !== 'BIRIM');
+        const fl = [other.length ? (flagFor || 'şablonda değer yok') + ': ' + other.join(', ') : '', unit.length ? 'programda inç / metrik (G700 / G710) yok — G20 ya da G21 yazın' : ''];
+        emit(i, f.out, 'template', fl.filter(Boolean).join('; '));
       });
     };
     // a value as the target writes it: the number, or the expression in brackets
@@ -9901,7 +9918,7 @@ SON = M17
       if (toolChange) {
         const T = toolNo(st.tool);
         if (ws.length) emit(i, ws.join(' '), 'changed');
-        tplOut(i, R.tool.length ? R.tool : ['T{T} M6'], { T: T || '' }, `takım numarası yok (${st.tool || '?'}) — TAKIM NUMARALARI'na ekleyin`);
+        tplOut(i, R.tool.length ? R.tool : ['T{T} M6'], { T: T || '', BIRIM: progUnit || '' }, `takım numarası yok (${st.tool || '?'}) — TAKIM NUMARALARI'na ekleyin`);
         if (comment) emit(i, comment, 'changed');
         st.pos = { X: null, Y: null, Z: null };
         done(); continue;
@@ -10857,6 +10874,8 @@ SON = M17
   const OLD_TOOL_DATA = "[TAKIM VERİSİ]\n// Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5\n// Mazak karşılıkları — {T}: takım numarası. Fanuc bellek C düzeni yazıldı: makinenizin takım verisi değişkenleriyle değiştirin\nAKTİF TAKIM = #989\nBOY = #[11000+{T}] (!! KONTROL: Mazak takım boyu değişkeni)\nYARIÇAP = #[13000+{T}] (!! KONTROL: Mazak takım yarıçapı değişkeni)\nKÖŞE YARIÇAPI =\nBOY AŞINMA = #[10000+{T}] (!! KONTROL: Mazak boy aşınması değişkeni)\nYARIÇAP AŞINMA = #[12000+{T}] (!! KONTROL: Mazak yarıçap aşınması değişkeni)\n", NEW_TOOL_DATA = "[TAKIM VERİSİ]\n// Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5\n// Mazak: #3020 mildeki takımın veri sıra numarası · #700001={T} o takımın verisini seçer · #7020xx seçili takımın alanları\n// TAKIM SEÇ varsa alan satırları {T}'siz yazılır (önce seçim satırı gelir) · boş satır: o alan çevrilmez\nAKTİF TAKIM = #3020\nTAKIM SEÇ = #700001={T}\nBOY =\nYARIÇAP =\nKÖŞE YARIÇAPI =\nBOY AŞINMA = #702007\nYARIÇAP AŞINMA =\n";
   const upgradeRules = t => String(t)
     .split(OLD_TOOL_DATA).join(NEW_TOOL_DATA)
+    // the Mazak tool change got its safety block (G0 G17 … G28 A0 C0) before it
+    .split("[TAKIM DEĞİŞTİRME]\n// T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan)\n#989={T} (* TAKIM NO *)\nT[#989] M06\n").join("[TAKIM DEĞİŞTİRME]\n// T.. M6 — {T}: Mazak takım numarası (TAKIM NUMARALARI'ndan) · {BIRIM}: G20 / G21 (programdaki G700 / G710, G70 / G71)\n// Mazak güvenlik bloğu her takım değişiminden önce yazılır\nG0 G17 G94 G97 G90 {BIRIM}\nG40 G49 G80 G67 G69\nG91 G28 Z0\nG28 X0 Y0\nM46 M43\nG28 A0 C0\n\n#987=0\nG90\n#989={T} (* TAKIM NO *)\nT[#989] M06\n")
     .replace(/CYCLE800\(1,"HERMLE",100000,192,\{X\},\{Y\},\{Z\},\{I\},\(\{J\}\+ R20\),\{K\},/g, 'CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,')
     .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}')
     .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni')
