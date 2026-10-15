@@ -8625,7 +8625,9 @@ SON = M17
           .replace(/\s*GOTO\s*(\d+)/i, (m, n) => ` ${jumpDir(i, n)} N${n}`)
           .replace(/^WHILE\s*(.*?)\s*DO\s*\d+$/i, 'WHILE $1')
           .replace(/^END\s*\d+$/i, 'ENDWHILE');
-        emit(i, withComments(sie.replace(/\s+/g, ' ').trim(), comments), 'changed', 'makro satırı — R parametrelerini ve koşulu kontrol edin');
+        // jumps and loops convert one to one; other macro lines (R parameters in expressions) are worth a look
+        const jump = /^(IF\b|WHILE\b|GOTO|END\s*\d)/i.test(code.trim());
+        emit(i, withComments(sie.replace(/\s+/g, ' ').trim(), comments), 'changed', jump ? '' : 'makro satırı — R parametrelerini kontrol edin');
         continue;
       }
       }
@@ -9571,11 +9573,11 @@ SON = M17
         if (b.type === 'IF') {
           if (x === b.start) {
             const cond = code.replace(/^IF\s*/i, '');
-            if (b.jump) emit(i, withC(`IF [${fanucCond(cond, base)}] GOTO{{${b.jump}}}`, comment), 'changed', 'makro satırı — koşulu kontrol edin');
+            if (b.jump) emit(i, withC(`IF [${fanucCond(cond, base)}] GOTO{{${b.jump}}}`, comment), 'changed');
             else {
               const inv = fanucCond(cond, base, true);
               if (inv == null) emit(i, withC(code, comment), 'same', 'IF koşulu çevrilemedi');
-              else emit(i, withC(`IF [${inv}] GOTO{{${L(b.els != null ? 'E' : 'X')}}}`, comment), 'changed', 'IF bloğu ters koşullu atlamaya çevrildi — koşulu kontrol edin');
+              else emit(i, withC(`IF [${inv}] GOTO{{${L(b.els != null ? 'E' : 'X')}}}`, comment), 'changed');
             }
           } else if (x === b.els) { emit(i, `GOTO{{${L('X')}}}`, 'changed'); labelLine(L('E'), comment); }
           else labelLine(L('X'), comment);
@@ -9599,25 +9601,25 @@ SON = M17
           else {
             const inv = fanucCond(code.replace(/^UNTIL\s*/i, ''), base, true);
             if (inv == null) emit(i, withC(code, comment), 'same', 'UNTIL koşulu çevrilemedi');
-            else emit(i, withC(`IF [${inv}] GOTO{{${L('S')}}}`, comment), 'changed', 'makro satırı — koşulu kontrol edin');
+            else emit(i, withC(`IF [${inv}] GOTO{{${L('S')}}}`, comment), 'changed');
           }
         }
         done(); continue;
       }
       let ctl = null;
       if ((ctl = code.match(/^IF\s+(.+?)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) {
-        emit(i, withC(`IF [${fanucCond(ctl[1], base)}] GOTO{{${ctl[2].toUpperCase()}}}`, comment), 'changed', 'makro satırı — koşulu ve #değişkenleri kontrol edin');
+        emit(i, withC(`IF [${fanucCond(ctl[1], base)}] GOTO{{${ctl[2].toUpperCase()}}}`, comment), 'changed');
         done(); continue;
       }
       if ((ctl = code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)$/i))) { emit(i, withC(`GOTO{{${ctl[1].toUpperCase()}}}`, comment), 'changed'); done(); continue; }
       if ((ctl = code.match(/^CASE\s*\((.+?)\)\s*OF\s+(.+)$/i))) {
         const e = fanucExpr(ctl[1], base);
         const items = [...ctl[2].matchAll(/(DEFAULT|[-+]?[\d.]+)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*|N\d+)/gi)];
-        items.forEach((it, k) => emit(i, withC(/^DEFAULT$/i.test(it[1]) ? `GOTO{{${it[2].toUpperCase()}}}` : `IF [${e} EQ ${it[1]}] GOTO{{${it[2].toUpperCase()}}}`, k === items.length - 1 ? comment : null), 'changed', k === 0 ? 'CASE → IF satırları' : ''));
+        items.forEach((it, k) => emit(i, withC(/^DEFAULT$/i.test(it[1]) ? `GOTO{{${it[2].toUpperCase()}}}` : `IF [${e} EQ ${it[1]}] GOTO{{${it[2].toUpperCase()}}}`, k === items.length - 1 ? comment : null), 'changed'));
         if (!items.length) emit(i, withC(code, comment), 'same', 'CASE çevrilmedi');
         done(); continue;
       }
-      if ((ctl = code.match(/^WHILE\s+(.+)$/i))) { st.whileDepth++; emit(i, withC(`WHILE [${fanucCond(ctl[1], base)}] DO${st.whileDepth}`, comment), 'changed', 'makro satırı — koşulu kontrol edin' + (st.whileDepth > 3 ? '; en çok 3 iç içe döngü (DO1–DO3)' : '')); done(); continue; }
+      if ((ctl = code.match(/^WHILE\s+(.+)$/i))) { st.whileDepth++; emit(i, withC(`WHILE [${fanucCond(ctl[1], base)}] DO${st.whileDepth}`, comment), 'changed', st.whileDepth > 3 ? 'en çok 3 iç içe döngü (DO1–DO3)' : ''); done(); continue; }
       if (/^ENDWHILE$/i.test(code)) { emit(i, withC(`END${Math.max(1, st.whileDepth)}`, comment), 'changed'); st.whileDepth = Math.max(0, st.whileDepth - 1); done(); continue; }
       if (/^(IF|ELSE|ENDIF|FOR|ENDFOR|REPEATB?|UNTIL|LOOP|ENDLOOP|DEF|CASE|SAVE|PROC)\b/i.test(code)) { emit(i, withC(code, comment), 'same', 'bu Siemens yapısı çevrilmedi'); done(); continue; }
 
