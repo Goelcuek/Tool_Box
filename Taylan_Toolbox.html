@@ -7220,13 +7220,15 @@ ENDLABEL:
 
 [TAKIM VERİSİ]
 // Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5
-// Mazak karşılıkları — {T}: takım numarası. Fanuc bellek C düzeni yazıldı: makinenizin takım verisi değişkenleriyle değiştirin
-AKTİF TAKIM = #989
-BOY = #[11000+{T}] (!! KONTROL: Mazak takım boyu değişkeni)
-YARIÇAP = #[13000+{T}] (!! KONTROL: Mazak takım yarıçapı değişkeni)
+// Mazak: #3020 mildeki takımın veri sıra numarası · #700001={T} o takımın verisini seçer · #7020xx seçili takımın alanları
+// TAKIM SEÇ varsa alan satırları {T}'siz yazılır (önce seçim satırı gelir) · boş satır: o alan çevrilmez
+AKTİF TAKIM = #3020
+TAKIM SEÇ = #700001={T}
+BOY =
+YARIÇAP =
 KÖŞE YARIÇAPI =
-BOY AŞINMA = #[10000+{T}] (!! KONTROL: Mazak boy aşınması değişkeni)
-YARIÇAP AŞINMA = #[12000+{T}] (!! KONTROL: Mazak yarıçap aşınması değişkeni)
+BOY AŞINMA = #702007
+YARIÇAP AŞINMA =
 
 [R PARAMETRELERİ]
 // Mazak #değişkeni → Siemens R: R5 = 990 ile #990 → R5 · listede olmayan #n → Rn
@@ -7344,13 +7346,15 @@ R20 = 999
 
 [TAKIM VERİSİ]
 // Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5
-// Mazak karşılıkları — {T}: takım numarası. Fanuc bellek C düzeni yazıldı: makinenizin takım verisi değişkenleriyle değiştirin
-AKTİF TAKIM = #989
-BOY = #[11000+{T}] (!! KONTROL: Mazak takım boyu değişkeni)
-YARIÇAP = #[13000+{T}] (!! KONTROL: Mazak takım yarıçapı değişkeni)
+// Mazak: #3020 mildeki takımın veri sıra numarası · #700001={T} o takımın verisini seçer · #7020xx seçili takımın alanları
+// TAKIM SEÇ varsa alan satırları {T}'siz yazılır (önce seçim satırı gelir) · boş satır: o alan çevrilmez
+AKTİF TAKIM = #3020
+TAKIM SEÇ = #700001={T}
+BOY =
+YARIÇAP =
 KÖŞE YARIÇAPI =
-BOY AŞINMA = #[10000+{T}] (!! KONTROL: Mazak boy aşınması değişkeni)
-YARIÇAP AŞINMA = #[12000+{T}] (!! KONTROL: Mazak yarıçap aşınması değişkeni)
+BOY AŞINMA = #702007
+YARIÇAP AŞINMA =
 
 [ALT PROGRAM NUMARALARI]
 // Adla çağrılan Siemens alt programı = Mazak program numarası (yazılmazsa addaki sayı: SUBIT14 → 14)
@@ -7805,7 +7809,7 @@ SON = M17
     });
     // [TAKIM VERİSİ]: this control's way to read the tool table — keyed by 840D $TC_DPn (0: active tool)
     const toolData = new Map();
-    const TD_KEYS = { 'AKTIF TAKIM': 0, 'BOY': 3, 'YARICAP': 6, 'KOSE YARICAPI': 7, 'BOY ASINMA': 12, 'YARICAP ASINMA': 15, 'CAP ASINMA': 15 };
+    const TD_KEYS = { 'AKTIF TAKIM': 0, 'TAKIM SEC': 'sel', 'BOY': 3, 'YARICAP': 6, 'KOSE YARICAPI': 7, 'BOY ASINMA': 12, 'YARICAP ASINMA': 15, 'CAP ASINMA': 15 };
     (sections['TAKIM VERISI'] || []).forEach(l => {
       const r = l.match(/^\s*([^=]+?)\s*=\s*(.*)$/);
       if (!r || !(sectionKey(r[1]) in TD_KEYS) || !r[2].trim()) return;
@@ -8529,21 +8533,32 @@ SON = M17
       if (SIE) {
       // tool data lines of the rules ([TAKIM VERİSİ]) → 840D $P_TOOLNO / $TC_DPn
       const tdm = code.match(/^(#\d+|#\[[^=]+\])\s*=\s*(.+)$/);
+      const sel = R.toolData.get('sel');
+      if (tdm && sel && sel.tpl) {
+        const parts = sel.tpl.replace(/\s+/g, '').split('{T}').map(x => x.replace(/[.*+?^$()|[\]\\]/g, '\\$&'));
+        const mm = code.replace(/\s+/g, '').match(new RegExp('^' + parts.join('(.+)') + '$', 'i'));
+        if (mm) { st.toolSel = sieOfIso(mm[1]); if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
+      }
       if (tdm) {
         const sieTD = (t, lhs) => {
           const tt = t.replace(/\s+/g, '');
           for (const [dp, d] of R.toolData) {
             // the active tool number is only read; a table value is written through its {T} pattern
-            if (!d.tpl || (lhs && (dp === 0 || !/\{T\}/.test(d.tpl)))) continue;
+            if (!d.tpl || dp === 'sel' || (lhs && (dp === 0 || (!/\{T\}/.test(d.tpl) && !st.toolSel)))) continue;
             const parts = d.tpl.replace(/\s+/g, '').split('{T}').map(x => x.replace(/[.*+?^$()|[\]\\]/g, '\\$&'));
             const mm = tt.match(new RegExp('^' + parts.join('(.+)') + '$', 'i'));
-            if (mm) return dp === 0 ? '$P_TOOLNO' : `$TC_DP${dp}[${sieOfIso(mm[1])},1]`;
+            if (mm) {
+              if (dp === 0) return '$P_TOOLNO';
+              const t = mm[1] != null ? sieOfIso(mm[1]) : st.toolSel;
+              if (t == null) continue;
+              return `$TC_DP${dp}[${t},1]`;
+            }
           }
           return null;
         };
         const L = sieTD(tdm[1], true), Rt = sieTD(tdm[2].trim(), false);
         if (L || Rt) {
-          emit(i, withComments(`${L || sieOfIso(tdm[1])}=${Rt || sieOfIso(tdm[2].trim())}`, comments), 'changed', 'takım verisi — TAKIM VERİSİ kurallarındaki Mazak değişkenini kontrol edin');
+          emit(i, withComments(`${L || sieOfIso(tdm[1])}=${Rt || sieOfIso(tdm[2].trim())}`, comments), 'changed');
           continue;
         }
       }
@@ -9165,21 +9180,27 @@ SON = M17
     const withC = (code, c) => [code, c].filter(Boolean).join(' ');
     const wrapF = e => '[' + e + ']';
     // $P_TOOLNO, $TC_DPn[T,D] and a sum of two of them → the rules' tool data lines
+    // a control that reads the tool table through a selection (Mazak #700001={T}) gets that line first
+    const tdSel = R.toolData.get('sel');
     const isoToolData = rhs => {
+      const pre = [];
       const term = t => {
         let m = t.trim().match(/^\$P_TOOLNO$/i);
         if (m) return R.toolData.get(0) || null;
         m = t.trim().match(/^\$TC_DP(\d+)\s*\[\s*(.+?)\s*,[^\]]*\]$/i);
         const d = m && R.toolData.get(+m[1]);
-        return d ? { tpl: d.tpl.replace(/\{T\}/g, fanucExpr(m[2], base)), note: d.note } : null;
+        if (!d) return null;
+        const tt = fanucExpr(m[2], base);
+        if (tdSel && !/\{T\}/.test(d.tpl)) { const sl = tdSel.tpl.replace(/\{T\}/g, tt); if (!pre.includes(sl)) pre.push(sl); }
+        return { tpl: d.tpl.replace(/\{T\}/g, tt), note: d.note };
       };
       if (!/\$(P_TOOLNO|TC_DP)/i.test(rhs)) return null;
       const one = term(rhs);
-      if (one) return { text: one.tpl, note: one.note };
+      if (one) return { pre, text: one.tpl, note: one.note };
       const m = rhs.replace(/^\((.*)\)$/, '$1').match(/^(.+?\])\s*([+-])\s*(\$.+)$/);
       const a = m && term(m[1]), b = m && term(m[3]);
-      if (a && b) return { text: `[${a.tpl}${m[2]}${b.tpl}]`, note: [a.note, b.note].filter(Boolean).filter((x, k, l) => l.indexOf(x) === k).join('; ') };
-      return { text: fanucExpr(rhs, base), note: 'takım verisi değişkeni çevrilmedi — TAKIM VERİSİ kurallarına ekleyin' };
+      if (a && b) return { pre, text: `[${a.tpl}${m[2]}${b.tpl}]`, note: [a.note, b.note].filter(Boolean).filter((x, k, l) => l.indexOf(x) === k).join('; ') };
+      return { pre: [], text: fanucExpr(rhs, base), note: 'takım verisi alanı çevrilmedi — TAKIM VERİSİ kurallarına Mazak değişkenini yazın' };
     };
 
     // R parameters set to plain numbers and never read by the program itself
@@ -9486,7 +9507,8 @@ SON = M17
       const tdw = code.match(/^\$TC_DP(\d+)\s*\[\s*(.+?)\s*,[^\]]*\]\s*=\s*(.+)$/i);
       if (tdw) {
         const d = R.toolData.get(+tdw[1]);
-        if (d) emit(i, withC(`${d.tpl.replace(/\{T\}/g, fanucExpr(tdw[2], base))}=${fanucExpr(tdw[3], base)}`, comment), 'changed', d.note);
+        if (d && tdSel && !/\{T\}/.test(d.tpl)) emit(i, tdSel.tpl.replace(/\{T\}/g, fanucExpr(tdw[2], base)), 'added');
+        if (d) emit(i, withC(`${d.tpl.replace(/\{T\}/g, fanucExpr(tdw[2], base))}=${fanucExpr(tdw[3], base)}`, comment), 'changed', d.note || 'takım verisine yazma — Mazak\'ta bu alanın yazılabildiğini kontrol edin');
         else emit(i, withC(code, comment), 'same', `$TC_DP${tdw[1]} için TAKIM VERİSİ kuralı yok`);
         done(); continue;
       }
@@ -9498,7 +9520,7 @@ SON = M17
         if (dropR.has(asg[1]) || probeArg.has(p.k)) { done(); continue; }
         // tool data: the rules' [TAKIM VERİSİ] lines say how this control reads it
         const tdr = isoToolData(asg[2].trim());
-        if (tdr) { emit(i, withC(`${base(parseInt(asg[1], 10))}=${tdr.text}`, comment), 'changed', tdr.note); done(); continue; }
+        if (tdr) { tdr.pre.forEach(l => emit(i, l, 'added')); emit(i, withC(`${base(parseInt(asg[1], 10))}=${tdr.text}`, comment), 'changed', tdr.note); done(); continue; }
         emit(i, withC(`${base(parseInt(asg[1], 10))}=${fanucExpr(asg[2].trim(), base)}`, comment), 'changed');
         done(); continue;
       }
@@ -10831,7 +10853,10 @@ SON = M17
 
   // tilted-plane lines of the first versions passed the G68.2 / CYCLE800 values
   // through untouched; the core now works the angles out ({EKSEN1}, {I} …)
+  // the first [TAKIM VERİSİ] (Fanuc-style guesses) → the Mazak's own tool data access (#3020, #700001, #702007)
+  const OLD_TOOL_DATA = "[TAKIM VERİSİ]\n// Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5\n// Mazak karşılıkları — {T}: takım numarası. Fanuc bellek C düzeni yazıldı: makinenizin takım verisi değişkenleriyle değiştirin\nAKTİF TAKIM = #989\nBOY = #[11000+{T}] (!! KONTROL: Mazak takım boyu değişkeni)\nYARIÇAP = #[13000+{T}] (!! KONTROL: Mazak takım yarıçapı değişkeni)\nKÖŞE YARIÇAPI =\nBOY AŞINMA = #[10000+{T}] (!! KONTROL: Mazak boy aşınması değişkeni)\nYARIÇAP AŞINMA = #[12000+{T}] (!! KONTROL: Mazak yarıçap aşınması değişkeni)\n", NEW_TOOL_DATA = "[TAKIM VERİSİ]\n// Takım verisi okuma / yazma — 840D $P_TOOLNO, $TC_DP3 / DP6 / DP7 / DP12 / DP15 [T,D] · MillPlus G149, G321 / G331 I1=1…5\n// Mazak: #3020 mildeki takımın veri sıra numarası · #700001={T} o takımın verisini seçer · #7020xx seçili takımın alanları\n// TAKIM SEÇ varsa alan satırları {T}'siz yazılır (önce seçim satırı gelir) · boş satır: o alan çevrilmez\nAKTİF TAKIM = #3020\nTAKIM SEÇ = #700001={T}\nBOY =\nYARIÇAP =\nKÖŞE YARIÇAPI =\nBOY AŞINMA = #702007\nYARIÇAP AŞINMA =\n";
   const upgradeRules = t => String(t)
+    .split(OLD_TOOL_DATA).join(NEW_TOOL_DATA)
     .replace(/CYCLE800\(1,"HERMLE",100000,192,\{X\},\{Y\},\{Z\},\{I\},\(\{J\}\+ R20\),\{K\},/g, 'CYCLE800(1,"HERMLE",100000,192,{X},{Y},{Z},{EKSEN1},({EKSEN2}+ R20),0,')
     .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}')
     .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni')
