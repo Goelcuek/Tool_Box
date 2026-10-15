@@ -7686,12 +7686,19 @@ SON = M17
 
   // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
   const mpHead = (t, title) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS({});
-  const VARIAXIS_TO_DMGMP = mpHead(VARIAXIS_TO_DMG, 'Mazak Variaxis → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_VARIAXIS = mpHead(DMG_TO_VARIAXIS, 'DMG duoBLOCK MillPlus → Mazak Variaxis');
+  // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
+  // M825: accuracy level, not carried over
+  const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
+  const MP_M_TO_MAZAK = MP_CLAMP_NOTE + 'M10 = M47 M44\nM11 = M46 M43\nM825 =\n';
+  const MP_M_TO_SIE = MP_CLAMP_NOTE + 'M10 =\nM11 =\nM825 =\n';
+  const MAZAK_CLAMP_TO_MP = '// Variaxis eksen kilitleri = MillPlus M11 (kilit aç) / M10 (kilitle)\nM46 = M11\nM43 = M11\nM47 = M10\nM44 = M10\n';
+  const mpM = (t, lines) => t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + lines);
+  const VARIAXIS_TO_DMGMP = mpHead(VARIAXIS_TO_DMG.replace('M43 =\nM44 =\nM46 =\nM47 =\n', MAZAK_CLAMP_TO_MP), 'Mazak Variaxis → DMG duoBLOCK MillPlus');
+  const DMGMP_TO_VARIAXIS = mpHead(mpM(DMG_TO_VARIAXIS, MP_M_TO_MAZAK), 'DMG duoBLOCK MillPlus → Mazak Variaxis');
   const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG, 'Hermle C52 → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_HERMLE = mpHead(DMG_TO_HERMLE, 'DMG duoBLOCK MillPlus → Hermle C52');
+  const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE, MP_M_TO_SIE), 'DMG duoBLOCK MillPlus → Hermle C52');
   const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
+  const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', m: MP_M_TO_SIE, cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
 
   const PROFILES = [
     { id: 'hermle-c52', name: 'Mazak Variaxis i700 / i800 → Hermle C52', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-hermle-c52', rules: DEFAULT_RULES },
@@ -8455,6 +8462,8 @@ SON = M17
       for (const w of words) {
         if (w.letter === 'G' && HOME_G.has(w.value)) continue;
         if (w.letter === 'M' && R.m.has(codeKey('M', w.raw)) && R.m.get(codeKey('M', w.raw)).length === 0) continue;
+        // the Variaxis axis clamps (M43 M44 M46 M47) go with the block whatever the rules make of them
+        if (w.letter === 'M' && [43, 44, 46, 47].includes(w.value)) continue;
         if ('XYZABC'.includes(w.letter) && g28 && w.value === 0) continue;
         return null;
       }
@@ -8958,7 +8967,8 @@ SON = M17
           const key = codeKey('M', w.raw);
           if (R.m.has(key)) {
             const rep = R.m.get(key);
-            if (rep.length) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
+            // two codes onto the same one (M46 M43 → M11) are written once
+            if (rep.length && !newWs.some(x => x.text === rep[0])) { newWs.push({ text: rep[0] }); rep.slice(1).forEach(x => after.push({ text: x, kind: 'added' })); }
             if (!rep.length || rep[0] !== 'M' + w.raw) changed = true;
             return;
           }
@@ -11240,7 +11250,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { MP_M_TO_MAZAK, MP_M_TO_SIE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11305,7 +11315,11 @@ SON = M17
     .replace(/^(\s*G68\.2\b.*)I\{A\} J\{B\} K\{C\}/gm, '$1I{I} J{J} K{K}')
     .replace(/^\/\/ \{EKSEN1\} \{EKSEN2\}: KİNEMATİK'e göre A ve C konumu/m, '// {EKSEN1} {EKSEN2}: hedef makinenin 1. ve 2. döner ekseni')
     // {A} {B} {C} are CYCLE800's slots in _MODE order now (27: Z first): the pattern turn rides on {A}
-    .replace(/\{A\},\{B\},\(\{C\}\+ (R\d+)\)/g, '({A}+ $1),{B},{C}');
+    .replace(/\{A\},\{B\},\(\{C\}\+ (R\d+)\)/g, '({A}+ $1),{B},{C}')
+    // MillPlus M10 / M11 axis clamps ↔ Variaxis M47 M44 / M46 M43 (840D: not written), M825 accuracy level dropped
+    .replace(/^\/\/ Mazak Variaxis → DMG duoBLOCK MillPlus[^]*$/, t => t.replace('M43 =\nM44 =\nM46 =\nM47 =\n', ProgConvert.MAZAK_CLAMP_TO_MP))
+    .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /\nM825\s*=/.test(t) ? t
+      : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)));
   // kinematics moved from the rules to the machines: the section is taken out of saved rules
   const KIN_SECTION = /^\[KİNEMATİK\][^\n]*\n(?:(?!\[)[^\n]*\n?)*/m;
   const stripKin = t => String(t).replace(new RegExp(KIN_SECTION.source, 'gm'), '');
