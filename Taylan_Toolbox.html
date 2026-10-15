@@ -8059,8 +8059,30 @@ SON = M17
           // the axis right under the part, alike on both machines (a C table), turns the part the same way
           const top = (k, n) => k.chain[0] && k.chain[0].name === n && k.chain[0].table;
           const alike = n => top(src, n) && top(tgt, n) && src.chain[0].v.every((c, i) => Math.abs(c - tgt.chain[0].v[i]) < 1e-9);
-          if (words.every(w => alike(w.name))) { words.forEach(w => { if (w.v != null) { cur[w.name] = w.v; if (prev) prev[w.name] = w.v; } }); return { words, flag: '' }; }
-          return { words, flag: `kinematik farklı (${src.label} → ${tgt.label}) — TCP'siz döner eksen hareketi çevrilmedi` };
+          if (words.every(w => alike(w.name))) {
+            // the same turn of the part; the target's table may stand elsewhere after a converted tilt
+            let moved = false;
+            const out = words.map(w => {
+              if (w.v == null) return w;
+              const d = prev && prev[w.name] != null && cur[w.name] != null ? prev[w.name] - cur[w.name] : 0;
+              cur[w.name] = w.v;
+              if (prev) prev[w.name] = w.v + d;
+              if (Math.abs(d) < 5e-5) return w;
+              moved = true;
+              return { name: w.name, v: w.v + d };
+            });
+            return moved ? { converted: true, words: out, flag: '' } : { words, flag: '' };
+          }
+          // indexing without TCP: the part takes the same orientation to the tool (as a plane would),
+          // the turn about the tool the target can't give is told; X/Y/Z after it depend on the pivots
+          if (words.some(w => w.v == null)) return { words, flag: 'değişkenli döner eksen değeri çevrilemedi' };
+          words.forEach(w => { cur[w.name] = w.v; });
+          const r = kinSolve(tgt, kinFrame(src, cur), prev);
+          if (!r) return { words, flag: `hedef makine (${tgt.label}) bu konumu veremiyor` };
+          const out = tgt.axes.filter(a => !prev || Math.abs(r.vals[a.name] - prev[a.name]) > 5e-5).map(a => ({ name: a.name, v: r.vals[a.name] }));
+          prev = r.vals;
+          const rest = Math.abs(r.rest) > 0.01 ? ` — parça takım ekseni etrafında ${fmt(r.rest)}° farklı durur` : '';
+          return { converted: true, words: out, flag: `TCP'siz döner hareket ${src.label} → ${tgt.label} çevrildi${rest}; sonraki X/Y/Z makine pivotuna göre kontrol edilmeli` };
         }
         if (words.some(w => w.v == null)) return { words, flag: 'değişkenli döner eksen değeri çevrilemedi' };
         words.forEach(w => { cur[w.name] = w.v; });
@@ -8803,7 +8825,7 @@ SON = M17
           else {
             const r = rot.apply(rw.map(w => ({ name: w.letter, v: w.value, raw: w.raw })), st.tcp);
             if (r.flag) flags.push(r.flag);
-            else {
+            if (!r.flag || r.converted) {
               // the new axis words go where the first old one stood
               const at = ws.indexOf(rw[0]), nw = r.words.map(x => ({ letter: x.name, raw: fmt(x.v), value: x.v }));
               ws = ws.slice(0, at).filter(w => !rw.includes(w)).concat(nw, ws.slice(at).filter(w => !rw.includes(w)));
@@ -8932,7 +8954,7 @@ SON = M17
       }
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
     });
-    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve TCP'li (G43.4 / TRAORI) döner hareketler hedef makinenin eksenlerine çevrildi; TCP'siz döner hareketler işaretlendi.`);
+    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve döner hareketler hedef makinenin eksenlerine çevrildi (TCP'li olanlar takım yönüyle, TCP'siz olanlar parça yönüyle); TCP'siz hareketlerden sonraki X/Y/Z işaretlendi.`);
     return { lines: out, srcLines, notes, calls };
   }
 
@@ -9750,7 +9772,7 @@ SON = M17
           else {
             const r = rot.apply(rw.map(w => ({ name: w[0], v: /^\[/.test(w.slice(1)) ? null : parseFloat(w.slice(1)), raw: w.slice(1) })), st.tcp);
             if (r.flag) flags.push(r.flag);
-            else {
+            if (!r.flag || r.converted) {
               const at = ws.indexOf(rw[0]), nw = r.words.map(x => x.name + (x.v != null ? fmt(x.v) : x.raw));
               const next = ws.slice(0, at).filter(w => !rw.includes(w)).concat(nw, ws.slice(at).filter(w => !rw.includes(w)));
               ws.length = 0; next.forEach(w => ws.push(w));
@@ -9800,7 +9822,7 @@ SON = M17
       done();
     }
     if (st.cycle) emit(parts.length - 1, 'G80', 'added', 'program açık bir MCALL ile bitiyor');
-    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve TCP'li (TRAORI) döner hareketler hedef makinenin eksenlerine çevrildi; TCP'siz döner hareketler işaretlendi.`);
+    if (rot && rot.mode === 'diff') notes.push(`Kinematik: ${opts.srcKin.label} → ${opts.tgtKin.label}. Eğik düzlemler ve döner hareketler hedef makinenin eksenlerine çevrildi (TCP'li olanlar takım yönüyle, TCP'siz olanlar parça yönüyle); TCP'siz hareketlerden sonraki X/Y/Z işaretlendi.`);
     if (usedDC) notes.push("DC() (en kısa yoldan) döner eksen hareketleri düz değer olarak yazıldı — Mazak'ta döner eksenin en kısa yoldan gitmesi parametreyle açık olmalı.");
 
     // a number with no decimal point is read in least increments on a Fanuc-type
@@ -9965,7 +9987,7 @@ SON = M17
           else {
             const r = rot.apply(words.map(w => ({ name: w.name, v: w.v, raw: w.raw })), st.tcp);
             if (r.flag) flags.push(r.flag);
-            else {
+            if (!r.flag || r.converted) {
               const wrapOf = new Map(words.map(w => [w.name, w.wrap]));
               const text = r.words.map(x => {
                 const v = x.v != null ? fmt(x.v) : x.raw, wr = wrapOf.get(x.name) || (words[0].wrap && words[0].wrap !== 'IC' ? words[0].wrap : null);
@@ -10002,7 +10024,7 @@ SON = M17
       if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${o.flag}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${o.flag}`;
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
     });
-    if (diff) notes.push(`Kinematik: ${srcKin.label} → ${tgtKin.label}. CYCLE800 doğrudan mod (192) eksen konumları${planes ? ` (${planes} düzlem)` : ''} ve TRAORI altındaki döner hareketler hedef makinenin eksenlerine çevrildi; diğer CYCLE800 modları makineden bağımsızdır, yalnız _TC / _DIR değişti.`);
+    if (diff) notes.push(`Kinematik: ${srcKin.label} → ${tgtKin.label}. CYCLE800 doğrudan mod (192) eksen konumları${planes ? ` (${planes} düzlem)` : ''} ve döner hareketler (TRAORI altında takım yönüyle, dışında parça yönüyle) hedef makinenin eksenlerine çevrildi; diğer CYCLE800 modları makineden bağımsızdır, yalnız _TC / _DIR değişti.`);
     return { lines: out, srcLines, notes, calls: [] };
   }
 
