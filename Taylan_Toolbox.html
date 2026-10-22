@@ -1378,6 +1378,12 @@
   .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
   .rules-state { font-weight: 500; font-size: 12px; color: var(--amber); margin-left: 6px; }
   .diff-row.conv-row .side-b.added { background: #e8f0fb; }
+  .diff-row.conv-row.grp > div { border-top: 1px solid var(--line); }
+  .diff-row.conv-row .dtext.side-b.gone { color: var(--ink-faint); font-style: italic; }
+  .diff-row.conv-row .dtext.side-a.cont { color: var(--ink-faint); }
+  .diff-row mark.del { background: #f6c6c1; color: #8c1d18; }
+  .diff-row mark.ins { background: #bfe5cc; color: #14532d; }
+  .conv-gap { padding: 3px 12px; font-size: 11px; color: var(--ink-faint); background: var(--paper); text-align: center; font-family: var(--sans); border-top: 1px solid var(--line-soft); }
   .diff-row.conv-row.flagged .side-b { background: #fdecea; }
   .diff-row.conv-row.flagged .dnum.side-b { color: #b3261e; font-weight: 700; }
   .diff-row.conv-row.flagged .dtext.side-b { color: #8c1d18; }
@@ -2446,8 +2452,8 @@
           <div class="col-label">3. Sonuç</div>
           <div class="kpi-row">
             <div class="kpi"><div class="kpi-label">Program</div><div class="kpi-value" id="kpiProg7">0</div></div>
-            <div class="kpi"><div class="kpi-label">Siemens satırı</div><div class="kpi-value" id="kpiLines7">0</div></div>
-            <div class="kpi"><div class="kpi-label">Değişen / eklenen</div><div class="kpi-value" id="kpiChanged7">0</div></div>
+            <div class="kpi"><div class="kpi-label">Çıktı satırı</div><div class="kpi-value" id="kpiLines7">0</div></div>
+            <div class="kpi"><div class="kpi-label">Değişen blok</div><div class="kpi-value" id="kpiChanged7">0</div></div>
             <div class="kpi"><div class="kpi-label">!! KONTROL</div><div class="kpi-value" id="kpiFlags7">0</div></div>
           </div>
           <div class="scan-summary" id="notes7" style="display:none; margin-top:14px;"></div>
@@ -2469,6 +2475,7 @@
                 <button class="btn secondary" id="prevFlagBtn7">◀ Önceki KONTROL</button>
                 <button class="btn secondary" id="nextFlagBtn7">Sonraki KONTROL ▶</button>
                 <span class="diff-pos" id="flagPos7"></span>
+                <label class="checkbox-field"><input type="checkbox" id="onlyChg7"> Yalnız değişenler</label>
                 <div class="spacer"></div>
                 <button class="btn secondary" id="copyBtn7">Kopyala</button>
                 <button class="btn" id="downloadBtn7">Bu Dosyayı İndir</button>
@@ -11339,6 +11346,7 @@ SON = M17
   const convertBtn7 = $('convertBtn7'), rulesText7 = $('rulesText7'), rulesResetBtn7 = $('rulesResetBtn7');
   const resultPanel7 = $('resultPanel7'), notes7 = $('notes7'), progList7 = $('progList7');
   const previewTitle7 = $('previewTitle7'), previewBadge7 = $('previewBadge7'), convBody7 = $('convBody7');
+  const onlyChg7 = $('onlyChg7');
   const prevFlagBtn7 = $('prevFlagBtn7'), nextFlagBtn7 = $('nextFlagBtn7'), flagPos7 = $('flagPos7');
   const copyBtn7 = $('copyBtn7'), downloadBtn7 = $('downloadBtn7'), zipBtn7 = $('zipBtn7');
 
@@ -11823,14 +11831,92 @@ SON = M17
   }
   convertBtn7.addEventListener('click', () => { current = 0; run(); });
 
+  /* ---- what each source block turned into ----
+     Compared as the machine reads them: the block number, comment markers ( ; ), number
+     formats (X10. / X10) and the !! KONTROL notes aside. A block is the same, changed (one
+     line or several) or deleted; output lines without a source line are added. */
+  const N_PREFIX = /^\s*(?:\/\d?\s*)?N\d+\b\s*/i;
+  const NOTE_AT = /\s*(?:\(\s*!!\s*KONTROL|;?\s*!!\s*KONTROL)/i;
+  const canonTok = w => w.toUpperCase()
+    .replace(/(?<![A-Z0-9_.$#])([A-Z])(=?)([-+]?(?:\d+\.?\d*|\.\d+))(?![\d.])/g, (m, l, eq, v) => l + eq + String(parseFloat(v)));
+  // the text as prefix (block number) · words · note; each word with its place in the text
+  function viewWords(text) {
+    const t = String(text);
+    const pre = (t.match(N_PREFIX) || [''])[0];
+    const k = t.slice(pre.length).search(NOTE_AT);
+    const end = k < 0 ? t.length : pre.length + k;
+    const words = [];
+    const re = /\S+/g;
+    let m;
+    const core = t.slice(0, end);
+    // a ; comment reads as a ( ) one: ;(* X *) and ;X are (* X *) and (X)
+    let sc = -1, q = false;
+    for (let k = pre.length; k < core.length; k++) { if (core[k] === '"') q = !q; else if (core[k] === ';' && !q) { sc = k; break; } }
+    re.lastIndex = pre.length;
+    while ((m = re.exec(core)) !== null) {
+      let c = m[0];
+      if (sc >= 0 && m.index === sc) { c = c.slice(1); if (!c) continue; }
+      words.push({ at: m.index, len: m[0].length, c: canonTok(c), com: sc >= 0 && m.index >= sc });
+    }
+    const com = words.filter(x => x.com);
+    if (com.length && !com[0].c.startsWith('(')) { com[0].c = '(' + com[0].c; com[com.length - 1].c += ')'; }
+    return { t, end, words };
+  }
+  // the words common to both sides, in order (longest common subsequence)
+  function commonWords(a, b) {
+    const n = a.length, m = b.length, L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i].c === b[j].c ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    const ka = new Set(), kb = new Set();
+    for (let i = 0, j = 0; i < n && j < m;) {
+      if (a[i].c === b[j].c) { ka.add(a[i]); kb.add(b[j]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++;
+    }
+    return { ka, kb };
+  }
+  // the text with the words not in keep marked
+  function markWords(w, keep, cls) {
+    let html = '', last = 0;
+    w.words.forEach(x => {
+      html += escapeHtml7(w.t.slice(last, x.at));
+      const s = escapeHtml7(w.t.substr(x.at, x.len));
+      html += keep.has(x) ? s : `<mark class="${cls}">${s}</mark>`;
+      last = x.at + x.len;
+    });
+    return html + escapeHtml7(w.t.slice(last));
+  }
+  function blocksOf(pg) {
+    if (pg._blocks) return pg._blocks;
+    const outNo = new Map(), bySrc = new Map(), extra = new Map();
+    let lastSrc = -1;
+    pg.result.lines.forEach((o, k) => {
+      outNo.set(o, k + 1);
+      if (o.src != null && o.src >= 0 && o.src < pg.result.srcLines.length) {
+        if (!bySrc.has(o.src)) bySrc.set(o.src, []);
+        bySrc.get(o.src).push(o); lastSrc = o.src;
+      } else { if (!extra.has(lastSrc)) extra.set(lastSrc, []); extra.get(lastSrc).push(o); }
+    });
+    const groups = [];
+    const addExtra = i => (extra.get(i) || []).forEach(o => groups.push({ kind: 'add', outs: [o] }));
+    addExtra(-1);
+    pg.result.srcLines.forEach((srcText, i) => {
+      const outs = bySrc.get(i) || [];
+      const a = viewWords(srcText), bs = outs.map(o => viewWords(ProgConvert.lineText(o)));
+      let kind;
+      // nothing left of it (no line, or an empty one kept in its place): deleted
+      if (!outs.length || bs.every(b => !b.words.length)) kind = a.words.length ? 'del' : 'eq';
+      else kind = bs.map(b => b.words.map(x => x.c).join(' ')).filter(Boolean).join(' | ') === a.words.map(x => x.c).join(' ') && outs.length === 1 ? 'eq' : 'chg';
+      groups.push({ kind, i, srcText, outs, a, bs });
+      addExtra(i);
+    });
+    const count = k => groups.filter(g => g.kind === k).length;
+    pg._blocks = { groups, outNo, chg: count('chg'), del: count('del'), add: count('add') };
+    return pg._blocks;
+  }
   const stats = pg => {
-    const L = pg.result.lines;
-    return {
-      lines: L.length,
-      changed: L.filter(o => o.kind !== 'same').length,
-      flags: L.filter(o => o.flag).length
-    };
+    const b = blocksOf(pg);
+    return { lines: pg.result.lines.length, changed: b.chg + b.del + b.add, chg: b.chg, del: b.del, add: b.add, flags: pg.result.lines.filter(o => o.flag).length };
   };
+  const changeBadges = s => [s.chg ? `<span class="st st-chg">${s.chg} değişen</span>` : '', s.del ? `<span class="st st-del">${s.del} silinen</span>` : '', s.add ? `<span class="st st-ins">${s.add} eklenen</span>` : '']
+    .filter(Boolean).join('') || '<span class="st st-same">değişiklik yok</span>';
   function renderSummary() {
     const all = result.programs.map(stats);
     $('kpiProg7').textContent = result.programs.length;
@@ -11854,7 +11940,7 @@ SON = M17
       item.querySelector('.pi-name').textContent = pg.outName;
       item.querySelector('.pi-sub').textContent = (pg.isSub ? 'alt program · ' : result.route === 'iso-iso' ? '' : 'ana program · ') + pg.srcName;
       item.querySelector('.pi-status').innerHTML =
-        `<span class="st st-chg">${s.changed} değişen</span>` + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : `<span class="st st-same">KONTROL yok</span>`);
+        changeBadges(s) + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : `<span class="st st-same">KONTROL yok</span>`);
       item.addEventListener('click', () => { current = k; renderProgList(); renderPreview(); });
       progList7.appendChild(item);
     });
@@ -11862,37 +11948,54 @@ SON = M17
 
   function escapeHtml7(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-  // One row per source line; a line that became several Siemens lines gets
-  // extra rows with an empty Mazak side, a dropped line an empty Siemens side.
+  // One group per source block: the source on the left, what it turned into on the right (the
+  // output line numbers), the changed words marked. A block that became several lines spans
+  // their rows; a deleted one says so; output lines without a source line stand on their own.
   function renderPreview() {
     const pg = result.programs[current];
     if (!pg) { convBody7.innerHTML = ''; return; }
     previewTitle7.textContent = pg.outName;
     const s = stats(pg);
-    previewBadge7.innerHTML = `<span class="st st-chg">${s.changed} değişen</span>` + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : '');
-    const bySrc = new Map();
-    pg.result.lines.forEach(o => { if (!bySrc.has(o.src)) bySrc.set(o.src, []); bySrc.get(o.src).push(o); });
+    previewBadge7.innerHTML = changeBadges(s) + (s.flags ? `<span class="st st-del">${s.flags} KONTROL</span>` : '');
+    const { groups, outNo } = blocksOf(pg);
+    const only = onlyChg7.checked;
     const html = [];
-    pg.result.srcLines.forEach((srcText, i) => {
-      const outs = bySrc.get(i) || [];
-      const rows = Math.max(1, outs.length);
-      for (let k = 0; k < rows; k++) {
-        const o = outs[k];
-        const left = k === 0;
-        let cls = 'diff-row conv-row';
-        let aCls = '', bCls = '';
-        if (!o) { aCls = ' changed'; bCls = ' filler'; }
-        else if (o.kind === 'same' && left) cls += ' eq';
-        else if (o.kind === 'same' || o.kind === 'changed') { aCls = left ? ' changed' : ' filler'; bCls = ' changed'; }
-        else { aCls = left ? ' changed' : ' filler'; bCls = ' changed added'; }
-        if (o && o.flag) cls += ' flagged';
-        const aNum = left ? i + 1 : '';
-        const aText = left ? escapeHtml7(srcText) : '';
-        const bNum = o && o.flag ? '!!' : '';
-        const bText = o ? escapeHtml7(ProgConvert.lineText(o)) : '';
-        html.push(`<div class="${cls}"><div class="dnum side-a${aCls}">${aNum}</div><div class="dtext side-a${aCls}">${aText}</div><div class="dnum side-b${bCls}">${bNum}</div><div class="dtext side-b${bCls}">${bText}</div></div>`);
+    // the full lines as tooltips: long ones are cut at the edge
+    const tip = t => (t ? ` title="${escapeHtml7(t).replace(/"/g, '&quot;')}"` : '');
+    const row = (cls, aNum, aCls, aText, bNum, bCls, bText, aRaw, bRaw) =>
+      html.push(`<div class="diff-row conv-row${cls}"><div class="dnum side-a${aCls}">${aNum}</div><div class="dtext side-a${aCls}"${tip(aRaw)}>${aText}</div><div class="dnum side-b${bCls}">${bNum}</div><div class="dtext side-b${bCls}"${tip(bRaw)}>${bText}</div></div>`);
+    let hidden = 0, prevKind = 'eq';
+    const gap = () => { if (hidden) html.push(`<div class="conv-gap">··· ${hidden} satır aynı ···</div>`); hidden = 0; };
+    groups.forEach(g => {
+      if (only && g.kind === 'eq') { hidden++; prevKind = 'eq'; return; }
+      gap();
+      const grp = g.kind !== 'eq' || prevKind !== 'eq' ? ' grp' : '';
+      prevKind = g.kind;
+      if (g.kind === 'add') {
+        const o = g.outs[0];
+        row(grp + (o.flag ? ' flagged' : ''), '+', ' filler', '', outNo.get(o), ' changed added', escapeHtml7(ProgConvert.lineText(o)), '', ProgConvert.lineText(o));
+        return;
       }
+      if (g.kind === 'eq') {
+        const o = g.outs[0];
+        row(' eq' + grp + (o && o.flag ? ' flagged' : ''), g.i + 1, '', escapeHtml7(g.srcText), o ? outNo.get(o) : '', '', o ? escapeHtml7(ProgConvert.lineText(o)) : '', g.srcText, o ? ProgConvert.lineText(o) : '');
+        return;
+      }
+      if (g.kind === 'del') {
+        row(grp, g.i + 1, ' changed', `<mark class="del">${escapeHtml7(g.srcText)}</mark>`, g.outs.length ? outNo.get(g.outs[0]) : '', ' filler gone', 'silindi', g.srcText, '');
+        return;
+      }
+      // changed: the words of the source against the words of all it turned into
+      const all = [].concat(...g.bs.map(b => b.words));
+      const { ka, kb } = commonWords(g.a.words, all);
+      g.outs.forEach((o, k) => {
+        const first = k === 0;
+        row((first ? grp : '') + (o.flag ? ' flagged' : ''),
+          first ? g.i + 1 : '', ' changed', first ? markWords(g.a, ka, 'del') : '',
+          outNo.get(o), ' changed', markWords(g.bs[k], kb, 'ins'), first ? g.srcText : '', g.bs[k].t);
+      });
     });
+    gap();
     convBody7.innerHTML = html.join('');
     convBody7.scrollTop = 0;
     flagRows = Array.from(convBody7.querySelectorAll('.diff-row.flagged'));
@@ -11912,6 +12015,7 @@ SON = M17
     convBody7.scrollTop = row.offsetTop - convBody7.clientHeight / 2;
     updateFlagNav();
   }
+  onlyChg7.addEventListener('change', () => { if (result) renderPreview(); });
   prevFlagBtn7.addEventListener('click', () => goFlag(-1));
   nextFlagBtn7.addEventListener('click', () => goFlag(1));
 
