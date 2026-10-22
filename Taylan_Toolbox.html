@@ -1514,7 +1514,7 @@
       <div class="tool-view" id="tool-renumber">
         <header class="tool-header">
           <h1>Program N Numarası Güncelleme</h1>
-          <div class="subtitle">MAHO MillPlus seçilirse <code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleri de güncellenir.</div>
+          <div class="subtitle">Genel: her satır numaralanır. MAHO MillPlus: N'li satırlar, <code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleriyle.</div>
         </header>
 
         <div class="panel">
@@ -2636,6 +2636,11 @@ function showLog(message, isWarn) {
   logIconWarn.style.display = isWarn ? 'block' : 'none';
 }
 
+// Genel numbers every block: a line without a number gets one in front (after a / block skip).
+// Blank and comment lines, % and program number lines (O1000, :1000) and PROC stay as they are.
+const BLOCK_RE = /^(\s*(?:\/\d?\s*)?)(?:N(\d+)\s?)?(.*)$/;
+const numberable = rest => rest.trim() !== '' && !/^\s*[;(%]/.test(rest) && !/^\s*[O:]\d+\s*(\(.*)?$/i.test(rest) && !/^\s*PROC\b/i.test(rest);
+
 function renumber() {
   const startN = parseInt(startNInput.value, 10);
   const step = parseInt(stepNInput.value, 10);
@@ -2647,6 +2652,7 @@ function renumber() {
   const lines = inputBox.value.split(/\r\n|\r|\n/);
   const occurrences = {};
   const lineNewNum = new Array(lines.length).fill(null);
+  const maho = renumKind.value === 'maho';
   let next = startN;
 
   lines.forEach((line, i) => {
@@ -2656,10 +2662,12 @@ function renumber() {
       lineNewNum[i] = next;
       (occurrences[oldNum] = occurrences[oldNum] || []).push({ lineIndex: i, newNum: next });
       next += step;
+    } else if (!maho) {
+      const b = line.match(BLOCK_RE);
+      if (b[2] != null || numberable(b[3])) { lineNewNum[i] = next; next += step; }
     }
   });
 
-  const maho = renumKind.value === 'maho';
   const duplicated = Object.keys(occurrences).filter(k => occurrences[k].length > 1);
   const missingRefs = new Set();
   // with Genel the jumps keep their old targets: say so when the program has any
@@ -2706,6 +2714,9 @@ function renumber() {
     const m = newLine.match(LEADING_N_RE);
     if (m && lineNewNum[i] !== null) {
       newLine = newLine.replace(LEADING_N_RE, `$1N${lineNewNum[i]}`);
+    } else if (lineNewNum[i] !== null) {
+      const b = newLine.match(BLOCK_RE);
+      newLine = (b[1] + 'N' + lineNewNum[i] + ' ' + b[3].replace(/^\s+/, '')).replace(/\s+$/, '');
     }
     return newLine;
   });
@@ -2715,7 +2726,7 @@ function renumber() {
 
   let msg = `${lineNewNum.filter(n => n !== null).length} satır · N${startN}'dan ${step} artışla`;
   let warn = false;
-  if (duplicated.length > 0) {
+  if (maho && duplicated.length > 0) {
     msg += `\nTekrar eden N (en yakına eşleştirildi, kontrol edin): ` + duplicated.join(', ');
     warn = true;
   }
