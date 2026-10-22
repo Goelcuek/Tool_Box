@@ -1514,7 +1514,7 @@
       <div class="tool-view" id="tool-renumber">
         <header class="tool-header">
           <h1>Program N Numarası Güncelleme</h1>
-          <div class="subtitle">Genel: her satır numaralanır. MAHO MillPlus: N'li satırlar, <code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleriyle.</div>
+          <div class="subtitle">Genel: her satır numaralanır. Mazak / Siemens: <code>GOTO</code> hedefleri de güncellenir. MAHO MillPlus: N'li satırlar, <code>G29 N=</code> ve <code>G14 N1= N2=</code> hedefleriyle.</div>
         </header>
 
         <div class="panel">
@@ -1546,6 +1546,8 @@
               <label>Program</label>
               <select id="renumKind" class="select-field">
                 <option value="plain">Genel</option>
+                <option value="mazak">Mazak</option>
+                <option value="siemens">Siemens</option>
                 <option value="maho">MAHO MillPlus</option>
               </select>
             </div>
@@ -2544,9 +2546,9 @@ const processBtn = document.getElementById('processBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const startNInput = document.getElementById('startN');
 const stepNInput = document.getElementById('stepN');
-// Genel: only the N at the start of the lines · MAHO MillPlus: the jump / repeat targets too
+// Genel: the N numbers only · Mazak / Siemens / MAHO MillPlus: the jump targets too
 const renumKind = document.getElementById('renumKind');
-try { const k = localStorage.getItem('toolbox.renumKind'); if (k === 'plain' || k === 'maho') renumKind.value = k; } catch (e) { /* storage off */ }
+try { const k = localStorage.getItem('toolbox.renumKind'); if (['plain', 'mazak', 'siemens', 'maho'].includes(k)) renumKind.value = k; } catch (e) { /* storage off */ }
 renumKind.addEventListener('change', () => {
   try { localStorage.setItem('toolbox.renumKind', renumKind.value); } catch (e) { /* storage off */ }
   if (outputBox.value) renumber();
@@ -2636,10 +2638,22 @@ function showLog(message, isWarn) {
   logIconWarn.style.display = isWarn ? 'block' : 'none';
 }
 
-// Genel numbers every block: a line without a number gets one in front (after a / block skip).
-// Blank and comment lines, % and program number lines (O1000, :1000) and PROC stay as they are.
+// Genel, Mazak and Siemens number every block: a line without a number gets one in front (after
+// a / block skip). Blank and comment lines, % and program number lines (O1000, :1000) and PROC
+// stay as they are. MAHO MillPlus renumbers only the lines that have an N.
 const BLOCK_RE = /^(\s*(?:\/\d?\s*)?)(?:N(\d+)\s?)?(.*)$/;
 const numberable = rest => rest.trim() !== '' && !/^\s*[;(%]/.test(rest) && !/^\s*[O:]\d+\s*(\(.*)?$/i.test(rest) && !/^\s*PROC\b/i.test(rest);
+// Jump targets each choice carries along:
+//   Mazak    GOTO630, IF [...] GOTO630
+//   Siemens  GOTOF N201, GOTOB N101, GOTO / GOTOC N10, REPEAT N10 N20, REPEATB N10 (labels go by name)
+const MAZAK_GOTO_RE = /\b(GOTO)(\s*)(\d+)/gi;
+const SIE_GOTO_RE = /\b(GOTO[FBC]?)(\s+)N(\d+)/gi;
+const SIE_REPEAT_RE = /\b(REPEATB?)(\s+)N(\d+)(?:(\s+)N(\d+))?/gi;
+// code outside the comments: (...) on a Mazak, after ; on a Siemens
+const inCode = (line, sie, fn) => {
+  if (sie) { const k = line.indexOf(';'); return k < 0 ? fn(line) : fn(line.slice(0, k)) + line.slice(k); }
+  return line.replace(/(\([^)]*\)?)|([^(]+)/g, (m, c, code) => (c ? c : fn(code)));
+};
 
 function renumber() {
   const startN = parseInt(startNInput.value, 10);
@@ -2649,37 +2663,35 @@ function renumber() {
     return;
   }
 
+  const kind = renumKind.value;
+  const maho = kind === 'maho', mazak = kind === 'mazak', sie = kind === 'siemens';
   const lines = inputBox.value.split(/\r\n|\r|\n/);
   const occurrences = {};
   const lineNewNum = new Array(lines.length).fill(null);
-  const maho = renumKind.value === 'maho';
   let next = startN;
 
   lines.forEach((line, i) => {
-    const m = line.match(LEADING_N_RE);
+    const m = line.match(LEADING_N_RE) || (!maho && line.match(/^(\s*\/\d?\s*)N(\d+)/));
     if (m) {
       const oldNum = String(parseInt(m[2], 10)); // N0123 and N=123 name the same block
       lineNewNum[i] = next;
       (occurrences[oldNum] = occurrences[oldNum] || []).push({ lineIndex: i, newNum: next });
       next += step;
-    } else if (!maho) {
-      const b = line.match(BLOCK_RE);
-      if (b[2] != null || numberable(b[3])) { lineNewNum[i] = next; next += step; }
-    }
+    } else if (!maho && numberable(line.match(BLOCK_RE)[3])) { lineNewNum[i] = next; next += step; }
   });
 
   const duplicated = Object.keys(occurrences).filter(k => occurrences[k].length > 1);
   const missingRefs = new Set();
-  // with Genel the jumps keep their old targets: say so when the program has any
+  // jumps left as they were: with Genel all of them, with Mazak the ones it can't follow
   const keptJumps = new Set();
 
-  // New number for an old one. When the old number was used more than once,
-  // take the occurrence nearest to the referring line — for a G14 repeat the
-  // nearest one BEFORE it, since a repeat always points back.
-  function resolve(oldTarget, i, backwardsOnly) {
+  // New number for an old one. When the old number was used more than once, take the
+  // occurrence the jump would find: 'b' the nearest one before (G14, GOTOB, REPEAT),
+  // 'f' the nearest one after (GOTO, GOTOF: the search goes forward first), else the nearest.
+  function resolve(oldTarget, i, dir) {
     const list = occurrences[String(parseInt(oldTarget, 10))];
     if (!list || list.length === 0) return null;
-    const pool = backwardsOnly ? list.filter(o => o.lineIndex < i) : list;
+    const pool = dir === 'b' ? list.filter(o => o.lineIndex < i) : dir === 'f' ? list.filter(o => o.lineIndex > i) : list;
     const from = pool.length ? pool : list;
     let best = from[0], bestDist = Math.abs(best.lineIndex - i);
     for (const occ of from) {
@@ -2691,7 +2703,7 @@ function renumber() {
 
   const newLines = lines.map((line, i) => {
     let newLine = line;
-    if (!maho) {
+    if (kind === 'plain') {
       const bare = line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '');
       if ((hasGCode(bare, 29) && JUMP_REF_RE.test(bare)) || (hasGCode(bare, 14) && REPEAT_REF_RE.test(bare))) keptJumps.add('G29 / G14');
       if (/\bGOTO[FBC]?\s*N?\d/i.test(bare)) keptJumps.add('GOTO');
@@ -2699,17 +2711,42 @@ function renumber() {
     }
     if (maho && hasGCode(newLine, 29)) {
       newLine = newLine.replace(JUMP_REF_RE, (full, oldTarget) => {
-        const n = resolve(oldTarget, i, false);
+        const n = resolve(oldTarget, i, null);
         if (n === null) { missingRefs.add('G29 N=' + oldTarget); return full; }
         return 'N=' + n;
       });
     }
     if (maho && hasGCode(newLine, 14)) {
       newLine = newLine.replace(REPEAT_REF_RE, (full, which, oldTarget) => {
-        const n = resolve(oldTarget, i, true);
+        const n = resolve(oldTarget, i, 'b');
         if (n === null) { missingRefs.add('G14 N' + which + '=' + oldTarget); return full; }
         return 'N' + which + '=' + n;
       });
+    }
+    if (mazak) {
+      newLine = inCode(newLine, false, code => {
+        if (/\bGOTO\s*[#[]/i.test(code)) keptJumps.add('değişkenli GOTO');
+        if (/\bM98\b[^;]*\bH\s*\d/i.test(code) || /\bM99\b[^;]*\bP\s*\d/i.test(code)) keptJumps.add('M98 H / M99 P');
+        return code.replace(MAZAK_GOTO_RE, (full, g, sp, oldTarget) => {
+          const n = resolve(oldTarget, i, 'f');
+          if (n === null) { missingRefs.add('GOTO' + oldTarget); return full; }
+          return g + sp + n;
+        });
+      });
+    }
+    if (sie) {
+      newLine = inCode(newLine, true, code => code
+        .replace(SIE_GOTO_RE, (full, g, sp, oldTarget) => {
+          const n = resolve(oldTarget, i, /B$/i.test(g) ? 'b' : 'f');
+          if (n === null) { missingRefs.add(g.toUpperCase() + ' N' + oldTarget); return full; }
+          return g + sp + 'N' + n;
+        })
+        .replace(SIE_REPEAT_RE, (full, r, sp, t1, sp2, t2) => {
+          const n1 = resolve(t1, i, 'b'), n2 = t2 != null ? resolve(t2, i, 'b') : null;
+          if (n1 === null) missingRefs.add(r.toUpperCase() + ' N' + t1);
+          if (t2 != null && n2 === null) missingRefs.add(r.toUpperCase() + ' N' + t2);
+          return r + sp + 'N' + (n1 === null ? t1 : n1) + (t2 != null ? sp2 + 'N' + (n2 === null ? t2 : n2) : '');
+        }));
     }
     const m = newLine.match(LEADING_N_RE);
     if (m && lineNewNum[i] !== null) {
@@ -2726,7 +2763,7 @@ function renumber() {
 
   let msg = `${lineNewNum.filter(n => n !== null).length} satır · N${startN}'dan ${step} artışla`;
   let warn = false;
-  if (maho && duplicated.length > 0) {
+  if (kind !== 'plain' && duplicated.length > 0) {
     msg += `\nTekrar eden N (en yakına eşleştirildi, kontrol edin): ` + duplicated.join(', ');
     warn = true;
   }
@@ -2735,7 +2772,8 @@ function renumber() {
     warn = true;
   }
   if (keptJumps.size > 0) {
-    msg += `\nAtlama satırları var (${Array.from(keptJumps).join(', ')}) — hedefleri değişmedi` + (keptJumps.has('G29 / G14') ? '. MAHO programıysa MAHO MillPlus seçin.' : ', kontrol edin.');
+    const tip = keptJumps.has('G29 / G14') ? '. MAHO programıysa MAHO MillPlus seçin.' : kind === 'plain' ? '. Mazak ya da Siemens programıysa onu seçin.' : ', kontrol edin.';
+    msg += `\nAtlama satırları var (${Array.from(keptJumps).join(', ')}) — hedefleri değişmedi` + tip;
     warn = true;
   }
   showLog(msg, warn);
