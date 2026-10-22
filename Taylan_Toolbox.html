@@ -8164,8 +8164,10 @@ SON = M17
     ok.sort((x, y) => (prev ? dist(x) - dist(y) : pref(x) - pref(y) || Math.abs(x[tilt]) - Math.abs(y[tilt])));
     return ok[0];
   }
-  // axis positions for a plane M; rest: the turn about the tool the machine can't show (0 when it can)
-  function kinSolve(kin, m, prev) {
+  // axis positions for a plane M; rest: the turn about the tool the machine can't show (0 when it can).
+  // whole: the plane goes out as axis positions only (CYCLE800 direct mode), so a solution that
+  // gives it whole wins over the preferred tilt sign leaving a turn about the tool (A90 C180, not A-90 C0)
+  function kinSolve(kin, m, prev, whole) {
     const n = [m[0][2], m[1][2], m[2][2]];
     const restOf = r => { const q = mmul(mtr(kinFrame(kin, r)), m); return atan2d(q[1][0], q[0][0]); };
     const sols = kinDirSolutions(kin, n).map(s => {
@@ -8175,6 +8177,11 @@ SON = M17
       const r = Object.assign({}, s, { [free.name]: 0 });
       return Object.assign(r, { [free.name]: restOf(r) * Math.sign(vdot(free.v, n)) });
     });
+    if (whole) {
+      const exact = sols.filter(sol => { const v = kinNorm(kin, sol, prev); return v && Math.abs(restOf(v)) <= 5e-5; });
+      const best = exact.length && kinPick(kin, exact, prev);
+      if (best) return { vals: best, rest: restOf(best) };
+    }
     const best = kinPick(kin, sols, prev);
     return best && { vals: best, rest: restOf(best) };
   }
@@ -8274,7 +8281,7 @@ SON = M17
     let pos = null, rest = 0;
     if (lin) pos = { [std.tName]: lin.t * std.st, [std.cName]: lin.c * std.sc };
     else if (m) {
-      const r = kinSolve(kin, m);
+      const r = kinSolve(kin, m, null, true);
       if (r) { pos = r.vals; rest = r.rest; } else flags.push(`makine (${kin.label}) bu düzlemi veremiyor`);
     }
     if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.Z, B: a.Y, C: a.X }; }
@@ -8314,7 +8321,7 @@ SON = M17
       let m0 = null, zText = null;
       if (P === 1 && lit('I') != null && lit('J') != null) { m0 = turns([['Y', lit('J')], ['X', lit('I')]]); zText = vals.K; }
       else if (P === 0 && lit('J') != null && lit('K') != null) { m0 = turns([['X', lit('J')], ['Z', lit('K')]]); zText = vals.I; }
-      const r = m0 && kinSolve(kin, m0);
+      const r = m0 && kinSolve(kin, m0, null, true);
       if (r) {
         const pos = {};
         kin.axes.forEach(a => { pos[a.name] = fmt(r.vals[a.name]); });
@@ -10123,12 +10130,12 @@ SON = M17
       if (Object.values(slot).every(isNum)) {
         const pos = {};
         Object.keys(slot).forEach(k => { pos[k] = parseFloat(slot[k]); });
-        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos), null, true);
       } else if (zs && zt && Object.keys(slot).every(k => k === zs.name || isNum(slot[k]))) {
         // a variable on the Z table (R20): solved without it, then carried over onto the target's Z table
         const pos = { [zs.name]: 0 };
         Object.keys(slot).forEach(k => { if (k !== zs.name) pos[k] = parseFloat(slot[k]); });
-        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos), null, true);
         zExpr = { text: slot[zs.name], s: zs.s * zt.s };
       } else { flags.push('değişkenli eksen konumu — hedef makineye çevrilmedi'); return { args, flags, rest }; }
       if (!r) { flags.push(`hedef makine (${tgtKin.label}) bu düzlemi veremiyor`); return { args, flags, rest }; }
