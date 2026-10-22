@@ -1465,11 +1465,11 @@
 
     <nav class="tools">
       <div class="nav-section-label">Araçlar</div>
-      <div class="nav-item active" data-tool="renumber" title="MAHO MillPlus N Numarası Düzenleme">
+      <div class="nav-item active" data-tool="renumber" title="Program N Numarası Güncelleme">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 6h16M4 12h16M4 18h10"/>
         </svg>
-        <span class="label">MAHO MillPlus N Numarası Düzenleme</span>
+        <span class="label">Program N Numarası Güncelleme</span>
       </div>
       <div class="nav-item" data-tool="nomact" title="CMM → CAD">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -1510,11 +1510,11 @@
   <main>
     <div class="wrap">
 
-      <!-- ============ TOOL: MAHO MillPlus N Numarası Düzenleme ============ -->
+      <!-- ============ TOOL: Program N Numarası Güncelleme ============ -->
       <div class="tool-view" id="tool-renumber">
         <header class="tool-header">
-          <h1>MAHO MillPlus N Numarası Düzenleme</h1>
-          <div class="subtitle"><code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleri de güncellenir.</div>
+          <h1>Program N Numarası Güncelleme</h1>
+          <div class="subtitle">MAHO MillPlus seçilirse <code>G29 N=</code> atlama ve <code>G14 N1= N2=</code> tekrar hedefleri de güncellenir.</div>
         </header>
 
         <div class="panel">
@@ -1542,6 +1542,13 @@
           </div>
 
           <div class="controls-row">
+            <div class="field">
+              <label>Program</label>
+              <select id="renumKind" class="select-field">
+                <option value="plain">Genel</option>
+                <option value="maho">MAHO MillPlus</option>
+              </select>
+            </div>
             <div class="field">
               <label>Başlangıç N</label>
               <div class="stepper">
@@ -2537,6 +2544,13 @@ const processBtn = document.getElementById('processBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const startNInput = document.getElementById('startN');
 const stepNInput = document.getElementById('stepN');
+// Genel: only the N at the start of the lines · MAHO MillPlus: the jump / repeat targets too
+const renumKind = document.getElementById('renumKind');
+try { const k = localStorage.getItem('toolbox.renumKind'); if (k === 'plain' || k === 'maho') renumKind.value = k; } catch (e) { /* storage off */ }
+renumKind.addEventListener('change', () => {
+  try { localStorage.setItem('toolbox.renumKind', renumKind.value); } catch (e) { /* storage off */ }
+  if (outputBox.value) renumber();
+});
 const log = document.getElementById('log');
 const logText = document.getElementById('logText');
 const logIconOk = document.querySelector('.log-icon-ok');
@@ -2645,8 +2659,11 @@ function renumber() {
     }
   });
 
+  const maho = renumKind.value === 'maho';
   const duplicated = Object.keys(occurrences).filter(k => occurrences[k].length > 1);
   const missingRefs = new Set();
+  // with Genel the jumps keep their old targets: say so when the program has any
+  const keptJumps = new Set();
 
   // New number for an old one. When the old number was used more than once,
   // take the occurrence nearest to the referring line — for a G14 repeat the
@@ -2666,14 +2683,20 @@ function renumber() {
 
   const newLines = lines.map((line, i) => {
     let newLine = line;
-    if (hasGCode(newLine, 29)) {
+    if (!maho) {
+      const bare = line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '');
+      if ((hasGCode(bare, 29) && JUMP_REF_RE.test(bare)) || (hasGCode(bare, 14) && REPEAT_REF_RE.test(bare))) keptJumps.add('G29 / G14');
+      if (/\bGOTO[FBC]?\s*N?\d/i.test(bare)) keptJumps.add('GOTO');
+      JUMP_REF_RE.lastIndex = 0; REPEAT_REF_RE.lastIndex = 0;
+    }
+    if (maho && hasGCode(newLine, 29)) {
       newLine = newLine.replace(JUMP_REF_RE, (full, oldTarget) => {
         const n = resolve(oldTarget, i, false);
         if (n === null) { missingRefs.add('G29 N=' + oldTarget); return full; }
         return 'N=' + n;
       });
     }
-    if (hasGCode(newLine, 14)) {
+    if (maho && hasGCode(newLine, 14)) {
       newLine = newLine.replace(REPEAT_REF_RE, (full, which, oldTarget) => {
         const n = resolve(oldTarget, i, true);
         if (n === null) { missingRefs.add('G14 N' + which + '=' + oldTarget); return full; }
@@ -2698,6 +2721,10 @@ function renumber() {
   }
   if (missingRefs.size > 0) {
     msg += `\nÇözümlenemeyen hedef (değiştirilmedi): ` + Array.from(missingRefs).join(', ');
+    warn = true;
+  }
+  if (keptJumps.size > 0) {
+    msg += `\nAtlama satırları var (${Array.from(keptJumps).join(', ')}) — hedefleri değişmedi` + (keptJumps.has('G29 / G14') ? '. MAHO programıysa MAHO MillPlus seçin.' : ', kontrol edin.');
     warn = true;
   }
   showLog(msg, warn);
