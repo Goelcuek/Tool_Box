@@ -8164,10 +8164,8 @@ SON = M17
     ok.sort((x, y) => (prev ? dist(x) - dist(y) : pref(x) - pref(y) || Math.abs(x[tilt]) - Math.abs(y[tilt])));
     return ok[0];
   }
-  // axis positions for a plane M; rest: the turn about the tool the machine can't show (0 when it can).
-  // whole: the plane goes out as axis positions only (CYCLE800 direct mode), so a solution that
-  // gives it whole wins over the preferred tilt sign leaving a turn about the tool (A90 C180, not A-90 C0)
-  function kinSolve(kin, m, prev, whole) {
+  // axis positions for a plane M; rest: the turn about the tool the machine can't show (0 when it can)
+  function kinSolve(kin, m, prev) {
     const n = [m[0][2], m[1][2], m[2][2]];
     const restOf = r => { const q = mmul(mtr(kinFrame(kin, r)), m); return atan2d(q[1][0], q[0][0]); };
     const sols = kinDirSolutions(kin, n).map(s => {
@@ -8177,11 +8175,6 @@ SON = M17
       const r = Object.assign({}, s, { [free.name]: 0 });
       return Object.assign(r, { [free.name]: restOf(r) * Math.sign(vdot(free.v, n)) });
     });
-    if (whole) {
-      const exact = sols.filter(sol => { const v = kinNorm(kin, sol, prev); return v && Math.abs(restOf(v)) <= 5e-5; });
-      const best = exact.length && kinPick(kin, exact, prev);
-      if (best) return { vals: best, rest: restOf(best) };
-    }
     const best = kinPick(kin, sols, prev);
     return best && { vals: best, rest: restOf(best) };
   }
@@ -8281,7 +8274,7 @@ SON = M17
     let pos = null, rest = 0;
     if (lin) pos = { [std.tName]: lin.t * std.st, [std.cName]: lin.c * std.sc };
     else if (m) {
-      const r = kinSolve(kin, m, null, true);
+      const r = kinSolve(kin, m);
       if (r) { pos = r.vals; rest = r.rest; } else flags.push(`makine (${kin.label}) bu düzlemi veremiyor`);
     }
     if (!axis && m) { const a = anglesZYX(m); axis = { MOD: 27, A: a.Z, B: a.Y, C: a.X }; }
@@ -8321,7 +8314,7 @@ SON = M17
       let m0 = null, zText = null;
       if (P === 1 && lit('I') != null && lit('J') != null) { m0 = turns([['Y', lit('J')], ['X', lit('I')]]); zText = vals.K; }
       else if (P === 0 && lit('J') != null && lit('K') != null) { m0 = turns([['X', lit('J')], ['Z', lit('K')]]); zText = vals.I; }
-      const r = m0 && kinSolve(kin, m0, null, true);
+      const r = m0 && kinSolve(kin, m0);
       if (r) {
         const pos = {};
         kin.axes.forEach(a => { pos[a.name] = fmt(r.vals[a.name]); });
@@ -10114,7 +10107,7 @@ SON = M17
     // CYCLE800 arguments for the target machine → {args, flags, rest}
     function cycle800(args) {
       const flags = [];
-      let rest = 0, note = '';
+      let rest = 0, note = '', flip = false;
       const tc = (args[1] || '').replace(/"/g, '').trim();
       if (tc && R.c800.tc.has(tc.toUpperCase())) args[1] = `"${R.c800.tc.get(tc.toUpperCase())}"`;
       else if (tc && tc !== '0' && R.c800.tc.size) flags.push(`veri kaydı "${tc}" CYCLE800 kuralında yok`);
@@ -10130,12 +10123,12 @@ SON = M17
       if (Object.values(slot).every(isNum)) {
         const pos = {};
         Object.keys(slot).forEach(k => { pos[k] = parseFloat(slot[k]); });
-        r = kinSolve(tgtKin, kinFrame(srcKin, pos), null, true);
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
       } else if (zs && zt && Object.keys(slot).every(k => k === zs.name || isNum(slot[k]))) {
         // a variable on the Z table (R20): solved without it, then carried over onto the target's Z table
         const pos = { [zs.name]: 0 };
         Object.keys(slot).forEach(k => { if (k !== zs.name) pos[k] = parseFloat(slot[k]); });
-        r = kinSolve(tgtKin, kinFrame(srcKin, pos), null, true);
+        r = kinSolve(tgtKin, kinFrame(srcKin, pos));
         zExpr = { text: slot[zs.name], s: zs.s * zt.s };
       } else { flags.push('değişkenli eksen konumu — hedef makineye çevrilmedi'); return { args, flags, rest }; }
       if (!r) { flags.push(`hedef makine (${tgtKin.label}) bu düzlemi veremiyor`); return { args, flags, rest }; }
@@ -10147,9 +10140,16 @@ SON = M17
       };
       // the target's own axis positions (the table one with the variable turn)
       const axisVal = a => (zt && a.name === zt.name ? plus(r.vals[a.name], zExpr && zExpr.s) : fmt(r.vals[a.name]));
-      if (Math.abs(r.rest) <= 5e-5) {
+      // the preferred tilt can leave the plane turned half round the tool (A-90 C0 for B180 C0): the axes
+      // stay, and the X Y of the plane change sign until the next CYCLE800
+      const half = Math.abs(Math.abs(r.rest) - 180) <= 5e-5;
+      if (Math.abs(r.rest) <= 5e-5 || half) {
         tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = axisVal(a); });
-        flags.push(`düzlem ${srcKin.label} → ${tgtKin.label} eksen konumlarına çevrildi — ilk denemede kontrol edin`);
+        flags.push(`düzlem ${srcKin.label} → ${tgtKin.label} eksen konumlarına çevrildi` + (half ? ', takım ekseni etrafında 180° dönük: düzlemdeki X / Y işaret değiştirdi' : '') + ' — ilk denemede kontrol edin');
+        if (half) {
+          flip = true;
+          [10, 11].forEach(k => { if ((args[k] || '').trim()) args[k] = negSie(args[k].trim()); }); // _X1 _Y1: after the turn
+        }
       } else {
         // the target's axes alone can't give this plane (a turn about the tool is left over):
         // the plane itself, axis by axis Z → Y → X, and the control works out its axes
@@ -10161,7 +10161,20 @@ SON = M17
         note = tgtKin.axes.slice(0, 2).map(a => a.name + axisVal(a)).join(' ');
         flags.push(`hedef makine (${tgtKin.label}) bu düzlemi eksen konumlarıyla tam veremiyor — düzlem eksen eksen (_MODE ${args[3]}) yazıldı, eksenleri kontrol hesaplar`);
       }
-      return { args, flags, rest, note };
+      return { args, flags, rest, note, flip };
+    }
+    // -t: a number, an R parameter or an expression
+    const negSie = t => (isNum(t) ? fmt(-parseFloat(t)) : /^-?R\d+$/i.test(t) ? (t[0] === '-' ? t.slice(1) : '-' + t) : '-(' + t.replace(/^\((.*)\)$/, '$1') + ')');
+    // X Y I J of a block turned half round the tool (see cycle800); polar ones are told
+    function flipXY(code, flags) {
+      if (/\b(AP|RP)\s*=/i.test(code) || /\bG11[012]\b/i.test(code)) { flags.push('düzlem 180° dönük — kutupsal X / Y işaretini elle çevirin'); return code; }
+      return mpToks(code).map(t => {
+        const m = t.match(/^([XYIJ])(?:=(AC|IC)\((.*)\)|=(.+)|([-+]?(?:\d+\.?\d*|\.\d+)))$/i);
+        if (!m) return t;
+        if (m[2]) return `${m[1]}=${m[2]}(${negSie(m[3])})`;
+        if (m[4] != null) return `${m[1]}=${negSie(m[4])}`;
+        return m[1] + fmt(-parseFloat(m[5]));
+      }).join(' ');
     }
 
     srcLines.forEach((raw, i) => {
@@ -10192,9 +10205,11 @@ SON = M17
         const args = splitArgs(cm[1]);
         const cancel = args.every((a, k) => !a || (k === 1 && /^"0?"$/.test(a)));
         if (st.arot) { before.push({ text: `AROT Z=${fmt(-st.arot)}`, flag: 'önceki düzlemin AROT\'u geri alındı' }); st.arot = 0; }
+        st.flip = false;
         if (!cancel) {
           const res = cycle800(args);
           flags.push(...res.flags);
+          st.flip = !!res.flip;
           code = code.replace(cm[0], 'CYCLE800(' + res.args.join(',') + ')');
           if (res.note) comment = [res.note, comment].filter(Boolean).join(' ');
           if (Math.abs(res.rest) > 5e-5) {
@@ -10205,6 +10220,9 @@ SON = M17
       } else if (code && !SIE_NOT_MOVE.test(code)) {
         if (/\bG91\b/i.test(code)) st.abs = false;
         if (/\bG90\b/i.test(code)) st.abs = true;
+        if (st.flip) code = flipXY(code, flags);
+      } else if (st.flip && /^(HOLES|POCKET|SLOT|LONGHOLE|CYCLE[67]\d|CYCLE80[1-9])/i.test(code)) {
+        flags.push('düzlem 180° dönük — desen / cep döngüsündeki X / Y işaretini elle çevirin');
         // rotary axis words: TRAORI moves keep the tool direction on the other machine
         const words = [];
         let m;
