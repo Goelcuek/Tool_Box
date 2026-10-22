@@ -10285,7 +10285,33 @@ SON = M17
   const DP_MP_FIELD = { 3: 1, 6: 2, 7: 3, 12: 4, 15: 5 };
 
   // MillPlus → 840D, line for line; flags per line for the KONTROL notes
-  function mp2sie(text, R, toSie) {
+  /* M53 on a MillPlus machine: the head turned so the tool lies along Y (the G18 position).
+     Found from the machine's kinematics: the head angle that points the tool along +Y (else -Y)
+     with the table at 0. As a tilted plane in the machine's own axes (CYCLE800 direct mode) a
+     table machine tilts its table for it; the X Y Z the program gives under it (machine axes,
+     the tool along Y) are that plane's after a fixed turn — on the duoBLOCK (B180) X → -X,
+     Y → Z, Z → Y — whatever C stands at. null when the machine has no such head. */
+  function mpHorizontalHead(kin) {
+    const zt = zTop(kin);
+    if (!zt || !kin.axes.some(a => !a.table)) return null;
+    for (const n of [[0, 1, 0], [0, -1, 0]]) {
+      for (const raw of kinDirSolutions(kin, n)) {
+        const sol = {};
+        Object.keys(raw).forEach(k => { sol[k] = raw[k] == null ? null : Math.round(raw[k] * 1e4) / 1e4; }); // acos near ±1: 179.99999…
+        if (sol[zt.name] != null && Math.abs(angDiff(sol[zt.name], 0)) > 1e-3) continue;
+        const v = kinNorm(kin, Object.assign({}, sol, { [zt.name]: 0 }), null);
+        if (!v) continue;
+        const Q = mtr(kinFrame(kin, v)).map(r => r.map(x => (Math.abs(x) < 1e-6 ? 0 : x))); // machine X Y Z → the plane's X Y Z
+        if (!Q.every(r => r.every(x => x === 0 || Math.abs(Math.abs(x) - 1) < 1e-6))) return null;
+        const map = [0, 1, 2].map(c => { const r = [0, 1, 2].find(k => Math.abs(Q[k][c]) > 0.5); return { to: r, s: Math.sign(Q[r][c]) }; });
+        return { zt, vals: v, map };
+      }
+    }
+    return null;
+  }
+
+  // o: {toMp: MillPlus is the target too (M53 stays), kin: the MillPlus machine's kinematics}
+  function mp2sie(text, R, toSie, o = {}) {
     const lines = text.split(/\r\n|\r|\n/);
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
     const eToR = n => (R.mp.e2r.has(n) ? R.mp.e2r.get(n) : n);
@@ -10318,6 +10344,22 @@ SON = M17
     lines.forEach((l, i) => { const n = nOf(l); if (n != null && targets.has(n) && !lineOfN.has(n)) lineOfN.set(n, i); });
     const mapLines = new Map(R.mp.lines.filter(x => x.mp).map(x => [mpKey(x.mp), x.sie]));
     let tcp = false, comp = false;
+    // the head along Y (M53): where C stands, whether it is on, the plane line, the words turned
+    const hz0 = !o.toMp && o.kin ? mpHorizontalHead(o.kin) : null;
+    const hz = hz0 && Object.assign(hz0, { on: false, c: null });
+    const hzPlane = () => {
+      const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? hz.c || '0' : fmt(hz.vals[a.name] || 0)));
+      return `CYCLE800(1,"TC1",0,192,0,0,0,${slot[0]},${slot[1] || 0},0,0,0,0,1)`;
+    };
+    const hzWord = t => {
+      const m = t.match(/^([XYZIJK])(=?)(.+)$/i);
+      if (!m) return t;
+      const L = m[1].toUpperCase(), k = 'XYZIJK'.indexOf(L) % 3, to = hz.map[k], nl = (L < 'X' ? 'IJK' : 'XYZ')[to.to];
+      if (to.s > 0) return nl + m[2] + m[3];
+      if (/^[-+]?[\d.]+$/.test(m[3])) return nl + fmt(-parseFloat(m[3]));
+      const v = m[3].replace(/^AC\((.*)\)$/i, '$1');
+      return nl + '=' + (/^-?R\d+$/i.test(v) ? (v[0] === '-' ? v.slice(1) : '-' + v) : '-(' + v + ')');
+    };
     // drilling cycles: G81/G83/G84/G85 define, G79 drills (Z is the surface there); G78 points
     const cy = { def: null, zs: 0, motion: 'G0', S: null, F: null, M4: false, pts: new Map() };
     const num = (ws, k) => { const m = ws.match(new RegExp('(?:^|\\s)' + k + '\\s*(-?[\\d.]+)(?=\\s|$)', 'i')); return m ? parseFloat(m[1]) : null; };
@@ -10344,7 +10386,7 @@ SON = M17
       flag(i, `G${d.g} döngüsü çevrilmedi`);
       return null;
     };
-    const out = lines.map((raw, i) => {
+    const lineOut = (raw, i) => {
       const n = nOf(raw);
       const body = raw.replace(/^\s*N\d+\s*/i, '');
       if (/^\s*%/.test(body)) return ';' + body.trim();
@@ -10385,7 +10427,8 @@ SON = M17
         return line(`CYCLE800(1,"TC1",0,27,0,0,0,${c},${b},${a},0,0,0,1)`);
       }
       if (/^G93\b/i.test(code)) {
-        const ax = (code.match(/\b[XYZ]\s*=?\s*[-+]?[\w.()]+/gi) || []).map(w => w.replace(/\s+/g, '').replace(/=/, ''));
+        let ax = (code.match(/\b[XYZ]\s*=?\s*[-+]?[\w.()]+/gi) || []).map(w => w.replace(/\s+/g, '').replace(/=/, ''));
+        if (hz && hz.on) { ax = ax.map(w => hzWord(w.replace(/^([XYZ])(?![-+\d.])/i, '$1=')).replace(/^([XYZ])=(?=[-+]?[\d.]+$)/i, '$1')); flag(i, 'G93 kafa yatayken (M53) — düzleme çevrildi, kontrol edin'); }
         return line(ax.some(w => !/^[XYZ]-?0*\.?0*$/i.test(w)) ? 'TRANS ' + ax.map(expr).join(' ') : 'TRANS');
       }
       if (/^G141\b/i.test(code)) { tcp = true; return line('TRAORI'); }
@@ -10416,6 +10459,7 @@ SON = M17
         return line(m[1] === '321' ? `${e}=$TC_DP${dp}[${t},1]` : `$TC_DP${dp}[${t},1]=${e}`);
       }
       if (/^T\s*=?\s*\S+\s+M67$/i.test(code)) return line(''); // activates a written tool table: 840D and Mazak read it as it is
+      if (!o.toMp && /^T\d+$/i.test(code)) return line(''); // T3 alone: the next tool made ready — the other machines don't need it
       if (/^G(149|150|321|331)\b/i.test(code)) { flag(i, `G${code.match(/^G(\d+)/)[1]} takım verisi okuma/yazma çevrilmedi`); return line(code); }
       if (/^G74\b/i.test(code)) {
         flag(i, 'G74 makine konumu — SUPA ile yazıldı, [MILLPLUS] satırlarına ekleyin');
@@ -10438,8 +10482,10 @@ SON = M17
       if ((m = code.match(/^G79\b(.*)$/i))) {
         const w = m[1];
         if (!cy.def) { flag(i, 'G79: tanımlı döngü yok'); return line(code); }
-        const pts = (w.match(/\bP(\d+)/gi) || []).map(t => cy.pts.get(+t.slice(1))).filter(Boolean);
+        let pts = (w.match(/\bP(\d+)/gi) || []).map(t => cy.pts.get(+t.slice(1))).filter(Boolean);
         if (!pts.length) pts.push({ X: num(w, 'X'), Y: num(w, 'Y'), Z: num(w, 'Z') });
+        // the head along Y: the point in the plane's axes (the surface on the tool axis comes out as Z)
+        if (hz && hz.on) pts = pts.map(pt => { const q = {}; ['X', 'Y', 'Z'].forEach((a, c) => { if (pt[a] != null) q['XYZ'[hz.map[c].to]] = hz.map[c].s * pt[a]; }); return q; });
         if (/\b(B1|L1|B2|L2|A5)\s*=/i.test(w)) flag(i, 'G79 kutupsal / açılı konum çevrilmedi');
         const res = [];
         pts.forEach(pt => {
@@ -10472,8 +10518,67 @@ SON = M17
       ws = ws.replace(/\bI1\s*=\s*/gi, 'A3=').replace(/\bJ1\s*=\s*/gi, 'B3=').replace(/\bK1\s*=\s*/gi, 'C3=');
       if (tcp && /\b[IJK]-?[\d.]/i.test(ws) && !/\bG0?[23]\b/i.test(ws)) flag(i, 'G141 yüzey normali (I J K) çevrilmedi');
       ws = ws.replace(/\b([XYZABCF])\s*=\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+)/gi, (mm, a, v) => `${a}=${expr(v)}`).replace(/\bE(\d+)\b/g, (mm, k) => 'R' + eToR(+k)).replace(/:/g, '/');
+      if (hz && hz.on) {
+        // the head along Y: a C move is a new plane, X Y Z (and arc centres) are the plane's, G18 is its G17
+        const arc = /\bG0?[23]\b/i.test(ws);
+        let toks = mpToks(ws), cWord = null;
+        toks = toks.filter(t => { if (/^C(?:=.+|[-+]?[\d.]+)$/i.test(t)) { cWord = t.replace(/^C=?/i, ''); return false; } return true; });
+        toks = toks.map(t => (/^G0?18$/i.test(t) ? 'G17' : /^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
+        const res = [];
+        if (cWord != null) {
+          hz.c = cWord;
+          res.push(hzPlane());
+          if (toks.some(t => /^[XYZ]/i.test(t))) flag(i, 'C ile X/Y/Z aynı satırda (kafa yatay) — önce düzlem, sonra hareket yazıldı; kontrol edin');
+          // a C positioning only (G0 C89): the plane, and the motion G it leaves modal
+          if (toks.every(t => /^(G0?[0-3]|F[\d.]+)$/i.test(t))) {
+            const g = toks.filter(t => /^G0?[0-3]$/i.test(t));
+            if (g.length) res.push(g.join(' '));
+            res[0] = line(res[0]);
+            return res;
+          }
+        }
+        res.push(toks.join(' '));
+        res[0] = line(res[0]);
+        return res.length === 1 ? res[0] : res;
+      }
       return line(ws);
-    });
+    };
+    // ---- M53: the head in the G18 position (see mpHorizontalHead) ----
+    // It holds until M55, a tool change, G7, G17 or G19, or the program end; then the plane goes.
+    const hzStart = /(^|\s)M53(?=\s|$)/i;
+    const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
+    let plane = 17;
+    const withHead = (raw, i) => {
+      if (!hz) return lineOut(raw, i);
+      const code = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
+      const pre = [];
+      if (hz.on && hzEnd(code)) {
+        hz.on = false;
+        pre.push('CYCLE800()');
+        if (plane === 18 && !/\bG1[79]\b/i.test(code)) pre.push('G18');
+      }
+      const pl = code.match(/\bG(1[789])\b/); if (pl) plane = +pl[1];
+      // where C stands (outside the plane): the table position the plane starts from
+      if (!hz.on && !/^G7\b/i.test(code)) { const cm = code.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i); if (cm) hz.c = expr(cm[1]); }
+      if (!hz.on && hzStart.test(code)) {
+        hz.on = true;
+        const r = [].concat(lineOut(raw.replace(hzStart, ' '), i)).filter(t => t !== '');
+        // the C move right after it (G0 C0) makes the plane itself
+        let cNext = false;
+        for (let j = i + 1; j < lines.length; j++) {
+          const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
+          if (!cj || /^T\d+$/i.test(cj) || /^[EFSM]/i.test(cj) && !/(^|\s)[XYZC]/i.test(cj)) continue;
+          cNext = /(?:^|\s)C\s*=?\s*[-+(\dE]/i.test(cj) && !hzEnd(cj);
+          break;
+        }
+        if (!cNext && hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
+        flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre yazıldı — ilk denemede kontrol edin');
+        return [...pre, ...(cNext ? [] : [hzPlane()]), 'G17', ...r];
+      }
+      const r = lineOut(raw, i);
+      return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
+    };
+    const out = lines.map((raw, i) => withHead(raw, i));
     // several 840D lines can come from one MillPlus line: srcOf gives each one's MillPlus line
     const flat = [], srcOf = [];
     out.forEach((o, i) => (Array.isArray(o) ? o : [o]).forEach(t => { flat.push(t); srcOf.push(i); }));
@@ -10482,6 +10587,17 @@ SON = M17
 
   // a line as a rule key: one space, upper case, numbers as numbers (G75 Z1. = G75 Z1.0)
   const mpKey = t => String(t).replace(/\s+/g, ' ').trim().toUpperCase().replace(/-?\d*\.\d+|-?\d+\.?/g, n => String(parseFloat(n)));
+  // the words of an 840D block; brackets (R5 MOD 8) and quotes kept whole
+  function mpToks(t) {
+    const out = [];
+    let cur = '', d = 0, q = false;
+    for (const ch of String(t) + ' ') {
+      if (/\s/.test(ch) && !d && !q) { if (cur) out.push(cur); cur = ''; continue; }
+      if (ch === '"') q = !q; else if (!q && ch === '(') d++; else if (!q && ch === ')') d--;
+      cur += ch;
+    }
+    return out;
+  }
   // 840D block structures as jumps (MillPlus has G29 only): IF/ELSE/ENDIF, WHILE, LOOP,
   // FOR, and REPEAT of a labelled section written out again
   function sieFlatten(lines) {
@@ -11205,7 +11321,7 @@ SON = M17
     const read = new Map();
     const inFiles = files.map(f => {
       if (!mpS) return f;
-      const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'));
+      const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'), { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin });
       if (options._mpRotate) {
         const rr = rotateSie(r.text, options._mpRotate, sm ? machineKin(sm.def) : rules.kin, options._mpRotKin);
         r.text = rr.text;
