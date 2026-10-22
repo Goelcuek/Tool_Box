@@ -2407,6 +2407,7 @@
             <label class="checkbox-field"><input type="checkbox" id="suppressChk7" checked> Değişmeyen X/Y/Z'yi yazma</label>
             <label class="checkbox-field"><input type="checkbox" id="holeChk7" checked> Delik mesajı</label>
             <label class="checkbox-field" title="X/Y program sıfırı etrafında döner (+ saat yönünün tersi). Eğimsiz işlemlerde C aynı kalır; eğik işlemlerde A aynı kalır, C döner. Y+ tarafındaki programı Y- tarafına almak için 180.">Döndür (°) <input type="number" id="rotateInp7" class="plain-number" value="0" step="90" style="width:80px;height:32px;"></label>
+            <label class="checkbox-field" title="Parçayı kendi Z'si boyunca kaydırır (+ yukarı): mutlak Z'ler, TCP'li hareketler, delik döngüsü düzeyleri ve eğik düzlem başlangıçları. Eğik TCP'siz konumlarda kayma X/Y/Z'ye dağıtılır.">Z'de kaydır <input type="number" id="shiftZInp7" class="plain-number" value="0" step="0.1" style="width:80px;height:32px;"></label>
             <div class="spacer"></div>
             <button class="btn" id="convertBtn7">Dönüştür</button>
           </div>
@@ -10925,7 +10926,7 @@ SON = M17
     return out;
   }
 
-  /* ---------- turning a whole program about Z ----------
+  /* ---------- the part turned about Z and / or moved along it ----------
      The part is set on the table turned by deg about the program zero (180°: the feature on
      Y+ comes to Y-). The programmed X/Y turn: points, arc centres (I J), G52 / TRANS /
      ATRANS offsets, G68 centres, hole positions, tool vectors and plane origins.
@@ -10935,7 +10936,11 @@ SON = M17
          about Z (G68.2 K, CYCLE800 C or Z turn, G7 C5) with the X/Y inside it as they are;
          under TCP X/Y and C turn; without TCP C turns and X/Y stay, since the turned table
          brings the part back to where it was
-     Machine positions (G53, SUPA, G74) stay. */
+     Moved by dz along its own Z, the absolute Z (G90, AC) of the moves, TCP moves and hole
+     cycle levels (R, RTP RFP DP FDEP) and the plane origins (G68.2 Z, CYCLE800 _Z0) move by
+     dz; the moves inside a plane stay (its origin carries it). Tilted without TCP the part's
+     Z lies along the tilt, so the shift goes into X, Y and Z as the machine's axes put it.
+     Offsets (G52, TRANS), incremental moves and machine positions (G53, SUPA, G74) stay. */
   const rotTrig = deg => {
     const r = deg * DEG, snap = v => (Math.abs(v) < 1e-12 ? 0 : Math.abs(Math.abs(v) - 1) < 1e-12 ? Math.sign(v) : v);
     return { c: snap(Math.cos(r)), s: snap(Math.sin(r)) };
@@ -10959,6 +10964,37 @@ SON = M17
     for (let k = 0; k < t.length; k++) { if (t[k] === o) d++; else if (t[k] === c) { d--; if (d === 0 && k < t.length - 1) return false; } }
     return d === 0;
   };
+  // t + d for a length (no turning round at 360)
+  const linAdd = (t, d, wrap) => {
+    if (Math.abs(d) < 1e-12) return t;
+    if (rotNum(t)) return fmt(parseFloat(t) + d);
+    const inner = balanced(t, '[', ']') || balanced(t, '(', ')') ? t.slice(1, -1) : wrap(t);
+    return wrap(inner + (d < 0 ? '' : '+') + fmt(d));
+  };
+  /* The shift of a block outside a plane in its own axes: under TCP, or with the table level,
+     dz along Z; tilted without TCP, the part's Z in the machine's axes (the table axes only
+     turn the part) times dz. null when a tilt is a variable. */
+  function zShiftOf(kin, ra, st, dz) {
+    if (st.tcp || !st.tilted) return [0, 0, dz];
+    const vals = {};
+    for (const a of kin.axes) if (a.table) { const v = ra.zt && a.name === ra.zt.name ? 0 : st.tv[a.name] || 0; if (Number.isNaN(v)) return null; vals[a.name] = v; }
+    const F = kinFrame(kin, vals);
+    return [F[2][0], F[2][1], F[2][2]].map(x => (Math.abs(x) < 1e-12 ? 0 : x * dz));
+  }
+  /* Axes a block doesn't write keep what the earlier ones gave them, with the shift of then:
+     when the shift has changed since, they are written again (from the program's own values). */
+  function zShiftFill(st, d, present, add, flag) {
+    const tiltedShift = Math.abs(d[0]) > 1e-12 || Math.abs(d[1]) > 1e-12;
+    ['X', 'Y', 'Z'].forEach((L, k) => {
+      if (present[L]) { st.app[L] = d[k]; return; }
+      // not known what the axis holds (after a plane or TCP): with the shift along a tilt it can't be taken as right
+      if (st.app[L] == null) { if (tiltedShift && Math.abs(d[k]) > 1e-12) { flag(`eğik konumda ${L} yazılmamış — Z kaydırmasının ${L} payı (${fmt(d[k])}) eklenemedi, elle kontrol edin`); st.app[L] = d[k]; } return; }
+      if (Math.abs(st.app[L] - d[k]) < 1e-9) return;
+      if (st.mod[L] == null) { flag('önceki ' + L + ' bilinmiyor — Z kaydırması bu eksende eksik kalabilir'); st.app[L] = d[k]; return; }
+      add(L, st.mod[L], d[k]);
+      st.app[L] = d[k];
+    });
+  }
   // the table axis under the part (C) and the tilting ones
   const rotAxes = kin => { const zt = zTop(kin); return { zt, tilts: kin.axes.filter(a => !zt || a.name !== zt.name).map(a => a.name) }; };
   /* The rotary words of a block outside a plane (name → value as written). The tilts stay;
@@ -10970,7 +11006,7 @@ SON = M17
     ra.tilts.forEach(n => { if (words[n] != null) st.tv[n] = rotNum(words[n]) ? parseFloat(words[n]) : NaN; });
     st.tilted = ra.tilts.some(n => st.tv[n] != null && !(Math.abs(st.tv[n]) < 1e-9));
     const turned = st.tcp || st.tilted, res = {};
-    if (!ra.zt) return res;
+    if (!ra.zt || !deg) return res;
     const cw = words[ra.zt.name];
     if (cw != null) { st.c = cw; res.c = turned ? rotAdd(cw, ra.zt.s * deg, wrap) : cw; }
     else if (!st.tcp && was !== st.tilted) {
@@ -10981,15 +11017,16 @@ SON = M17
   }
 
   // Mazak / Fanuc EIA
-  function rotateIso(text, deg, kin) {
-    const outer = rotTrig(deg), ra = rotAxes(kin);
+  function rotateIso(text, deg, kin, dz = 0) {
+    const outer = rotTrig(deg), ra = rotAxes(kin), turn = norm360(deg) !== 0;
     const lines = text.split(/\r\n|\r|\n/);
     const flags = new Map();
     const flag = (i, f) => { if (!flags.has(i)) flags.set(i, []); flags.get(i).push(f); };
     const wrap = t => (/^-?#\d+$/.test(t) || balanced(t, '[', ']') || rotNum(t) ? t : '[' + t + ']');
     // numbers keep the decimal point: on a Mazak X10 without it can read as 0.010
     const word = (L, t) => L + (rotNum(t) ? (/\./.test(t) ? t : t + '.') : /^-?#\d+$/.test(t) || balanced(t.replace(/^-/, ''), '[', ']') ? t : '[' + t + ']');
-    const st = { abs: true, plane: false, phi: 0, out: null, tcp: false, vec: false, arc: false, polar: false, x: null, y: null, tv: {}, tilted: false, c: null };
+    const st = { abs: true, plane: false, phi: 0, out: null, tcp: false, vec: false, arc: false, polar: false, x: null, y: null, tv: {}, tilted: false, c: null, mod: {}, app: {} };
+    const CYC = [73, 74, 76, 81, 82, 83, 84, 85, 86, 87, 88, 89];
     const TOK = /([A-Z])\s*(-?\[(?:[^[\]]|\[(?:[^[\]]|\[[^[\]]*\])*\])*\]|-?#\d+|[-+]?(?:\d+\.?\d*|\.\d+))/gi;
     const out = lines.map((raw, i) => {
       const cm = [];
@@ -11011,6 +11048,7 @@ SON = M17
       if (hasG(49)) { st.tcp = false; st.vec = false; }
       if (hasG(43.4)) st.tcp = true;
       if (hasG(43.5)) { st.tcp = true; st.vec = true; }
+      if (hasG(49) || hasG(43.4) || hasG(43.5) || hasG(68.2) || hasG(69)) st.app = {}; // a new frame: what the axes hold starts over
       [0, 1].forEach(g => { if (hasG(g)) st.arc = false; });
       [2, 3].forEach(g => { if (hasG(g)) st.arc = true; });
       const get = L => ws.find(w => w.L === L);
@@ -11024,7 +11062,9 @@ SON = M17
         const p = P ? Math.round(parseFloat(P.t)) : 0;
         const x = get('X'), y = get('Y');
         const xt = x ? x.t : '0', yt = y ? y.t : '0';
-        if (x || y) { const nx = rotLin(outer.c, xt, -outer.s, yt, wrap), ny = rotLin(outer.s, xt, outer.c, yt, wrap); if (x) setW.set(x, word('X', nx)); else addAfter.set(get('G'), ' X' + nx); if (y) setW.set(y, word('Y', ny)); else addAfter.set(x || get('G'), ' ' + word('Y', ny)); }
+        if (turn && (x || y)) { const nx = rotLin(outer.c, xt, -outer.s, yt, wrap), ny = rotLin(outer.s, xt, outer.c, yt, wrap); if (x) setW.set(x, word('X', nx)); else addAfter.set(get('G'), ' X' + nx); if (y) setW.set(y, word('Y', ny)); else addAfter.set(x || get('G'), ' ' + word('Y', ny)); }
+        // the plane's origin moves with the part; the moves inside it stay
+        if (dz) { const z = get('Z'); if (z) setW.set(z, word('Z', linAdd(z.t, dz, wrap))); else tail = ' ' + word('Z', fmt(dz)); }
         if (!st.plane) st.out = { x: st.x, y: st.y };
         st.plane = true; st.phi = 0; st.x = null; st.y = null;
         if (p > 1 || (p === 1 && Q && Math.round(parseFloat(Q.t)) !== 123)) flag(i, 'G68.2 bu biçimiyle döndürülemedi — açıları elle düzeltin');
@@ -11032,8 +11072,8 @@ SON = M17
           // P1: about the fixed X, Y, Z by I, J, K · P0: Euler, about Z, new X, new Z
           const tl = p === 1 ? ['I', 'J'] : ['J'], zl = p === 1 ? 'K' : 'I';
           const num = L => { const w = get(L); return !w ? 0 : rotNum(w.t) ? parseFloat(w.t) : null; };
-          if (tl.every(L => num(L) === 0)) st.phi = deg; // no tilt: the plane stays, the X/Y inside it turn
-          else {
+          if (tl.every(L => num(L) === 0)) st.phi = turn ? deg : 0; // no tilt: the plane stays, the X/Y inside it turn
+          else if (turn) {
             const ang = get(zl);
             if (ang) setW.set(ang, word(ang.L, rotAdd(ang.t, deg, wrap)));
             else addAfter.set(ws[ws.length - 1], ' ' + zl + fmt(deg));
@@ -11055,7 +11095,7 @@ SON = M17
           }
         }
         // tilted without TCP the turned table brings the part back: the X/Y stay
-        if (st.plane || st.tcp || !st.tilted) {
+        if (turn && (st.plane || st.tcp || !st.tilted)) {
           const { c, s } = st.plane ? rotTrig(st.phi) : outer;
           const x = get('X'), y = get('Y');
           if (x || y) {
@@ -11080,6 +11120,34 @@ SON = M17
             if (J) setW.set(J, word('J', nj)); else addAfter.set(I, ' ' + word('J', nj));
           }
         }
+        // the part moved along its Z: absolute positions and the R level of a hole cycle
+        const offset = hasG(52) || hasG(68) || hasG(92) || hasG(10) || hasG(28);
+        if (!st.plane && st.abs && !offset) ['X', 'Y', 'Z'].forEach(L => { const w = get(L); if (w) st.mod[L] = w.t; });
+        if (dz && !st.plane && st.abs && !offset) {
+          const d = zShiftOf(kin, ra, st, dz);
+          if (!d) flag(i, 'eğim bir değişken — Z kaydırması yapılamadı, elle düzeltin');
+          else {
+            const present = {};
+            ['X', 'Y', 'Z'].forEach((L, k) => {
+              const w = get(L);
+              if (!w) return;
+              present[L] = true;
+              if (Math.abs(d[k]) > 1e-12) setW.set(w, word(L, linAdd(w.t, d[k], wrap))); // X/Y get a share only tilted without TCP, where they don't turn
+            });
+            if (Object.keys(present).length) {
+              zShiftFill(st, d, present, (L, mod, dk) => {
+                let t = mod;
+                if (L !== 'Z' && turn && (st.tcp || !st.tilted)) {
+                  if (st.mod.X == null || st.mod.Y == null) { flag(i, 'önceki X/Y bilinmiyor — Z kaydırması eksik kalabilir'); return; }
+                  t = L === 'X' ? rotLin(outer.c, st.mod.X, -outer.s, st.mod.Y, wrap) : rotLin(outer.s, st.mod.X, outer.c, st.mod.Y, wrap);
+                }
+                tail += ' ' + word(L, linAdd(t, dk, wrap));
+              }, f => flag(i, f));
+            }
+            const R = get('R');
+            if (R && CYC.some(hasG)) setW.set(R, word('R', linAdd(R.t, d[2], wrap)));
+          }
+        }
       }
       if (!setW.size && !addAfter.size && !tail) return raw;
       let nc = '', last = 0;
@@ -11096,14 +11164,14 @@ SON = M17
   }
 
   // Siemens 840D (and MillPlus through it)
-  function rotateSie(text, deg, kin) {
-    const outer = rotTrig(deg), ra = rotAxes(kin);
+  function rotateSie(text, deg, kin, dz = 0) {
+    const outer = rotTrig(deg), ra = rotAxes(kin), turn = norm360(deg) !== 0;
     const lines = text.split(/\r\n|\r|\n/);
     const flags = new Map();
     const flag = (i, f) => { if (!flags.has(i)) flags.set(i, []); flags.get(i).push(f); };
     const wrap = t => (/^-?R\d+$/.test(t) || balanced(t, '(', ')') || rotNum(t) ? t : '(' + t + ')');
     const word = (L, t) => (rotNum(t) ? L + t : L + '=' + wrap(t));
-    const st = { plane: false, phi: 0, out: null, tcp: false, x: null, y: null, abs: true, tv: {}, tilted: false, c: null };
+    const st = { plane: false, phi: 0, out: null, tcp: false, x: null, y: null, abs: true, tv: {}, tilted: false, c: null, mod: {}, app: {} };
     const toks = code => {
       const out = [];
       let cur = '', d = 0, q = false, start = 0;
@@ -11132,14 +11200,16 @@ SON = M17
       const U = code.trim().toUpperCase();
       if (!U) return raw;
       if (/^(R\d+\s*=|IF\b|WHILE|ENDWHILE|GOTO|FOR\b|ENDFOR|LOOP|ENDLOOP|REPEAT|UNTIL|CASE|DEF\b|MSG|CALL|L\d|M17|RET|\$)/.test(U)) return raw;
-      if (/^TRAORI\b/.test(U)) { st.tcp = true; return raw; }
-      if (/^TRAFOOF\b/.test(U)) { st.tcp = false; return raw; }
+      if (/^TRAORI\b/.test(U)) { st.tcp = true; st.app = {}; return raw; }
+      if (/^TRAFOOF\b/.test(U)) { st.tcp = false; st.app = {}; return raw; }
       let m = code.match(/^(\s*)CYCLE800\s*\((.*)\)(.*)$/i);
       if (m) {
         const a = splitArgs(m[2]);
+        st.app = {};
         if (a.every((v, k) => !v || (k === 1 && /^"0?"$/.test(v)))) { if (st.plane) { st.x = st.out.x; st.y = st.out.y; } st.plane = false; st.phi = 0; return raw; }
         const x0 = a[4] || '0', y0 = a[5] || '0';
-        a[4] = rotLin(outer.c, x0, -outer.s, y0, wrap); a[5] = rotLin(outer.s, x0, outer.c, y0, wrap);
+        if (turn) { a[4] = rotLin(outer.c, x0, -outer.s, y0, wrap); a[5] = rotLin(outer.s, x0, outer.c, y0, wrap); }
+        if (dz) a[6] = linAdd((a[6] || '0').trim() || '0', dz, wrap); // the plane's origin moves with the part
         if (!st.plane) st.out = { x: st.x, y: st.y };
         st.plane = true; st.phi = 0; st.x = null; st.y = null;
         const mode = evalExpr(a[3] || '57', new Map()), kind = mode == null ? -1 : Math.round(mode) & 0xC0;
@@ -11148,19 +11218,21 @@ SON = M17
         if (kind === 0xC0) {
           // direct: the machine's own axes in its listing order; tilted, the table axis turns
           const kz = ra.zt ? kin.axes.findIndex(ax => ax.name === ra.zt.name) : -1;
-          if (kz < 0 || kz > 1) flag(i, 'doğrudan modda tabla ekseni bulunamadı — açıyı elle düzeltin');
+          if (!turn) { /* moved only: the axes stay */ }
+          else if (kz < 0 || kz > 1) flag(i, 'doğrudan modda tabla ekseni bulunamadı — açıyı elle düzeltin');
           else if (kin.axes.slice(0, 2).every((ax, k) => k === kz || num(7 + k) === 0)) st.phi = deg;
           else a[7 + kz] = wrap(rotAdd(a[7 + kz] || '0', ra.zt.s * deg, wrap));
         } else if ((kind === 0 && seq.every(Boolean)) || kind === 0x40) {
           // axis by axis in the _MODE order; solid angle: about Z, new Y, new Z
           const sq = kind === 0x40 ? ['Z', 'Y', 'Z'] : seq;
-          if ([0, 1, 2].every(k => sq[k] === 'Z' || num(7 + k) === 0)) st.phi = deg; // no tilt: the X/Y inside turn
+          if (!turn) { /* moved only: the angles stay */ }
+          else if ([0, 1, 2].every(k => sq[k] === 'Z' || num(7 + k) === 0)) st.phi = deg; // no tilt: the X/Y inside turn
           else if ((kind === 0 && seq[0] === 'Z') || kind === 0x40) a[7] = wrap(rotAdd(a[7] || '0', deg, wrap));
           else if ([7, 8, 9].every(k => num(k) != null)) {
             const g = anglesZYX(mmul(turns([['Z', deg]]), turns(seq.map((ax, k) => [ax, num(7 + k)]))));
             a[3] = String(modeOfSeq(['Z', 'Y', 'X'])); a[7] = fmt(g.Z); a[8] = fmt(g.Y); a[9] = fmt(g.X);
           } else flag(i, 'CYCLE800 bu biçimiyle döndürülemedi — açıları elle düzeltin');
-        } else flag(i, 'CYCLE800 bu biçimiyle döndürülemedi — açıları elle düzeltin');
+        } else if (turn) flag(i, 'CYCLE800 bu biçimiyle döndürülemedi — açıları elle düzeltin');
         // the shift after the turn (_X1 _Y1) lies in the plane
         if (st.phi && [10, 11].some(k => (a[k] || '').trim() && num(k) !== 0)) {
           const t = rotTrig(st.phi), x1 = a[10] || '0', y1 = a[11] || '0';
@@ -11182,6 +11254,16 @@ SON = M17
       const txt = t => { const v = valOf(t.s).v, w = v.match(/^(AC|IC|DC|ACP|ACN)\s*\((.*)\)$/i); return { w: w ? w[1] : null, t: w ? w[2] : v }; };
       const set = new Map(), after = new Map();
       let tail = '';
+      // hole cycles (MCALL too): the retract, reference and depth levels are absolute (RTP RFP DP, CYCLE83 FDEP)
+      const cyc = !st.plane && dz && code.match(/^(.*?\bCYCLE8([1-9])\s*\()(.*)(\).*)$/i);
+      if (cyc) {
+        const d = zShiftOf(kin, ra, st, dz), a = splitArgs(cyc[3]);
+        if (!d) flag(i, 'eğim bir değişken — Z kaydırması yapılamadı, elle düzeltin');
+        else {
+          [0, 1, 3].concat(cyc[2] === '3' ? [5] : []).forEach(k => { if ((a[k] || '').trim()) a[k] = linAdd(a[k].trim(), d[2], wrap); });
+          return head + cyc[1] + a.join(',') + cyc[4] + com;
+        }
+      }
       // rotary axes first: whether the table is tilted decides the X/Y
       if (!st.plane) {
         const words = {};
@@ -11194,7 +11276,7 @@ SON = M17
         }
       }
       // tilted without TCP the turned table brings the part back: the X/Y stay
-      if (st.plane || st.tcp || !st.tilted) {
+      if (turn && (st.plane || st.tcp || !st.tilted)) {
         const { c, s } = st.plane ? rotTrig(st.phi) : outer;
         const pair = (Ls, vecDefault) => {
           const X = ax(Ls[0]), Y = ax(Ls[1]);
@@ -11221,6 +11303,32 @@ SON = M17
           const na = rotLin(c, at, -s, bt, wrap), nb = rotLin(s, at, c, bt, wrap);
           if (A3) set.set(A3, 'A3=' + na); else after.set(B3, ' A3=' + na);
           if (B3) set.set(B3, 'B3=' + nb); else after.set(A3, ' B3=' + nb);
+        }
+      }
+      // the part moved along its Z: absolute positions (G90 or AC; IC and G91 stay)
+      const absOf = t => { const w = txt(t).w; return w ? /^AC$/i.test(w) : st.abs; };
+      if (!st.plane && !frame) ['X', 'Y', 'Z'].forEach(L => { const t = ax(L); if (t && absOf(t)) st.mod[L] = txt(t).t; });
+      if (dz && !st.plane && !frame) {
+        const d = zShiftOf(kin, ra, st, dz);
+        const present = {};
+        ['X', 'Y', 'Z'].forEach(L => { const t = ax(L); if (t && absOf(t)) present[L] = t; });
+        if (!d && Object.keys(present).length) flag(i, 'eğim bir değişken — Z kaydırması yapılamadı, elle düzeltin');
+        else if (d && Object.keys(present).length) {
+          ['X', 'Y', 'Z'].forEach((L, k) => {
+            const t = present[L];
+            if (!t || Math.abs(d[k]) < 1e-12) return;
+            const v = txt(t), nv = linAdd(v.t, d[k], wrap);
+            set.set(t, v.w ? `${L}=${v.w.toUpperCase()}(${nv})` : word(L, nv)); // X/Y get a share only tilted without TCP, where they don't turn
+          });
+          const has = {}; Object.keys(present).forEach(L => { has[L] = true; });
+          zShiftFill(st, d, has, (L, mod, dk) => {
+            let t = mod;
+            if (L !== 'Z' && turn && (st.tcp || !st.tilted)) {
+              if (st.mod.X == null || st.mod.Y == null) { flag(i, 'önceki X/Y bilinmiyor — Z kaydırması eksik kalabilir'); return; }
+              t = L === 'X' ? rotLin(outer.c, st.mod.X, -outer.s, st.mod.Y, wrap) : rotLin(outer.s, st.mod.X, outer.c, st.mod.Y, wrap);
+            }
+            tail += ' ' + word(L, linAdd(t, dk, wrap));
+          }, f => flag(i, f));
         }
       }
       if (!set.size && !after.size && !tail) return raw;
@@ -11251,19 +11359,24 @@ SON = M17
     });
   }
   // the whole program turned about Z before it is converted (rotateIso / rotateSie)
-  function convertRotated(files, options, deg) {
+  // the part turned by deg about Z and / or moved by dz along it (see rotateIso / rotateSie)
+  function convertRotated(files, options, deg, dz) {
     const sm = options.sourceMachine;
     const srcId = sm ? controlOf(sm.control).source : options.source || 'mazak';
     const fam = (SOURCES.find(x => x.id === srcId) || SOURCES[0]).family;
     const kin = sm ? machineKin(sm.def) : parseRules(options.rulesText || DEFAULT_RULES).kin;
-    const note = `Program Z ekseni etrafında ${fmt(deg)}° döndürüldü (iş parçası sıfırı etrafında): X/Y, yay merkezleri, ötelemeler, delik konumları, takım vektörleri ve düzlem başlangıçları. ` +
-      `Eğimsiz işlemlerde C aynı kaldı; eğik düzlem ve konumlarda A / B aynı kaldı, C ${fmt(deg)}° döndü (G68.2 K, CYCLE800 C, G7 C5) ve düzlem içindeki X/Y aynı kaldı. Makine konumları (G53 / SUPA / G74) aynı kaldı.`;
+    const notes = [];
+    if (norm360(deg) !== 0) notes.push(`Program Z ekseni etrafında ${fmt(deg)}° döndürüldü (iş parçası sıfırı etrafında): X/Y, yay merkezleri, ötelemeler, delik konumları, takım vektörleri ve düzlem başlangıçları. ` +
+      `Eğimsiz işlemlerde C aynı kaldı; eğik düzlem ve konumlarda A / B aynı kaldı, C ${fmt(deg)}° döndü (G68.2 K, CYCLE800 C, G7 C5) ve düzlem içindeki X/Y aynı kaldı.`);
+    if (dz) notes.push(`Parça Z'de ${fmt(dz)} kaydırıldı: mutlak Z'ler, TCP'li hareketler, delik döngüsü düzeyleri (R, RTP / RFP / DP) ve eğik düzlem başlangıçları (G68.2 Z, CYCLE800 _Z0); TCP'siz eğik konumlarda kayma parçanın eğik Z'si boyunca X/Y/Z'ye dağıtıldı. Düzlem içindeki hareketler, artımlı hareketler ve ötelemeler (G52 / TRANS) aynı kaldı.`);
+    notes.push('Makine konumları (G53 / SUPA / G74) aynı kaldı.');
+    const note = notes.join(' ');
     if (fam === 'millplus') {
-      const res = convertSet(files, Object.assign({}, options, { _rotated: true, _mpRotate: deg }));
+      const res = convertSet(files, Object.assign({}, options, { _rotated: true, _mpRotate: deg, _mpShift: dz }));
       res.programs.forEach(pg => pg.result.notes.unshift(note));
       return res;
     }
-    const rot = files.map(f => Object.assign({ orig: f.text }, f, fam === 'siemens' ? rotateSie(f.text, deg, kin) : rotateIso(f.text, deg, kin)));
+    const rot = files.map(f => Object.assign({ orig: f.text }, f, fam === 'siemens' ? rotateSie(f.text, deg, kin, dz) : rotateIso(f.text, deg, kin, dz)));
     const res = convertSet(rot.map(f => ({ name: f.name, text: f.text })), Object.assign({}, options, { _rotated: true }));
     const target = res.target;
     const cursor = new Map();
@@ -11292,8 +11405,8 @@ SON = M17
     const inFiles = files.map(f => {
       if (!mpS) return f;
       const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'), { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin });
-      if (options._mpRotate) {
-        const rr = rotateSie(r.text, options._mpRotate, sm ? machineKin(sm.def) : rules.kin);
+      if (options._mpRotate || options._mpShift) {
+        const rr = rotateSie(r.text, options._mpRotate || 0, sm ? machineKin(sm.def) : rules.kin, options._mpShift || 0);
         r.text = rr.text;
         rr.flags.forEach((fl, k) => { const i = r.srcOf[k]; if (!r.flags.has(i)) r.flags.set(i, []); r.flags.get(i).push(...fl); });
       }
@@ -11336,8 +11449,8 @@ SON = M17
   }
 
   function convertSet(files, options) {
-    const turn = parseFloat(options.rotate) || 0;
-    if (turn && norm360(turn) !== 0 && !options._rotated) return convertRotated(files, options, turn);
+    const turn = parseFloat(options.rotate) || 0, shiftZ = parseFloat(options.shiftZ) || 0;
+    if (((turn && norm360(turn) !== 0) || shiftZ) && !options._rotated) return convertRotated(files, options, turn, shiftZ);
     {
       const sm0 = options.sourceMachine, tm0 = options.targetMachine;
       const mpS = (sm0 ? controlOf(sm0.control).source : options.source) === 'millplus';
@@ -11842,8 +11955,8 @@ SON = M17
 
   const optRenum = $('renumChk7'), optSupp = $('suppressChk7'), optHole = $('holeChk7');
   [optRenum, optSupp, optHole].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
-  const optRot = $('rotateInp7');
-  optRot.addEventListener('change', () => { if (result) run(); });
+  const optRot = $('rotateInp7'), optShiftZ = $('shiftZInp7');
+  [optRot, optShiftZ].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
 
   /* ---- files ---- */
   // Mazak files are often in the Windows code page; Turkish comments must survive.
@@ -11904,7 +12017,8 @@ SON = M17
       renumber: optRenum.checked,
       suppress: optSupp.checked,
       holeMsg: optHole.checked,
-      rotate: parseFloat(optRot.value) || 0
+      rotate: parseFloat(optRot.value) || 0,
+      shiftZ: parseFloat(optShiftZ.value) || 0
     });
     if (current >= result.programs.length) current = 0;
     resultPanel7.style.display = 'block';
