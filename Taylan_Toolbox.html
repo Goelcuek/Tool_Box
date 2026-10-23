@@ -7209,7 +7209,6 @@ ${HERMLE_TOOL}
 [İŞ PARÇASI SIFIRI]
 // G54.1 Pn / G54–G57 — {G}: G54, G55 … (P5 ve sonrası G505 …)
 G90
-L_M54
 {G}
 
 [ARA DÖNÜŞ]
@@ -7776,8 +7775,9 @@ SON = M17
 
   // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
   const mpHead = (t, title, mpo) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS(mpo || {});
-  // Hermle: MillPlus G74 Z-1 L1 (Z to the machine position) is G75 Z1.0 (Z to the fixed point); L_M54 written back as G74 too
-  const MP_HERMLE_LINES = "// Hermle: G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · Hermle'nin L_M54'ü de G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
+  // Hermle / DMG: MillPlus G74 Z-1 L1 (Z to the machine position) is G75 Z1.0 (Z to the fixed point). L_M54 (safe Z)
+  // stands only at an item end and after the tool probe (mp2sie writes it there); read back as G74 too
+  const MP_HERMLE_LINES = "// G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · L_M54 yalnız ITEM SONU'nda ve takım ölçümünden sonra yazılır, MillPlus'a G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
   // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
   // M825: accuracy level, not carried over
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
@@ -7793,8 +7793,8 @@ SON = M17
   const DMGMP_TO_VARIAXIS = mpHead(mpM(DMG_TO_VARIAXIS, MP_M_TO_MAZAK), 'DMG duoBLOCK MillPlus → Mazak Variaxis');
   const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG.replace('\nM51 =\n', '\nM51 = M7\n'), 'Hermle C52 → DMG duoBLOCK MillPlus', { lines: MP_HERMLE_LINES });
   const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE.replace('M8 = M8 | M51\n', 'M8 = M8\n'), MP_M_TO_SIE + MP_TSC_TO_HERMLE), 'DMG duoBLOCK MillPlus → Hermle C52', { lines: MP_HERMLE_LINES });
-  const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', m: MP_M_TO_SIE, cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
+  const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus', { lines: MP_HERMLE_LINES });
+  const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', m: MP_M_TO_SIE, cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)', { lines: MP_HERMLE_LINES });
 
   const PROFILES = [
     { id: 'hermle-c52', name: 'Mazak Variaxis i700 / i800 → Hermle C52', source: 'mazak', target: 'siemens840d', src: 'm-variaxis', tgt: 'm-hermle-c52', rules: DEFAULT_RULES },
@@ -10730,6 +10730,21 @@ SON = M17
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
     };
     const out = lines.map((raw, i) => withHead(raw, i));
+    // L_M54 (safe Z) at an item end ((* ITEM SONU *)) and after the tool probe (G23 … N5="\blum\"):
+    // a G74 Z… L1 that comes next becomes it, else it follows the line
+    if (toSie && !o.toMp) {
+      lines.forEach((raw, i) => {
+        const { code, comments } = mpSplit(raw.replace(/^\s*N\d+\s*/i, ''));
+        const probe = /^G23\b/i.test(code) && /\bN5\s*=\s*"[^"]*blum/i.test(code);
+        if (!probe && !(!code && comments.some(c => /ITEM\s*SONU/i.test(c)))) return;
+        let j = i + 1;
+        while (j < lines.length && !mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code) j++;
+        if (j < lines.length && /^G74\s+Z\s*-?[\d.]+\s+L1$/i.test(mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code)) {
+          const n = nOf(lines[j]);
+          out[j] = (n != null && targets.has(n) ? 'N' + n + ' ' : '') + 'L_M54';
+        } else out[i] = [].concat(out[i], 'L_M54');
+      });
+    }
     // several 840D lines can come from one MillPlus line: srcOf gives each one's MillPlus line
     const flat = [], srcOf = [];
     out.forEach((o, i) => (Array.isArray(o) ? o : [o]).forEach(t => { flat.push(t); srcOf.push(i); }));
@@ -11845,7 +11860,11 @@ SON = M17
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /\nM825\s*=/.test(t) ? t
       : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)))
     // Hermle ↔ MillPlus: G74 Z-1 L1 = G75 Z1.0 (the old default lines only)
-    .replace(/^\/\/ (DMG duoBLOCK MillPlus → Hermle C52|Hermle C52 → DMG duoBLOCK MillPlus)[^]*$/, t => t.replace('G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL', ProgConvert.MP_HERMLE_LINES))
+    .replace(/^\/\/ (DMG duoBLOCK MillPlus → (Hermle C52|DMG duoBLOCK \(840D\))|(Hermle C52|DMG duoBLOCK \(840D\)) → DMG duoBLOCK MillPlus)[^]*$/, t => t
+      .replace('G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL', ProgConvert.MP_HERMLE_LINES)
+      .replace(/^\/\/ Hermle: G74 Z-1 L1 \(Z makine konumuna\)[^\n]*$/m, ProgConvert.MP_HERMLE_LINES.split('\n')[0]))
+    // L_M54 only at an item end and after the tool probe: not with the work offset (Mazak → Hermle / DMG)
+    .replace(/^\/\/ Mazak Variaxis → (Hermle C52|DMG duoBLOCK)[^]*$/, t => t.replace(/(\[İŞ PARÇASI SIFIRI\]\n(?:\/\/[^\n]*\n)*G90\n)(?:L_FREI\n)?L_M54\n(\{G\}\n)/, '$1$2'))
     // MillPlus M140–M149 not written
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /^M14\d\s*=/m.test(t) ? t
       : /^M825\s*=.*\n/m.test(t) ? t.replace(/^(M825\s*=.*\n)/m, '$1' + ProgConvert.MP_M140) : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_M140));
