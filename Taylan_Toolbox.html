@@ -9849,6 +9849,7 @@ SON = M17
       if (c800) {
         const args = splitArgs(c800[1]);
         const reset = args.every(v => v === '') || (args[1] || '').replace(/"/g, '').trim() === '0';
+        st.inPlane = !reset;
         if (reset) {
           if (R.planeOff.length) tplOut(i, R.planeOff, {}); else emit(i, withC(code, comment), 'same', 'CYCLE800 için kural yok');
         } else if (R.plane.length) {
@@ -9993,6 +9994,8 @@ SON = M17
         ws.push(t);
       });
 
+      // a rotary move with the plane on (4-axis work under a turned head: MillPlus M53)
+      if (st.inPlane && !st.tcp && ws.some(w => /^[ABC](-?[\d.]+|\[.*\])$/.test(w))) flags.push('G68.2 düzlemi açıkken döner eksen hareketi — Mazak bunu kabul etmeyebilir, 4 eksen işlemeyi kontrol edin');
       // rotary axes on another machine: TCP moves (TRAORI) keep the tool direction
       if (rot && rot.mode !== 'same') {
         const rw = ws.filter(w => { const m = w.match(/^([A-Z])(-?[\d.]+|\[.*\])$/); return m && rot.has(m[1]); });
@@ -10148,6 +10151,8 @@ SON = M17
       const half = Math.abs(Math.abs(r.rest) - 180) <= 5e-5;
       if (Math.abs(r.rest) <= 5e-5 || half) {
         tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = axisVal(a); });
+        // in this plane both tables turn the part about its own Z: a C move carries over by this offset
+        if (zs && zt) { const sg = zs.s * zt.s; st.cMap = { src: zs.name, tgt: zt.name, s: sg, off: r.vals[zt.name] - sg * (zExpr ? 0 : parseFloat(slot[zs.name])) }; }
         flags.push(`düzlem ${srcKin.label} → ${tgtKin.label} eksen konumlarına çevrildi` + (half ? ', takım ekseni etrafında 180° dönük: düzlemdeki X / Y işaret değiştirdi' : '') + ' — ilk denemede kontrol edin');
         if (half) {
           flip = true;
@@ -10208,7 +10213,7 @@ SON = M17
         const args = splitArgs(cm[1]);
         const cancel = args.every((a, k) => !a || (k === 1 && /^"0?"$/.test(a)));
         if (st.arot) { before.push({ text: `AROT Z=${fmt(-st.arot)}`, flag: 'önceki düzlemin AROT\'u geri alındı' }); st.arot = 0; }
-        st.flip = false;
+        st.flip = false; st.cMap = null;
         if (!cancel) {
           const res = cycle800(args);
           flags.push(...res.flags);
@@ -10236,7 +10241,14 @@ SON = M17
           const wrap = m[3] ? m[3].toUpperCase() : null, txt = m[4] != null ? m[4] : m[5] != null ? m[5] : m[6];
           words.push({ name, raw: txt, wrap, v: wrap === 'IC' || !isNum(txt) ? null : parseFloat(txt), at: m.index + m[1].length, len: m[0].length - m[1].length });
         }
-        if (words.length && rot.mode !== 'same') {
+        if (words.length && st.cMap && !st.tcp && words.every(w => w.name === st.cMap.src)) {
+          // C alone inside a plane given by axis positions (MillPlus M53: 4-axis work with the head along Y)
+          const w = words[0], cm = st.cMap, inc = !st.abs || w.wrap === 'IC';
+          const val = t => (inc ? 0 : cm.off) + cm.s * t;
+          const v = w.v != null ? fmt(val(w.v)) : `(${inc ? '' : fmt(cm.off) + (cm.s > 0 ? '+' : '-')}${inc && cm.s < 0 ? '-' : ''}(${w.raw}))`;
+          const text = w.wrap ? `${cm.tgt}=${w.wrap}(${v})` : w.v != null ? cm.tgt + v : `${cm.tgt}=${v}`;
+          if (text !== code.substr(w.at, w.len)) code = (code.slice(0, w.at) + text + code.slice(w.at + w.len)).replace(/\s+/g, ' ').trim();
+        } else if (words.length && rot.mode !== 'same') {
           if (!st.abs || words.some(w => w.wrap === 'IC')) flags.push('artımlı döner eksen — başka makineye çevrilmedi');
           else {
             const r = rot.apply(words.map(w => ({ name: w.name, v: w.v, raw: w.raw })), st.tcp);
@@ -10547,27 +10559,11 @@ SON = M17
       if (tcp && /\b[IJK]-?[\d.]/i.test(ws) && !/\bG0?[23]\b/i.test(ws)) flag(i, 'G141 yüzey normali (I J K) çevrilmedi');
       ws = ws.replace(/\b([XYZABCF])\s*=\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+)/gi, (mm, a, v) => `${a}=${expr(v)}`).replace(/\bE(\d+)\b/g, (mm, k) => 'R' + eToR(+k)).replace(/:/g, '/');
       if (hz && hz.on) {
-        // the head along Y: a C move is a new plane, X Y Z (and arc centres) are the plane's, G18 is its G17
+        // the head along Y: X Y Z (and arc centres) are the plane's, G18 is its G17; C moves stay C moves
+        // (the plane is fixed to the machine, the table turns the part about its Z as on the duoBLOCK)
         const arc = /\bG0?[23]\b/i.test(ws);
-        let toks = mpToks(ws), cWord = null;
-        toks = toks.filter(t => { if (/^C(?:=.+|[-+]?[\d.]+)$/i.test(t)) { cWord = t.replace(/^C=?/i, ''); return false; } return true; });
-        toks = toks.map(t => (/^G0?18$/i.test(t) ? 'G17' : /^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
-        const res = [];
-        if (cWord != null) {
-          hz.c = cWord;
-          res.push(hzPlane());
-          if (toks.some(t => /^[XYZ]/i.test(t))) flag(i, 'C ile X/Y/Z aynı satırda (kafa yatay) — önce düzlem, sonra hareket yazıldı; kontrol edin');
-          // a C positioning only (G0 C89): the plane, and the motion G it leaves modal
-          if (toks.every(t => /^(G0?[0-3]|F[\d.]+)$/i.test(t))) {
-            const g = toks.filter(t => /^G0?[0-3]$/i.test(t));
-            if (g.length) res.push(g.join(' '));
-            res[0] = line(res[0]);
-            return res;
-          }
-        }
-        res.push(toks.join(' '));
-        res[0] = line(res[0]);
-        return res.length === 1 ? res[0] : res;
+        const toks = mpToks(ws).map(t => (/^G0?18$/i.test(t) ? 'G17' : /^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
+        return line(toks.join(' '));
       }
       return line(ws);
     };
@@ -10587,21 +10583,22 @@ SON = M17
       }
       const pl = code.match(/\bG(1[789])\b/); if (pl) plane = +pl[1];
       // where C stands (outside the plane): the table position the plane starts from
-      if (!hz.on && !/^G7\b/i.test(code)) { const cm = code.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i); if (cm) hz.c = expr(cm[1]); }
+      const cOf = c => { const cm = !/^G7\b/i.test(c) && c.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i); return cm ? expr(cm[1]) : null; };
+      if (!hz.on && cOf(code) != null) hz.c = cOf(code);
       if (!hz.on && hzStart.test(code)) {
         hz.on = true;
         const r = [].concat(lineOut(raw.replace(hzStart, ' '), i)).filter(t => t !== '');
-        // the C move right after it (G0 C0) makes the plane itself
-        let cNext = false;
-        for (let j = i + 1; j < lines.length; j++) {
-          const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
-          if (!cj || /^T\d+$/i.test(cj) || /^[EFSM]/i.test(cj) && !/(^|\s)[XYZC]/i.test(cj)) continue;
-          cNext = /(?:^|\s)C\s*=?\s*[-+(\dE]/i.test(cj) && !hzEnd(cj);
-          break;
+        // C not known yet: the first C under the head (G0 C0) is where the plane starts
+        if (hz.c == null) {
+          for (let j = i + 1; j < lines.length && hz.c == null; j++) {
+            const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
+            if (hzEnd(cj)) break;
+            hz.c = cOf(cj);
+          }
+          if (hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
         }
-        if (!cNext && hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
-        flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre yazıldı — ilk denemede kontrol edin');
-        return [...pre, ...(cNext ? [] : [hzPlane()]), 'G17', ...r];
+        flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre, C hareketleri olduğu gibi yazıldı — ilk denemede kontrol edin');
+        return [...pre, hzPlane(), 'G17', ...r];
       }
       const r = lineOut(raw, i);
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
@@ -11007,10 +11004,11 @@ SON = M17
     st.tilted = ra.tilts.some(n => st.tv[n] != null && !(Math.abs(st.tv[n]) < 1e-9));
     const turned = st.tcp || st.tilted, res = {};
     if (!ra.zt || !deg) return res;
+    // C moves aren't brought back into 0…360: a cut from C93 to C374 keeps its way round (273 → 554)
     const cw = words[ra.zt.name];
-    if (cw != null) { st.c = cw; res.c = turned ? rotAdd(cw, ra.zt.s * deg, wrap) : cw; }
+    if (cw != null) { st.c = cw; res.c = turned ? linAdd(cw, ra.zt.s * deg, wrap) : cw; }
     else if (!st.tcp && was !== st.tilted) {
-      if (st.c != null) res.addC = st.tilted ? rotAdd(st.c, ra.zt.s * deg, wrap) : st.c;
+      if (st.c != null) res.addC = st.tilted ? linAdd(st.c, ra.zt.s * deg, wrap) : st.c;
       else res.flag = 'C konumu bilinmiyor — eğim değişirken C döndürülemedi, elle kontrol edin';
     }
     return res;
@@ -11079,7 +11077,12 @@ SON = M17
             else addAfter.set(ws[ws.length - 1], ' ' + zl + fmt(deg));
           }
         }
-      } else if (st.plane && !st.phi) return raw; // a tilted plane turned as a whole: the X/Y inside it stay
+      } else if (st.plane && !st.phi) {
+        // a tilted plane turned as a whole: the X/Y inside it stay; a C move in it turns with the part
+        const cw = turn && ra.zt && st.abs && get(ra.zt.name);
+        if (!cw) return raw;
+        setW.set(cw, word(cw.L, linAdd(cw.t, ra.zt.s * deg, wrap)));
+      }
       else {
         if (hasG(65) && (get('X') || get('Y'))) { flag(i, 'G65 makro argümanı X/Y döndürülmedi — konum ise elle düzeltin'); return raw; }
         if (hasG(10) || hasG(92) || hasG(51.1) || st.polar) { flag(i, 'bu satır döndürülmedi (G10 / G92 / ayna / kutupsal)'); return raw; }
@@ -11240,7 +11243,16 @@ SON = M17
         }
         return head + m[1] + 'CYCLE800(' + a.join(',') + ')' + m[3] + com;
       }
-      if (st.plane && !st.phi) return raw; // a tilted plane turned as a whole: the X/Y inside it stay
+      if (st.plane && !st.phi) {
+        // a tilted plane turned as a whole: the X/Y inside it stay; a C move in it (MillPlus M53, 4-axis work)
+        // turns with the part like the plane's own C
+        if (!turn || !ra.zt) return raw;
+        const C = toks(code).find(t => { const v = valOf(t.s); return v && v.L === ra.zt.name && !v.d; });
+        const v = C && valOf(C.s).v, w = v && v.match(/^(AC|IC|DC|ACP|ACN)\s*\((.*)\)$/i);
+        if (!C || (w && /^IC$/i.test(w[1])) || (!w && !st.abs)) return raw;
+        const nv = linAdd(w ? w[2] : v, ra.zt.s * deg, wrap);
+        return head + code.slice(0, C.at) + (w ? `${ra.zt.name}=${w[1].toUpperCase()}(${nv})` : word(ra.zt.name, nv)) + code.slice(C.at + C.s.length) + com;
+      }
       if (/^(SUPA\b|G0?53\b|G153\b)/.test(U) || /\b(SUPA|G53|G153)\b/.test(U)) return raw;
       if (/^(HOLES|CYCLE80[0-9]\b|CYCLE801|POCKET|SLOT|LONGHOLE|CYCLE7\d|CYCLE6\d|MIRROR|AMIRROR)/.test(U) || /\b(AP|RP)\s*=/.test(U) || /\bG11[012]\b/.test(U)) {
         if (!/^CYCLE8[1-9]\b/.test(U)) { flag(i, 'bu satır döndürülmedi (desen / cep döngüsü, ayna ya da kutupsal) — elle düzeltin'); return raw; }
