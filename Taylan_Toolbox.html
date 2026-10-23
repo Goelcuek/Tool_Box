@@ -10672,29 +10672,40 @@ SON = M17
       if (/(^|\s)G90(\s|$)/i.test(ws)) cInc = false;
       if (!o.toMp && /(^|\s)C/i.test(ws)) ws = mpToks(ws).map(t => (/^C(=|[-+\d.])/i.test(t) ? cMove(t) : t)).join(' ');
       if (hz && hz.on) {
-        // the head along Y: X Y Z (and arc centres) are the plane's, G18 is its G17; C moves stay C moves
-        // (the plane is fixed to the machine, the table turns the part about its Z as on the duoBLOCK)
+        // the head along Y: X Y Z (and arc centres) are the plane's, G18 is its G17 (written with the
+        // plane); C moves stay C moves (the plane is fixed to the machine, the table turns the part about its Z)
         const arc = /\bG0?[23]\b/i.test(ws);
-        const toks = mpToks(ws).map(t => (/^G0?18$/i.test(t) ? 'G17' : /^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
+        const toks = mpToks(ws).filter(t => !/^G0?18$/i.test(t)).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
         return line(toks.join(' '));
       }
       return line(ws);
     };
     // ---- M53: the head in the G18 position (see mpHorizontalHead) ----
     // It holds until M55, a tool change, G7, G17 or G19, or the program end; then the plane goes.
+    // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
+    // M53 to come is noted), nor is it given back when the plane goes.
     const hzStart = /(^|\s)M53(?=\s|$)/i;
     const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
-    let plane = 17;
+    const G18_RE = /(\([^)]*\))|(^|\s)G0?18(?=\s|$)/gi;
     const withHead = (raw, i) => {
       if (!hz) return lineOut(raw, i);
-      const code = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
+      let code = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
       const pre = [];
       if (hz.on && hzEnd(code)) {
         hz.on = false;
         pre.push('CYCLE800()');
-        if (plane === 18 && !/\bG1[79]\b/i.test(code)) pre.push('G18');
       }
-      const pl = code.match(/\bG(1[789])\b/); if (pl) plane = +pl[1];
+      if (!hz.on && /(^|\s)G0?18(?=\s|$)/i.test(code)) {
+        let m53 = false;
+        for (let j = i; j < lines.length; j++) {
+          const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
+          if (hzStart.test(cj)) { m53 = true; break; }
+          if (j > i && hzEnd(cj)) break;
+        }
+        if (!m53) flag(i, "G18 (M53 olmadan) yazılmadı — hedef G17'de kalır, XZ düzlemindeki yay / döngüleri kontrol edin");
+        raw = raw.replace(G18_RE, (m, c) => c || ' ');
+        code = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
+      }
       // where C stands (outside the plane): the table position the plane starts from
       const cOf = c => { const cm = !/^G7\b/i.test(c) && c.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i); return cm ? expr(cm[1]) : null; };
       if (!hz.on && cOf(code) != null) hz.c = cOf(code);
