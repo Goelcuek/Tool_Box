@@ -7160,6 +7160,12 @@ const ProgConvert = (function () {
 // olduğu gibi yazılır; {T} gibi yer tutucular doldurulur. Bir şablon boş
 // bırakılırsa o bölüm şablonsuz, satır satır çevrilir.
 `;
+  // Hermle's safety lines before every tool change — {BIRIM}: G700 / G710, {G}: the work offset in use
+  const HERMLE_SAFETY = 'ROT\nDIAMOF\nTRAFOOF\nCYCLE800()\nG90 G94 G40 G17 {BIRIM}\n{G} ; AKTIF OFFSET\nG17\nTRAFOOF\n\nG75 Z1.0\n';
+  const PLAIN_TOOL = '[TAKIM DEĞİŞTİRME]\n// T.. M06 — {T}: takım numarası\nT{T} ;(* SEARCH SATIRI *)\nM06\nD1\n';
+  const HERMLE_TOOL = '[TAKIM DEĞİŞTİRME]\n// T.. M06 — {T}: takım numarası · {BIRIM}: G700 / G710 (programdaki G20 / G21) · {G}: o anki sıfır noktası (henüz yoksa programın ilki)\n' +
+    '// Hermle güvenlik bloğu her takım değişiminden önce yazılır\n' + HERMLE_SAFETY + 'T{T} ;(* SEARCH SATIRI *)\nM06\nD1\n';
+  const HERMLE_TOOL_PRE = '[TAKIM DEĞİŞTİRME ÖNCESİ]\n// Her takım değişiminden (T… / M6) önce yazılır — {BIRIM}: G700 / G710 (programdaki), {G}: o anki sıfır noktası\n' + HERMLE_SAFETY;
   const DEFAULT_RULES = `// Mazak Variaxis → Hermle C52 (Siemens 840D sl)
 ${HEADER}
 [M KODLARI]
@@ -7197,12 +7203,7 @@ LOKASYON ISLENECEK =>
 // İlk takımdan önceki G28 referans bloğunun yerine
 M25 M27
 
-[TAKIM DEĞİŞTİRME]
-// T.. M06 — {T}: takım numarası
-T{T} ;(* SEARCH SATIRI *)
-M06
-D1
-
+${HERMLE_TOOL}
 [İŞ PARÇASI SIFIRI]
 // G54.1 Pn / G54–G57 — {G}: G54, G55 … (P5 ve sonrası G505 …)
 G90
@@ -7506,7 +7507,7 @@ ${(extra && extra.m) || ''}
 ${(extra && extra.cmdNote) || ''}${(extra && extra.cmds) || ''}
 [METİN]
 // Yorumlarda: aranan => yeni   ·   yeni boşsa yorum silinir
-${(extra && extra.text) || ''}`;
+${(extra && extra.text) || ''}${extra && extra.toolPre ? '\n' + extra.toolPre : ''}`;
   }
   const HERMLE_TO_DMG = sieSieRules('Hermle C52', 'DMG duoBLOCK', 'HERMLE', 'TC1', {
     dir: '1',
@@ -7516,6 +7517,7 @@ ${(extra && extra.text) || ''}`;
   });
   const DMG_TO_HERMLE = sieSieRules('DMG duoBLOCK', 'Hermle C52', 'TC1', 'HERMLE', {
     dir: '-1',
+    toolPre: HERMLE_TOOL_PRE,
     m: '// Hermle: M51 içten soğutma · M9 hepsini kapatır\nM8 = M8 | M51\nM9 = M9\n',
     cmds: '// L_FREI DMG\'ye özel (L_M54\'ten önce) — Hermle\'de yazılmaz\nL_FREI =\n',
     text: 'DMG DUOBLOCK => HERMLE  VARI-AXIS\n'
@@ -7758,6 +7760,7 @@ SON = M17
   const VARIAXIS_TO_DMG = DEFAULT_RULES
     .replace(/^\/\/ Mazak Variaxis → Hermle C52 \(Siemens 840D sl\)/m, "// Mazak Variaxis → DMG duoBLOCK (Siemens 840D sl)\n// Hermle kurallarından türetildi — DMG'ye özel M kodlarını ve güvenli konum satırlarını kontrol edin")
     .replace('M8 = M8 | M51', 'M8 = M8').replace('M9 = M9 | M52', 'M9 = M9')
+    .replace(HERMLE_TOOL, PLAIN_TOOL) // the safety block is the Hermle's
     .replace('MAZAK - VARI-AXIS I700-I800 => HERMLE  VARI-AXIS', 'MAZAK - VARI-AXIS I700-I800 => DMG DUOBLOCK')
     .replace(/^L_M54$/gm, 'L_FREI\nL_M54') // DMG: L_FREI before the safe-Z subprogram
     .replace(/^(\/\/ İlk takımdan önceki G28 referans bloğunun yerine)\nM25 M27$/m, "$1 · SİL: hiçbir şey yazılmaz\n// M25 M27 (Hermle'de A ve C eksen kilidi açma) DMG'de gerekmez\nSİL")
@@ -7930,6 +7933,7 @@ SON = M17
       text: text2,
       start: trimBlock(sections['BASLANGIC']),
       tool: trimBlock(sections['TAKIM DEGISTIRME']),
+      toolPre: trimBlock(sections['TAKIM DEGISTIRME ONCESI']),
       offset: trimBlock(sections['IS PARCASI SIFIRI']),
       mid: trimBlock(sections['ARA DONUS']),
       end: trimBlock(sections['PROGRAM SONU']),
@@ -8499,10 +8503,22 @@ SON = M17
     st.tcp = false;
 
     const emit = (i, text, kind, flag) => out.push({ text, src: i, kind, flag: flag || '' });
+    // inch or metric for the target's safety block ({BIRIM}), and the first work offset ({G} before one is set)
+    const sieUnit = (() => { const t = srcLines.join('\n').replace(/\([^)]*\)/g, ''); return /\bG20\b/i.test(t) ? 'G700' : /\bG21\b/i.test(t) ? 'G710' : null; })();
+    const firstWork = (() => {
+      for (const l of srcLines) {
+        const c = l.replace(/\([^)]*\)/g, ' ');
+        let m = c.match(/\bG54\.1\s*P(\d+)/i);
+        if (m) return +m[1] <= 4 ? 'G' + (53 + +m[1]) : 'G' + (500 + +m[1]);
+        m = c.match(/\bG(5[4-9])\b(?!\.)/i);
+        if (m) return +m[1] <= 57 ? 'G' + m[1] : 'G' + (505 + +m[1] - 58);
+      }
+      return 'G54';
+    })();
     const emitTpl = (i, tpl, vals, kind) => {
       tpl.forEach(t => {
         const f = fill(t, vals || {});
-        const fl = f.missing.length ? 'şablonda değer yok: ' + f.missing.join(', ') : '';
+        const fl = f.missing.length ? f.missing.map(k => (k === 'BIRIM' ? 'programda inç / metrik (G20 / G21) yok — G700 ya da G710 yazın' : 'şablonda değer yok: ' + k)).join('; ') : '';
         const k = /!!\s*KONTROL/i.test(t) ? '' : fl;
         emit(i, f.out, kind || 'template', k);
       });
@@ -8754,7 +8770,13 @@ SON = M17
         const tVal = T == null ? null : /^[-+]?[\d.]+$/.test(T) ? String(parseFloat(T)) : T;
         const rest = ws.filter(w => !(w.letter === 'M' && w.value === 6) && w.letter !== 'T');
         if (rest.length) emit(i, joinWords(rest), 'changed', '');
-        emitTpl(i, R.tool, { T: tVal });
+        emitTpl(i, R.tool, { T: tVal, BIRIM: SIE ? sieUnit : null, G: SIE ? st.work || firstWork : null });
+        // the template's own CYCLE800() / ROT / TRAFOOF leave no plane, turn or TCP on
+        if (R.tool.some(l => /^\s*CYCLE800\(\s*\)/i.test(l))) st.plane = null;
+        if (R.tool.some(l => /^\s*ROT\s*$/i.test(l))) st.arot = false;
+        if (R.tool.some(l => /^\s*TRAFOOF\b/i.test(l))) st.traori = false;
+        if (R.tool.some(l => /\bG90\b/.test(l))) st.outAbs = true;
+        if (R.tool.some(l => /\bG91\b/.test(l))) st.outAbs = false;
         if (comments.length) emit(i, withComments('', comments), 'changed');
         st.tool = T; forget();
         continue;
@@ -8776,6 +8798,7 @@ SON = M17
           if (gWork.value > 57) fl = `G${gWork.value} → ${G}: Siemens'te G58/G59 başka anlama gelir`;
           ws = ws.filter(w => w !== gWork);
         }
+        if (SIE) st.work = G;
         if (!SIE) { G = g541 ? 'G54.1 P' + (get(parsed.words, 'P') ? get(parsed.words, 'P').raw : '1') : 'G' + gWork.raw; fl = ''; }
         if (R.offset.length) {
           emitTpl(i, R.offset, { G });
@@ -10295,6 +10318,31 @@ SON = M17
       else if (code || comment || head.trim() || flags.length) emit(i, line(code, comment), 'changed', flags.join('; '));
       after.forEach(a => emit(i, a.text, 'added', a.flag));
     });
+    // the target's safety lines before every tool change ([TAKIM DEĞİŞTİRME ÖNCESİ]): before the T of a
+    // T… / M6 pair; {BIRIM} the program's G700 / G710, {G} the work offset in use (else the program's first)
+    if (R.toolPre && R.toolPre.length) {
+      const codeOf = t => { let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k); } return t; };
+      const plain = srcLines.map(codeOf).join('\n');
+      const unit = /\bG(70|700)\b/i.test(plain) ? 'G700' : /\bG(71|710)\b/i.test(plain) ? 'G710' : null;
+      const workOf = t => (codeOf(t).match(/\bG(5[4-7]|5\d\d)\b/) || [])[0];
+      const first = (srcLines.map(workOf).find(Boolean)) || 'G54';
+      const isT = t => /(^|\s)T\s*=|(^|\s)T\d/i.test(codeOf(t).replace(/^\s*N\d+\s*/i, ''));
+      let work = null;
+      for (let k = 0; k < out.length; k++) {
+        const c = codeOf(out[k].text);
+        if (workOf(out[k].text)) work = workOf(out[k].text);
+        if (!/(^|\s)M0?6(\s|$)/i.test(c)) continue;
+        let at = isT(out[k].text) ? k : -1;
+        for (let j = k - 1; at < 0 && j >= 0 && k - j <= 3; j--) { if (isT(out[j].text)) at = j; else if (codeOf(out[j].text).replace(/^\s*N\d+\s*/i, '').trim()) break; }
+        if (at < 0) at = k;
+        const lines = R.toolPre.map(t => {
+          const f = fill(t, { BIRIM: unit, G: work || first });
+          return { text: f.out, src: out[at].src, kind: 'template', flag: f.missing.includes('BIRIM') ? 'programda inç / metrik (G700 / G710) yok — birimi yazın' : '' };
+        });
+        out.splice(at, 0, ...lines);
+        k += lines.length;
+      }
+    }
     out.forEach(o => {
       o.n = null;
       if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = o.text.includes(';') ? `${o.text} !! KONTROL: ${o.flag}` : `${o.text}${o.text ? ' ' : ''};!! KONTROL: ${o.flag}`;
@@ -11575,7 +11623,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { MP_M_TO_MAZAK, MP_M_TO_SIE, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11644,6 +11692,9 @@ SON = M17
     .replace(/\{A\},\{B\},\(\{C\}\+ (R\d+)\)/g, '({A}+ $1),{B},{C}')
     // MillPlus M10 / M11 axis clamps ↔ Variaxis M47 M44 / M46 M43 (840D: not written), M825 accuracy level dropped
     .replace(/^\/\/ Mazak Variaxis → DMG duoBLOCK MillPlus[^]*$/, t => t.replace('M43 =\nM44 =\nM46 =\nM47 =\n', ProgConvert.MAZAK_CLAMP_TO_MP))
+    // the Hermle safety block before every tool change
+    .replace(/^\/\/ Mazak Variaxis → Hermle C52[^]*$/, t => t.split(ProgConvert.PLAIN_TOOL).join(ProgConvert.HERMLE_TOOL))
+    .replace(/^\/\/ DMG duoBLOCK (MillPlus )?→ Hermle C52[^]*$/, t => (/\[TAKIM DEĞİŞTİRME ÖNCESİ\]/.test(t) ? t : t.replace(/\s*$/, '\n\n') + ProgConvert.HERMLE_TOOL_PRE))
     // Hermle M52 isn't needed (M9 turns everything off); MillPlus M7 = Hermle M51 (through-tool coolant)
     .split('M9 = M9 | M52\n').join('M9 = M9\n')
     .replace(/^\/\/ DMG duoBLOCK MillPlus → Hermle C52[^]*$/, t => (/^M7\s*=/m.test(t) ? t : t.replace('M8 = M8 | M51\n', 'M8 = M8\n').replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_TSC_TO_HERMLE)))
