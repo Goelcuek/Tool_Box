@@ -7779,8 +7779,10 @@ SON = M17
   // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
   // M825: accuracy level, not carried over
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
-  const MP_M_TO_MAZAK = MP_CLAMP_NOTE + 'M10 = M47 M44\nM11 = M46 M43\nM825 =\n';
-  const MP_M_TO_SIE = MP_CLAMP_NOTE + 'M10 =\nM11 =\nM825 =\n';
+  // M140–M149: the MillPlus machine's own (M144, M146, M148 at the end of an operation), not written
+  const MP_M140 = '// MillPlus M140–M149 makineye özel (yazılmaz)\n' + Array.from({ length: 10 }, (x, k) => `M14${k} =\n`).join('');
+  const MP_M_TO_MAZAK = MP_CLAMP_NOTE + 'M10 = M47 M44\nM11 = M46 M43\nM825 =\n' + MP_M140;
+  const MP_M_TO_SIE = MP_CLAMP_NOTE + 'M10 =\nM11 =\nM825 =\n' + MP_M140;
   // through-tool coolant: MillPlus M7 = Hermle M51 (M8 the flood on both, M9 everything off)
   const MP_TSC_TO_HERMLE = '// içten soğutma: MillPlus M7 = Hermle M51\nM7 = M51\n';
   const MAZAK_CLAMP_TO_MP = '// Variaxis eksen kilitleri = MillPlus M11 (kilit aç) / M10 (kilitle)\nM46 = M11\nM43 = M11\nM47 = M10\nM44 = M10\n';
@@ -9405,7 +9407,8 @@ SON = M17
     // written out again where the REPEAT stands (a label alone runs to
     // ENDLABEL:, or else up to the REPEAT)
     const labelAt = new Map();
-    parts.forEach((p, k) => { if (p.label) { if (!labelAt.has(p.label)) labelAt.set(p.label, []); labelAt.get(p.label).push(k); } });
+    const markAt = (key, k) => { if (!labelAt.has(key)) labelAt.set(key, []); labelAt.get(key).push(k); };
+    parts.forEach((p, k) => { if (p.label) markAt(p.label, k); if (p.n != null) markAt('N' + parseInt(p.n, 10), k); }); // REPEAT N10 N20: block numbers too
     const findLabel = (lab, from) => {
       const ks = labelAt.get(lab) || [];
       const back = ks.filter(k => k < from);
@@ -9416,11 +9419,12 @@ SON = M17
       const p = parts[k];
       const rm = p.code.match(/^(REPEATB?)\s+([A-Z_][A-Z0-9_]*)(?:\s+([A-Z_][A-Z0-9_]*))?(?:\s+P\s*=\s*(\S+))?$/i);
       if (!rm || depth > 4) return false;
-      const s = findLabel(rm[2].toUpperCase(), k);
+      const key = l => (/^N\d+$/i.test(l) ? 'N' + parseInt(l.slice(1), 10) : l.toUpperCase());
+      const s = findLabel(key(rm[2]), k);
       if (s == null) return false;
       let e;
       if (/B$/i.test(rm[1])) e = s;
-      else if (rm[3]) e = (labelAt.get(rm[3].toUpperCase()) || []).find(j => j >= s);
+      else if (rm[3]) e = (labelAt.get(key(rm[3])) || []).find(j => j >= s);
       else {
         const end = (labelAt.get('ENDLABEL') || []).find(j => j > s && (s > k || j < k));
         e = end != null ? end : s < k ? k - 1 : null;
@@ -10430,12 +10434,13 @@ SON = M17
     const cond = s => expr(s).replace(/^\((.*)\)$/, '$1').replace(/([^<>=!])=(?!=)/g, '$1==');
     const flags = new Map(), notes = [];
     const flag = (i, f) => { if (!flags.has(i)) flags.set(i, []); flags.get(i).push(f); };
-    // block numbers a G29 jumps to are kept; every other N goes (MillPlus repeats them)
+    // block numbers a G29 jumps to or a G14 repeats are kept; every other N goes (MillPlus repeats them)
     const nOf = l => { const m = l.match(/^\s*N0*(\d+)/i); return m ? +m[1] : null; };
     const targets = new Set(), probeFlags = new Set(), mVars = new Set();
     lines.forEach(l => {
       const c = mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code;
       if (/^G29\b/i.test(c)) { const t = c.match(/\bN\s*=\s*0*(\d+)/i); if (t) targets.add(+t[1]); }
+      if (/^G14\b/i.test(c)) (c.match(/\bN[12]\s*=\s*0*\d+/gi) || []).forEach(t => targets.add(+t.replace(/^N[12]\s*=\s*/i, '')));
       const g = c.match(/^G327\b.*?\bE(\d+)\s*$/i); if (g) probeFlags.add(g[1]);
       const mv = c.match(/\bM\s*=\s*E(\d+)/i); if (mv) mVars.add(mv[1]);
     });
@@ -10543,6 +10548,14 @@ SON = M17
         return line(c ? `IF ${cond(c[1])} ${dir} N${+t[1]}` : `${dir} N${+t[1]}`);
       }
       if (/^G327\b/i.test(code)) return line('');
+      // G14 N1=10 N2=20 J2: blocks 10 to 20 run J times more (J1 if not given) → REPEAT N10 N20 P=2
+      if (/^G14\b/i.test(code)) {
+        const a = code.match(/\bN1\s*=\s*0*(\d+)/i), b = code.match(/\bN2\s*=\s*0*(\d+)/i), j = code.match(/\bJ\s*=?\s*(\([^)]*\)|[^\s]+)/i);
+        if (!a) { flag(i, 'G14 başlangıç bloğu (N1=) okunamadı'); return line(code); }
+        const p = j ? expr(j[1]) : '1';
+        if (!/^\d+$/.test(p) && !o.toMp) flag(i, `G14 tekrar sayısı değişken (${p}) — REPEAT P= kontrol edin`);
+        return line(`REPEAT N${+a[1]}${b ? ' N' + +b[1] : ''}${p !== '1' ? ' P=' + p : ''}`);
+      }
       // tilted plane, origin, TCP
       if (/^G7\b/i.test(code)) {
         const ang = k => { const w = code.match(new RegExp('\\b' + k + '5\\s*=\\s*(\\([^]*?\\)|[^\\s]+)', 'i')); return w ? expr(w[1]) : '0'; };
@@ -10776,8 +10789,11 @@ SON = M17
     // labels: named ones (ENDLABEL:) and block numbers that a jump names
     const named = new Map(), used = new Set();
     lines.forEach(o => {
-      const g = o.text.replace(/;.*$/, '').match(/\bGOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)/i);
+      const c = o.text.replace(/;.*$/, '');
+      const g = c.match(/\bGOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)/i);
       if (g) used.add(g[1].toUpperCase());
+      const r = c.match(/\bREPEATB?\s+N(\d+)(?:\s+N(\d+))?/i);
+      if (r) [r[1], r[2]].forEach(x => x && used.add('N' + +x));
     });
     let nextLabel = 901;
     const labelNo = name => { if (/^N\d+$/i.test(name)) return +name.slice(1); if (!named.has(name)) named.set(name, nextLabel++); return named.get(name); };
@@ -10899,6 +10915,13 @@ SON = M17
         continue;
       }
       if ((m = code.match(/^GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) { emit(`G29 N=${mpLabel(labelNo(m[1].toUpperCase())).slice(1)}`); continue; }
+      // REPEAT N10 N20 P=2 (block numbers; a named section is written out again, sieFlatten) → G14 N1=10 N2=20 J2
+      if ((m = code.match(/^(REPEATB?)\s+N(\d+)(?:\s+N(\d+))?(?:\s+P\s*=\s*(\S+))?$/i))) {
+        const to = /B$/i.test(m[1]) ? m[2] : m[3];
+        const j = m[4] == null ? '' : /^\d+$/.test(m[4]) ? ` J${m[4]}` : ` J=${expr(m[4])}`;
+        emit(`G14 N1=${mpLabel(+m[2]).slice(1)}${to ? ` N2=${mpLabel(+to).slice(1)}` : ''}${j}`);
+        continue;
+      }
       if ((m = code.match(/^CYCLE800\s*\((.*)\)$/i))) { mpPlane(splitArgs(m[1])).forEach((t, x) => emit(t.text, t.flag ? { flag: t.flag } : null)); continue; }
       if (/^MCALL$/i.test(code)) { mcall = null; if (com || label != null) emit(''); continue; }
       if ((m = code.match(/^(MCALL\s+)?CYCLE(8[1-5]|840)\s*\((.*)\)$/i))) {
@@ -11717,7 +11740,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_M140, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11794,7 +11817,10 @@ SON = M17
     .replace(/^\/\/ DMG duoBLOCK MillPlus → Hermle C52[^]*$/, t => (/^M7\s*=/m.test(t) ? t : t.replace('M8 = M8 | M51\n', 'M8 = M8\n').replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_TSC_TO_HERMLE)))
     .replace(/^\/\/ Hermle C52 → DMG duoBLOCK MillPlus[^]*$/, t => t.replace(/^M51 =\n/m, 'M51 = M7\n'))
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /\nM825\s*=/.test(t) ? t
-      : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)));
+      : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)))
+    // MillPlus M140–M149 not written
+    .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /^M14\d\s*=/m.test(t) ? t
+      : /^M825\s*=.*\n/m.test(t) ? t.replace(/^(M825\s*=.*\n)/m, '$1' + ProgConvert.MP_M140) : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_M140));
   // kinematics moved from the rules to the machines: the section is taken out of saved rules
   const KIN_SECTION = /^\[KİNEMATİK\][^\n]*\n(?:(?!\[)[^\n]*\n?)*/m;
   const stripKin = t => String(t).replace(new RegExp(KIN_SECTION.source, 'gm'), '');
