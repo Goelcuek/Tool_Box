@@ -10049,7 +10049,12 @@ SON = M17
       const text = withC(ws.join(' '), comment);
       const same = ws.join(' ').toUpperCase() === code.replace(/\s+/g, ' ').toUpperCase();
       if (text || flags.length) emit(i, text, same && !comment === !p.comment ? 'same' : 'changed', flags.join('; '));
-      if (incWs.length) { emit(i, 'G91 ' + incWs.join(' '), 'added', 'IC() ayrı satıra alındı — aynı blokta değil, sırayla hareket eder'); emit(i, 'G90', 'added'); }
+      if (incWs.length) {
+        // nothing else moves in the block (G1 C=IC(281.03) F40): the block itself goes G91
+        const moves = ws.some(w => /^[XYZAB]/i.test(w)), last = out[out.length - 1];
+        if (!moves && text && last && last.src === i) { const o = last; o.text = o.text.replace(/^((?:N\d+\s*)?)/, '$1G91 ') + ' ' + incWs.join(' '); emit(i, 'G90', 'added'); }
+        else { emit(i, 'G91 ' + incWs.join(' '), 'added', 'IC() ayrı satıra alındı — aynı blokta değil, sırayla hareket eder'); emit(i, 'G90', 'added'); }
+      }
       after.forEach(a => emit(i, a, 'added'));
       done();
     }
@@ -10244,9 +10249,11 @@ SON = M17
         if (words.length && st.cMap && !st.tcp && words.every(w => w.name === st.cMap.src)) {
           // C alone inside a plane given by axis positions (MillPlus M53: 4-axis work with the head along Y)
           const w = words[0], cm = st.cMap, inc = !st.abs || w.wrap === 'IC';
-          const val = t => (inc ? 0 : cm.off) + cm.s * t;
+          const val = t => (inc ? cm.s * t : norm360(cm.off + cm.s * t));
           const v = w.v != null ? fmt(val(w.v)) : `(${inc ? '' : fmt(cm.off) + (cm.s > 0 ? '+' : '-')}${inc && cm.s < 0 ? '-' : ''}(${w.raw}))`;
-          const text = w.wrap ? `${cm.tgt}=${w.wrap}(${v})` : w.v != null ? cm.tgt + v : `${cm.tgt}=${v}`;
+          // the table turning the other way on the target: positive becomes negative
+          const wr = w.wrap && cm.s < 0 ? { ACP: 'ACN', ACN: 'ACP' }[w.wrap] || w.wrap : w.wrap;
+          const text = wr ? `${cm.tgt}=${wr}(${v})` : w.v != null ? cm.tgt + v : `${cm.tgt}=${v}`;
           if (text !== code.substr(w.at, w.len)) code = (code.slice(0, w.at) + text + code.slice(w.at + w.len)).replace(/\s+/g, ' ').trim();
         } else if (words.length && rot.mode !== 'same') {
           if (!st.abs || words.some(w => w.wrap === 'IC')) flags.push('artımlı döner eksen — başka makineye çevrilmedi');
@@ -10384,6 +10391,22 @@ SON = M17
     lines.forEach((l, i) => { const n = nOf(l); if (n != null && targets.has(n) && !lineOfN.has(n)) lineOfN.set(n, i); });
     const mapLines = new Map(R.mp.lines.filter(x => x.mp).map(x => [mpKey(x.mp), x.sie]));
     let tcp = false, comp = false;
+    /* MillPlus C runs on (C93.485 → C374.515 is +281°); the other machines' C is modulo and goes the
+       short way. Each C move is written for that: within 180° its position (0…360), further its
+       position with the way round (Siemens ACP / ACN), or the turn itself (IC: a full turn or more,
+       and on a Mazak, where the way round is a machine parameter). */
+    let cPrev = null, cInc = false;
+    const cMove = t => {
+      const m = t.match(/^C([-+]?(?:\d+\.?\d*|\.\d+))$/i);
+      if (!m) { if (/^C=/i.test(t)) cPrev = null; return t; } // a variable: the way round can't be known
+      const v = parseFloat(m[1]);
+      if (cInc) { if (cPrev != null) cPrev += v; return t; }
+      const prev = cPrev, p = norm360(v), d = prev == null ? 0 : v - prev;
+      cPrev = v;
+      if (prev == null || Math.abs(d) < 180 - 1e-9) return 'C' + fmt(p);
+      if (Math.abs(d) >= 360 - 1e-9 || !toSie) return `C=IC(${fmt(d)})`;
+      return `C=${d > 0 ? 'ACP' : 'ACN'}(${fmt(p)})`;
+    };
     // the head along Y (M53): where C stands, whether it is on, the plane line, the words turned
     const hz0 = !o.toMp && o.kin ? mpHorizontalHead(o.kin) : null;
     const hz = hz0 && Object.assign(hz0, { on: false, c: null });
@@ -10558,6 +10581,9 @@ SON = M17
       ws = ws.replace(/\bI1\s*=\s*/gi, 'A3=').replace(/\bJ1\s*=\s*/gi, 'B3=').replace(/\bK1\s*=\s*/gi, 'C3=');
       if (tcp && /\b[IJK]-?[\d.]/i.test(ws) && !/\bG0?[23]\b/i.test(ws)) flag(i, 'G141 yüzey normali (I J K) çevrilmedi');
       ws = ws.replace(/\b([XYZABCF])\s*=\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+)/gi, (mm, a, v) => `${a}=${expr(v)}`).replace(/\bE(\d+)\b/g, (mm, k) => 'R' + eToR(+k)).replace(/:/g, '/');
+      if (/(^|\s)G91(\s|$)/i.test(ws)) cInc = true;
+      if (/(^|\s)G90(\s|$)/i.test(ws)) cInc = false;
+      if (!o.toMp && /(^|\s)C/i.test(ws)) ws = mpToks(ws).map(t => (/^C(=|[-+\d.])/i.test(t) ? cMove(t) : t)).join(' ');
       if (hz && hz.on) {
         // the head along Y: X Y Z (and arc centres) are the plane's, G18 is its G17; C moves stay C moves
         // (the plane is fixed to the machine, the table turns the part about its Z as on the duoBLOCK)
@@ -10992,6 +11018,9 @@ SON = M17
       st.app[L] = d[k];
     });
   }
+  // a C position turned: the machines' C is modulo (the short way, or ACP / ACN for the way round),
+  // so a turn by the same angle keeps every move as it was; the position stays in 0…360
+  const rotC = (t, d, wrap) => (rotNum(t) ? fmt(norm360(parseFloat(t) + d)) : linAdd(t, d, wrap));
   // the table axis under the part (C) and the tilting ones
   const rotAxes = kin => { const zt = zTop(kin); return { zt, tilts: kin.axes.filter(a => !zt || a.name !== zt.name).map(a => a.name) }; };
   /* The rotary words of a block outside a plane (name → value as written). The tilts stay;
@@ -11004,11 +11033,10 @@ SON = M17
     st.tilted = ra.tilts.some(n => st.tv[n] != null && !(Math.abs(st.tv[n]) < 1e-9));
     const turned = st.tcp || st.tilted, res = {};
     if (!ra.zt || !deg) return res;
-    // C moves aren't brought back into 0…360: a cut from C93 to C374 keeps its way round (273 → 554)
     const cw = words[ra.zt.name];
-    if (cw != null) { st.c = cw; res.c = turned ? linAdd(cw, ra.zt.s * deg, wrap) : cw; }
+    if (cw != null) { st.c = cw; res.c = turned ? rotC(cw, ra.zt.s * deg, wrap) : cw; }
     else if (!st.tcp && was !== st.tilted) {
-      if (st.c != null) res.addC = st.tilted ? linAdd(st.c, ra.zt.s * deg, wrap) : st.c;
+      if (st.c != null) res.addC = st.tilted ? rotC(st.c, ra.zt.s * deg, wrap) : st.c;
       else res.flag = 'C konumu bilinmiyor — eğim değişirken C döndürülemedi, elle kontrol edin';
     }
     return res;
@@ -11081,7 +11109,7 @@ SON = M17
         // a tilted plane turned as a whole: the X/Y inside it stay; a C move in it turns with the part
         const cw = turn && ra.zt && st.abs && get(ra.zt.name);
         if (!cw) return raw;
-        setW.set(cw, word(cw.L, linAdd(cw.t, ra.zt.s * deg, wrap)));
+        setW.set(cw, word(cw.L, rotC(cw.t, ra.zt.s * deg, wrap)));
       }
       else {
         if (hasG(65) && (get('X') || get('Y'))) { flag(i, 'G65 makro argümanı X/Y döndürülmedi — konum ise elle düzeltin'); return raw; }
@@ -11089,7 +11117,7 @@ SON = M17
         // rotary axes first: whether the table is tilted decides the X/Y
         if (!st.plane) {
           const words = {};
-          kin.axes.forEach(a => { const w = get(a.name); if (w) words[a.name] = w.t; });
+          kin.axes.forEach(a => { const w = get(a.name); if (w && !(ra.zt && a.name === ra.zt.name && !st.abs)) words[a.name] = w.t; });
           if (Object.keys(words).length) {
             const r = rotRotary(ra, deg, words, st, wrap), cw = ra.zt && get(ra.zt.name);
             if (cw && r.c != null && r.c !== cw.t) setW.set(cw, word(cw.L, r.c));
@@ -11250,7 +11278,7 @@ SON = M17
         const C = toks(code).find(t => { const v = valOf(t.s); return v && v.L === ra.zt.name && !v.d; });
         const v = C && valOf(C.s).v, w = v && v.match(/^(AC|IC|DC|ACP|ACN)\s*\((.*)\)$/i);
         if (!C || (w && /^IC$/i.test(w[1])) || (!w && !st.abs)) return raw;
-        const nv = linAdd(w ? w[2] : v, ra.zt.s * deg, wrap);
+        const nv = rotC(w ? w[2] : v, ra.zt.s * deg, wrap);
         return head + code.slice(0, C.at) + (w ? `${ra.zt.name}=${w[1].toUpperCase()}(${nv})` : word(ra.zt.name, nv)) + code.slice(C.at + C.s.length) + com;
       }
       if (/^(SUPA\b|G0?53\b|G153\b)/.test(U) || /\b(SUPA|G53|G153)\b/.test(U)) return raw;
@@ -11279,7 +11307,7 @@ SON = M17
       // rotary axes first: whether the table is tilted decides the X/Y
       if (!st.plane) {
         const words = {};
-        kin.axes.forEach(a => { const t = ax(a.name); if (t) words[a.name] = txt(t).t; });
+        kin.axes.forEach(a => { const t = ax(a.name); if (t && !(a === kin.axes.find(x => ra.zt && x.name === ra.zt.name) && (/^IC$/i.test(txt(t).w || '') || (!txt(t).w && !st.abs)))) words[a.name] = txt(t).t; });
         if (Object.keys(words).length) {
           const r = rotRotary(ra, deg, words, st, wrap), C = ra.zt && ax(ra.zt.name);
           if (C && r.c != null) { const cv = txt(C); if (r.c !== cv.t) set.set(C, cv.w ? `${ra.zt.name}=${cv.w.toUpperCase()}(${r.c})` : word(ra.zt.name, r.c)); }
