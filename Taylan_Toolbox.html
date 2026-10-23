@@ -7169,8 +7169,9 @@ M43 =
 M44 =
 M46 =
 M47 =
+// Hermle: M51 içten soğutma (takım içinden) · M9 hepsini kapatır
 M8 = M8 | M51
-M9 = M9 | M52
+M9 = M9
 
 [G KODLARI]
 // Siemens'te karşılığı olmayan ya da gereksiz Mazak G kodları
@@ -7509,13 +7510,13 @@ ${(extra && extra.text) || ''}`;
   }
   const HERMLE_TO_DMG = sieSieRules('Hermle C52', 'DMG duoBLOCK', 'HERMLE', 'TC1', {
     dir: '1',
-    m: '// Hermle\'ye özel kodlar: M25 M27 A ve C eksen kilidi açma (DMG\'de gerekmez) · M51 M52\nM25 =\nM27 =\nM51 =\nM52 =\n',
+    m: '// Hermle\'ye özel kodlar: M25 M27 A ve C eksen kilidi açma (DMG\'de gerekmez) · M51 içten soğutma · M52 (gerekmez)\nM25 =\nM27 =\nM51 =\nM52 =\n',
     cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n',
     text: 'HERMLE  VARI-AXIS => DMG DUOBLOCK\n'
   });
   const DMG_TO_HERMLE = sieSieRules('DMG duoBLOCK', 'Hermle C52', 'TC1', 'HERMLE', {
     dir: '-1',
-    m: 'M8 = M8 | M51\nM9 = M9 | M52\n',
+    m: '// Hermle: M51 içten soğutma · M9 hepsini kapatır\nM8 = M8 | M51\nM9 = M9\n',
     cmds: '// L_FREI DMG\'ye özel (L_M54\'ten önce) — Hermle\'de yazılmaz\nL_FREI =\n',
     text: 'DMG DUOBLOCK => HERMLE  VARI-AXIS\n'
   });
@@ -7775,12 +7776,14 @@ SON = M17
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
   const MP_M_TO_MAZAK = MP_CLAMP_NOTE + 'M10 = M47 M44\nM11 = M46 M43\nM825 =\n';
   const MP_M_TO_SIE = MP_CLAMP_NOTE + 'M10 =\nM11 =\nM825 =\n';
+  // through-tool coolant: MillPlus M7 = Hermle M51 (M8 the flood on both, M9 everything off)
+  const MP_TSC_TO_HERMLE = '// içten soğutma: MillPlus M7 = Hermle M51\nM7 = M51\n';
   const MAZAK_CLAMP_TO_MP = '// Variaxis eksen kilitleri = MillPlus M11 (kilit aç) / M10 (kilitle)\nM46 = M11\nM43 = M11\nM47 = M10\nM44 = M10\n';
   const mpM = (t, lines) => t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + lines);
   const VARIAXIS_TO_DMGMP = mpHead(VARIAXIS_TO_DMG.replace('M43 =\nM44 =\nM46 =\nM47 =\n', MAZAK_CLAMP_TO_MP), 'Mazak Variaxis → DMG duoBLOCK MillPlus');
   const DMGMP_TO_VARIAXIS = mpHead(mpM(DMG_TO_VARIAXIS, MP_M_TO_MAZAK), 'DMG duoBLOCK MillPlus → Mazak Variaxis');
-  const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG, 'Hermle C52 → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE, MP_M_TO_SIE), 'DMG duoBLOCK MillPlus → Hermle C52');
+  const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG.replace('\nM51 =\n', '\nM51 = M7\n'), 'Hermle C52 → DMG duoBLOCK MillPlus');
+  const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE.replace('M8 = M8 | M51\n', 'M8 = M8\n'), MP_M_TO_SIE + MP_TSC_TO_HERMLE), 'DMG duoBLOCK MillPlus → Hermle C52');
   const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus');
   const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', m: MP_M_TO_SIE, cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
 
@@ -11572,7 +11575,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { MP_M_TO_MAZAK, MP_M_TO_SIE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { MP_M_TO_MAZAK, MP_M_TO_SIE, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11641,6 +11644,10 @@ SON = M17
     .replace(/\{A\},\{B\},\(\{C\}\+ (R\d+)\)/g, '({A}+ $1),{B},{C}')
     // MillPlus M10 / M11 axis clamps ↔ Variaxis M47 M44 / M46 M43 (840D: not written), M825 accuracy level dropped
     .replace(/^\/\/ Mazak Variaxis → DMG duoBLOCK MillPlus[^]*$/, t => t.replace('M43 =\nM44 =\nM46 =\nM47 =\n', ProgConvert.MAZAK_CLAMP_TO_MP))
+    // Hermle M52 isn't needed (M9 turns everything off); MillPlus M7 = Hermle M51 (through-tool coolant)
+    .split('M9 = M9 | M52\n').join('M9 = M9\n')
+    .replace(/^\/\/ DMG duoBLOCK MillPlus → Hermle C52[^]*$/, t => (/^M7\s*=/m.test(t) ? t : t.replace('M8 = M8 | M51\n', 'M8 = M8\n').replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_TSC_TO_HERMLE)))
+    .replace(/^\/\/ Hermle C52 → DMG duoBLOCK MillPlus[^]*$/, t => t.replace(/^M51 =\n/m, 'M51 = M7\n'))
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /\nM825\s*=/.test(t) ? t
       : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)));
   // kinematics moved from the rules to the machines: the section is taken out of saved rules
