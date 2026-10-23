@@ -7775,7 +7775,9 @@ SON = M17
     .replace('HERMLE  VARI-AXIS => MAZAK - VARI-AXIS I700-I800', 'DMG DUOBLOCK => MAZAK - VARI-AXIS I700-I800');
 
   // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
-  const mpHead = (t, title) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS({});
+  const mpHead = (t, title, mpo) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS(mpo || {});
+  // Hermle: MillPlus G74 Z-1 L1 (Z to the machine position) is G75 Z1.0 (Z to the fixed point); L_M54 written back as G74 too
+  const MP_HERMLE_LINES = "// Hermle: G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · Hermle'nin L_M54'ü de G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
   // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
   // M825: accuracy level, not carried over
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
@@ -7789,8 +7791,8 @@ SON = M17
   const mpM = (t, lines) => t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + lines);
   const VARIAXIS_TO_DMGMP = mpHead(VARIAXIS_TO_DMG.replace('M43 =\nM44 =\nM46 =\nM47 =\n', MAZAK_CLAMP_TO_MP), 'Mazak Variaxis → DMG duoBLOCK MillPlus');
   const DMGMP_TO_VARIAXIS = mpHead(mpM(DMG_TO_VARIAXIS, MP_M_TO_MAZAK), 'DMG duoBLOCK MillPlus → Mazak Variaxis');
-  const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG.replace('\nM51 =\n', '\nM51 = M7\n'), 'Hermle C52 → DMG duoBLOCK MillPlus');
-  const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE.replace('M8 = M8 | M51\n', 'M8 = M8\n'), MP_M_TO_SIE + MP_TSC_TO_HERMLE), 'DMG duoBLOCK MillPlus → Hermle C52');
+  const HERMLE_TO_DMGMP = mpHead(HERMLE_TO_DMG.replace('\nM51 =\n', '\nM51 = M7\n'), 'Hermle C52 → DMG duoBLOCK MillPlus', { lines: MP_HERMLE_LINES });
+  const DMGMP_TO_HERMLE = mpHead(mpM(DMG_TO_HERMLE.replace('M8 = M8 | M51\n', 'M8 = M8\n'), MP_M_TO_SIE + MP_TSC_TO_HERMLE), 'DMG duoBLOCK MillPlus → Hermle C52', { lines: MP_HERMLE_LINES });
   const DMG_TO_DMGMP = mpHead(sieSieRules('DMG duoBLOCK', 'DMG duoBLOCK MillPlus', 'TC1', 'TC1', { dir: '1' }), 'DMG duoBLOCK (840D) → DMG duoBLOCK MillPlus');
   const DMGMP_TO_DMG = mpHead(sieSieRules('DMG duoBLOCK MillPlus', 'DMG duoBLOCK', 'TC1', 'TC1', { dir: '1', m: MP_M_TO_SIE, cmds: '// DMG: L_M54\'ten önce L_FREI\nL_M54 = L_FREI | L_M54\n' }), 'DMG duoBLOCK MillPlus → DMG duoBLOCK (840D)');
 
@@ -11764,7 +11766,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_M140, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_M140, MP_HERMLE_LINES, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11842,6 +11844,8 @@ SON = M17
     .replace(/^\/\/ Hermle C52 → DMG duoBLOCK MillPlus[^]*$/, t => t.replace(/^M51 =\n/m, 'M51 = M7\n'))
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /\nM825\s*=/.test(t) ? t
       : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + (/^\/\/ DMG duoBLOCK MillPlus → Mazak/.test(t) ? ProgConvert.MP_M_TO_MAZAK : ProgConvert.MP_M_TO_SIE)))
+    // Hermle ↔ MillPlus: G74 Z-1 L1 = G75 Z1.0 (the old default lines only)
+    .replace(/^\/\/ (DMG duoBLOCK MillPlus → Hermle C52|Hermle C52 → DMG duoBLOCK MillPlus)[^]*$/, t => t.replace('G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL', ProgConvert.MP_HERMLE_LINES))
     // MillPlus M140–M149 not written
     .replace(/^\/\/ DMG duoBLOCK MillPlus → [^]*$/, t => /^M14\d\s*=/m.test(t) ? t
       : /^M825\s*=.*\n/m.test(t) ? t.replace(/^(M825\s*=.*\n)/m, '$1' + ProgConvert.MP_M140) : t.replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_M140));
