@@ -10626,10 +10626,14 @@ SON = M17
         // the head along Y: the point in the plane's axes (the surface on the tool axis comes out as Z)
         if (hz && hz.on) pts = pts.map(pt => { const q = {}; ['X', 'Y', 'Z'].forEach((a, c) => { if (pt[a] != null) q['XYZ'[hz.map[c].to]] = hz.map[c].s * pt[a]; }); return q; });
         if (/\b(B1|L1|B2|L2|A5)\s*=/i.test(w)) flag(i, 'G79 kutupsal / açılı konum çevrilmedi');
+        // the table turned to the hole with it (G79 … C104): in the same rapid as X / Y, the way round as any C move
+        const cw = w.match(/(?:^|\s)C\s*(=\s*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)|E\d+)|[-+]?(?:\d+\.?\d*|\.\d+))(?=\s|$)/i);
+        let cTok = cw ? (cw[1][0] === '=' ? 'C=' + expr(cw[1].replace(/^=\s*/, '')) : 'C' + cw[1]) : '';
+        if (cTok && !o.toMp) cTok = cMove(cTok);
         const res = [];
-        pts.forEach(pt => {
+        pts.forEach((pt, k) => {
           if (pt.Z != null) cy.zs = pt.Z;
-          const xy = ['X', 'Y'].filter(a => pt[a] != null).map(a => a + fmt(pt[a])).join(' ');
+          const xy = ['X', 'Y'].filter(a => pt[a] != null).map(a => a + fmt(pt[a])).concat(k === 0 && cTok ? [cTok] : []).join(' ');
           const call = cycleCall(cy.def, cy.zs, i);
           if (!call) return;
           res.push(line(('G0 ' + xy).trim()));
