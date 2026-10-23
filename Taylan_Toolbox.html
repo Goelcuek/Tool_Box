@@ -10521,7 +10521,14 @@ SON = M17
       const n = nOf(raw);
       const body = raw.replace(/^\s*N\d+\s*/i, '');
       if (/^\s*%/.test(body)) return ';' + body.trim();
-      const { code, comments } = mpSplit(body);
+      const sp = mpSplit(body), comments = sp.comments;
+      let code = sp.code;
+      // G25 / G26: feed override on / off — on the others it is always on (G26 noted) · G354: not carried over
+      if (!o.toMp && /^G354\b/i.test(code)) code = '';
+      if (!o.toMp && /(^|\s)G2[56](?=\s|$)/i.test(code)) {
+        if (/(^|\s)G26(?=\s|$)/i.test(code)) flag(i, 'G26 (ilerleme override kapalı) yazılmadı — override açık kalır');
+        code = code.replace(/(^|\s)G2[56](?=\s|$)/gi, ' ').replace(/\s+/g, ' ').trim();
+      }
       const head = n != null && targets.has(n) ? "N" + n + " " : "";
       if (toolSkip.has(i)) return head.trim();
       const com = comments.length ? ' ;' + comments.join(' ') : '';
@@ -11632,6 +11639,8 @@ SON = M17
       lines = lines.filter(o => !blank(o) || o.kind === 'template' || o.kind === 'added' || o.src == null || !String(src[o.src] || '').trim());
       lines = lines.filter((o, k) => !blank(o) || (k > 0 && !blank(lines[k - 1])));
       while (lines.length && blank(lines[0])) lines.shift();
+      // ISO: a line that got its text after the numbering (a note) counts on with the rest
+      if (writer === 'iso' && lines.some(o => o.nGrid)) lines.forEach(o => { if (!o.n && !o.noN && o.text.trim()) o.nGrid = true; });
       if (lines.some(o => o.nGrid)) {
         const used = new Set(lines.filter(o => o.n && !o.nGrid).map(o => 'N' + parseInt(o.n.slice(1), 10)));
         let n = 0;
