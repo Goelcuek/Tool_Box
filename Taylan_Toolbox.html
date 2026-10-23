@@ -1387,6 +1387,7 @@
   .diff-row.conv-row.flagged .side-b { background: #fdecea; }
   .diff-row.conv-row.flagged .dnum.side-b { color: #b3261e; font-weight: 700; }
   .diff-row.conv-row.flagged .dtext.side-b { color: #8c1d18; }
+  .diff-row.conv-row .conv-note { font-style: italic; opacity: .75; }
 
   .st { border-radius: 4px; font-weight: 600; }
   .st-same, .st-ins { background: #e7f5ec; color: var(--green); }
@@ -2406,6 +2407,7 @@
             <label class="checkbox-field"><input type="checkbox" id="renumChk7" checked> 10'ar yeniden numarala</label>
             <label class="checkbox-field"><input type="checkbox" id="suppressChk7" checked> Değişmeyen X/Y/Z'yi yazma</label>
             <label class="checkbox-field"><input type="checkbox" id="holeChk7" checked> Delik mesajı</label>
+            <label class="checkbox-field" title="Kapalıyken !! KONTROL notları programa yazılmaz, yalnız burada görünür."><input type="checkbox" id="notesChk7" checked> KONTROL notlarını yaz</label>
             <label class="checkbox-field" title="X/Y program sıfırı etrafında döner (+ saat yönünün tersi). Eğimsiz işlemlerde C aynı kalır; eğik işlemlerde A aynı kalır, C döner. Y+ tarafındaki programı Y- tarafına almak için 180.">Döndür (°) <input type="number" id="rotateInp7" class="plain-number" value="0" step="90" style="width:80px;height:32px;"></label>
             <label class="checkbox-field" title="Parçayı kendi Z'si boyunca kaydırır (+ yukarı): mutlak Z'ler, TCP'li hareketler, delik döngüsü düzeyleri ve eğik düzlem başlangıçları. Eğik TCP'siz konumlarda kayma X/Y/Z'ye dağıtılır.">Z'de kaydır <input type="number" id="shiftZInp7" class="plain-number" value="0" step="0.1" style="width:80px;height:32px;"></label>
             <div class="spacer"></div>
@@ -8520,7 +8522,7 @@ SON = M17
         const f = fill(t, vals || {});
         const fl = f.missing.length ? f.missing.map(k => (k === 'BIRIM' ? 'programda inç / metrik (G20 / G21) yok — G700 ya da G710 yazın' : 'şablonda değer yok: ' + k)).join('; ') : '';
         const k = /!!\s*KONTROL/i.test(t) ? '' : fl;
-        emit(i, f.out, kind || 'template', k);
+        emit(i, f.missing.length ? f.out.replace(/\s+$/, '') : f.out, kind || 'template', k);
       });
     };
     const withComments = (code, comments) => [code, comments.length ? (SIE ? ';' : '') + comments.join(' ') : ''].filter(Boolean).join(' ');
@@ -9151,15 +9153,15 @@ SON = M17
 
     // block numbers: steps of 10; labels (numbers off the 10 grid like N401,
     // and GOTO targets) stay, on the first line their source line became,
-    // and no other line is given the same number
+    // and no other line is given the same number; a blank line has none
     const used = new Set(srcLabel.values());
     const labelled = new Set();
     let n = 0;
     out.forEach(o => {
       let num = null;
-      if (o.noN) { /* % and O lines of ISO output */ }
-      else if (srcLabel.has(o.src) && !labelled.has(o.src)) { num = srcLabel.get(o.src); labelled.add(o.src); }
-      else { do { n += 10; } while (used.has('N' + n)); num = 'N' + n; }
+      if (o.noN || (!o.text.trim() && !o.flag)) { /* % and O lines of ISO output, blank lines */ }
+      else if (srcLabel.has(o.src) && !labelled.has(o.src)) { num = srcLabel.get(o.src); labelled.add(o.src); o.nLabel = true; }
+      else { do { n += 10; } while (used.has('N' + n)); num = 'N' + n; o.nGrid = !!opts.renumber; }
       o.n = opts.renumber ? num : null;
       if (o.flag && !/!!\s*KONTROL/i.test(o.text)) {
         if (!SIE) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
@@ -10093,13 +10095,16 @@ SON = M17
     const dot = t => t.replace(/(^|[\s\]])([XYZABCUVWIJKRQFE])(-?\d+)(?![\d.])/g, '$1$2$3.');
     out.forEach(o => { o.text = o.text.split(/(\([^)]*\))/).map((seg, k) => (k % 2 ? seg : dot(seg))).join(''); });
 
-    // block numbers, then GOTO targets filled in with the number their label got
+    // block numbers (not on a blank line), then GOTO targets filled in with the number their label
+    // got; finishSet counts them again once lines have gone (nGrid), the GOTOs with them (oldN)
     const labelN = new Map();
     let n = 0;
     out.forEach(o => {
+      if (!o.gotoLabel && !o.text.trim() && !o.flag) { o.n = null; return; }
       n += 10;
       o.n = opts.renumber || o.gotoLabel ? 'N' + n : null;
-      if (o.gotoLabel) labelN.set(o.gotoLabel, String(n));
+      o.nGrid = !!opts.renumber;
+      if (o.gotoLabel) { labelN.set(o.gotoLabel, String(n)); if (o.nGrid) o.oldN = n; }
       if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '').replace(/\)\s*$/, '') || 'şablon';
     });
@@ -10119,7 +10124,13 @@ SON = M17
     return last.replace(/^_N_/i, '').replace(/_(SPF|MPF)$/i, '').replace(/\.(SPF|MPF)$/i, '').toUpperCase();
   }
 
-  const lineText = o => (o.n ? o.n + (o.text ? ' ' + o.text : '') : o.text);
+  // the block number in front, after a block skip (/N10 G0 X0)
+  const lineText = o => {
+    if (!o.n) return o.text;
+    const sk = o.text.match(/^\s*(\/\d?)\s*/);
+    const rest = sk ? o.text.slice(sk[0].length) : o.text;
+    return (sk ? sk[1] : '') + o.n + (rest ? ' ' + rest : '');
+  };
 
   /* ---------- Siemens 840D → Siemens 840D (another machine) ----------
      Every line stays as written unless it belongs to the machine: CYCLE800's data
@@ -10337,7 +10348,7 @@ SON = M17
         if (at < 0) at = k;
         const lines = R.toolPre.map(t => {
           const f = fill(t, { BIRIM: unit, G: work || first });
-          return { text: f.out, src: out[at].src, kind: 'template', flag: f.missing.includes('BIRIM') ? 'programda inç / metrik (G700 / G710) yok — birimi yazın' : '' };
+          return { text: f.out.replace(/\s+$/, ''), src: out[at].src, kind: 'template', flag: f.missing.includes('BIRIM') ? 'programda inç / metrik (G700 / G710) yok — birimi yazın' : '' };
         });
         out.splice(at, 0, ...lines);
         k += lines.length;
@@ -10349,7 +10360,8 @@ SON = M17
       else if (/!!\s*KONTROL/i.test(o.text) && !o.flag) o.flag = o.text.replace(/^.*!!\s*KONTROL:?\s*/i, '') || 'şablon';
     });
     if (diff) notes.push(`Kinematik: ${srcKin.label} → ${tgtKin.label}. CYCLE800 doğrudan mod (192) eksen konumları${planes ? ` (${planes} düzlem)` : ''} ve döner hareketler (TRAORI altında takım yönüyle, dışında parça yönüyle) hedef makinenin eksenlerine çevrildi; diğer CYCLE800 modları makineden bağımsızdır, yalnız _TC / _DIR değişti.`);
-    return { lines: out, srcLines, notes, calls: [] };
+    // the block numbers stay in the text; renumbered (nText) once the program is complete, see finishSet
+    return { lines: out, srcLines, notes, calls: [], nText: !!opts.renumber };
   }
 
   /* ---------- Heidenhain MillPlus ----------
@@ -11539,7 +11551,89 @@ SON = M17
     return Object.assign(inner, { target, route: (mpS ? 'millplus' : inner.route.split('-')[0]) + '-' + (mpT ? 'millplus' : inner.route.split('-')[1]) });
   }
 
+  /* ---------- the finished program ----------
+     Once every step is done (the outermost convertSet): without notes (options.notes false) the
+     "!! KONTROL" notes leave the text and stay with their line (flag) for the screen; a line
+     that was only a note goes, its note to the notes. The empty lines a deleted block left go,
+     a run of blank lines becomes one. With renumber the blocks count on in steps of 10 from
+     N10 (not blank lines, comments of the header, ;$PATH, PROC); in an 840D program the jumps
+     (GOTOF N201, REPEAT N10 N20) follow their block's new number, a number given to two blocks
+     stays on both. The labels of a converted Mazak program stay (convertProgram), and no other
+     block gets them. MillPlus output keeps its own numbering (sie2mp). */
+  const SIE_NOTE = /\s*;?\s*!!\s*KONTROL\b.*$/i;
+  const ISO_NOTE = /\s*\(\s*!!\s*KONTROL[^)]*\)?|\s*!!\s*KONTROL\b.*$/gi;
+  // the code of an 840D line: up to a ; outside "…"
+  const sieCode = t => { let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k); } return t; };
+  function finishSet(res, options) {
+    const writer = res.target && res.target.writer;
+    res.programs.forEach(pg => {
+      const r = pg.result, src = r.srcLines || [];
+      let lines = r.lines;
+      if (options.notes === false) {
+        lines = lines.filter(o => {
+          const t = o.text.replace(writer === 'siemens' ? SIE_NOTE : ISO_NOTE, '').replace(/\s+$/, '');
+          if (t === o.text.replace(/\s+$/, '')) return true;
+          if (!o.flag) o.flag = o.text.replace(/^.*?!!\s*KONTROL:?\s*/i, '').replace(/\)\s*$/, '') || 'şablon';
+          o.text = t;
+          if (t.trim() || o.n && !o.nGrid) return true;
+          r.notes.push(`Satır ${o.src != null ? o.src + 1 : '?'}: ${o.flag}`);
+          return false;
+        });
+      }
+      if (writer !== 'siemens' && writer !== 'iso') { r.lines = lines; return; }
+      // 840D: the source's numbers out of the text; a jump target's block remembers its old one
+      const jumps = r.nText && writer === 'siemens';
+      const JUMP = /\b(GOTO[FBC]?\s+)N0*(\d+)|\b(REPEATB?\s+)N0*(\d+)(?:(\s+)N0*(\d+))?/gi;
+      if (jumps) {
+        const targets = new Set(), defs = new Map();
+        lines.forEach(o => { for (const m of sieCode(o.text).matchAll(JUMP)) [m[2], m[4], m[6]].forEach(x => x && targets.add(+x)); });
+        lines.forEach(o => {
+          const m = o.text.match(/^(\s*(?:\/\d?\s*)?)N(\d+)\b\s*/i);
+          if (!m) return;
+          o.text = m[1] + o.text.slice(m[0].length);
+          if (targets.has(+m[2])) { o.oldN = +m[2]; o.n = 'N' + m[2]; defs.set(+m[2], (defs.get(+m[2]) || 0) + 1); }
+        });
+        lines.forEach(o => {
+          if (o.oldN != null && defs.get(o.oldN) > 1) { o.nLabel = true; o.oldN = null; return; }
+          const t = o.text.trim();
+          o.nGrid = o.oldN != null || (!!t && !/^;?\s*%/.test(t) && !/^;\s*\$PATH\b/i.test(t) && !/^PROC\b/i.test(t));
+        });
+      }
+      // the empty lines of deleted blocks; blank lines of the source and the templates stay, one in a row
+      const label = o => o.nLabel || o.oldN != null || o.gotoLabel || o.mpLabel != null;
+      const blank = o => !o.text.trim() && !label(o);
+      lines = lines.filter(o => !blank(o) || o.kind === 'template' || o.kind === 'added' || o.src == null || !String(src[o.src] || '').trim());
+      lines = lines.filter((o, k) => !blank(o) || (k > 0 && !blank(lines[k - 1])));
+      while (lines.length && blank(lines[0])) lines.shift();
+      if (lines.some(o => o.nGrid)) {
+        const used = new Set(lines.filter(o => o.n && !o.nGrid).map(o => 'N' + parseInt(o.n.slice(1), 10)));
+        let n = 0;
+        lines.forEach(o => { if (!o.nGrid) return; do { n += 10; } while (used.has('N' + n)); o.n = 'N' + n; });
+      }
+      // the jumps follow the block they go to (oldN: its number before)
+      const to = new Map(lines.filter(o => o.oldN != null && o.nGrid).map(o => [o.oldN, o.n]));
+      if (to.size && writer === 'siemens') {
+        const at = (n, raw) => (to.has(+n) ? to.get(+n) : 'N' + raw);
+        lines.forEach(o => {
+          const c = sieCode(o.text);
+          const nc = c.replace(JUMP, (m, g, a, rp, b, sp, b2) => (g ? g + at(a, a) : rp + at(b, b) + (b2 ? sp + at(b2, b2) : '')));
+          if (nc !== c) o.text = nc + o.text.slice(c.length);
+        });
+      } else if (to.size) {
+        lines.forEach(o => {
+          o.text = o.text.replace(/(\([^)]*\)?)|([^(]+)/g, (m, c, code) => (c ? c : code.replace(/\b(GOTO\s*)(\d+)/gi, (w, g, k) => (to.has(+k) ? g + to.get(+k).slice(1) : w))));
+        });
+      }
+      r.lines = lines;
+    });
+    return res;
+  }
+
   function convertSet(files, options) {
+    const res = convertAll(files, options);
+    return options._pivot || options._rotated ? res : finishSet(res, options);
+  }
+  function convertAll(files, options) {
     const turn = parseFloat(options.rotate) || 0, shiftZ = parseFloat(options.shiftZ) || 0;
     if (((turn && norm360(turn) !== 0) || shiftZ) && !options._rotated) return convertRotated(files, options, turn, shiftZ);
     {
@@ -12051,8 +12145,10 @@ SON = M17
     if (result) run();
   });
 
-  const optRenum = $('renumChk7'), optSupp = $('suppressChk7'), optHole = $('holeChk7');
-  [optRenum, optSupp, optHole].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
+  const optRenum = $('renumChk7'), optSupp = $('suppressChk7'), optHole = $('holeChk7'), optNotes = $('notesChk7');
+  try { optNotes.checked = localStorage.getItem('toolbox.convNotes') !== '0'; } catch (e) {}
+  optNotes.addEventListener('change', () => { try { localStorage.setItem('toolbox.convNotes', optNotes.checked ? '1' : '0'); } catch (e) {} });
+  [optRenum, optSupp, optHole, optNotes].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
   const optRot = $('rotateInp7'), optShiftZ = $('shiftZInp7');
   [optRot, optShiftZ].forEach(c => c.addEventListener('change', () => { if (result) run(); }));
 
@@ -12115,6 +12211,7 @@ SON = M17
       renumber: optRenum.checked,
       suppress: optSupp.checked,
       holeMsg: optHole.checked,
+      notes: optNotes.checked,
       rotate: parseFloat(optRot.value) || 0,
       shiftZ: parseFloat(optShiftZ.value) || 0
     });
@@ -12258,6 +12355,10 @@ SON = M17
     const html = [];
     // the full lines as tooltips: long ones are cut at the edge
     const tip = t => (t ? ` title="${escapeHtml7(t).replace(/"/g, '&quot;')}"` : '');
+    // a note left out of the program (KONTROL notlarını yaz off) is still shown here
+    const noteOf = o => (o && o.flag && !/!!\s*KONTROL/i.test(o.text) ? '!! KONTROL: ' + o.flag : '');
+    const withNote = (h, o) => (noteOf(o) ? `${h} <span class="conv-note">${escapeHtml7(noteOf(o))}</span>` : h);
+    const rawNote = (t, o) => (noteOf(o) ? `${t}  ${noteOf(o)}` : t);
     const row = (cls, aNum, aCls, aText, bNum, bCls, bText, aRaw, bRaw) =>
       html.push(`<div class="diff-row conv-row${cls}"><div class="dnum side-a${aCls}">${aNum}</div><div class="dtext side-a${aCls}"${tip(aRaw)}>${aText}</div><div class="dnum side-b${bCls}">${bNum}</div><div class="dtext side-b${bCls}"${tip(bRaw)}>${bText}</div></div>`);
     let hidden = 0, prevKind = 'eq';
@@ -12269,12 +12370,12 @@ SON = M17
       prevKind = g.kind;
       if (g.kind === 'add') {
         const o = g.outs[0];
-        row(grp + (o.flag ? ' flagged' : ''), '+', ' filler', '', outNo.get(o), ' changed added', escapeHtml7(ProgConvert.lineText(o)), '', ProgConvert.lineText(o));
+        row(grp + (o.flag ? ' flagged' : ''), '+', ' filler', '', outNo.get(o), ' changed added', withNote(escapeHtml7(ProgConvert.lineText(o)), o), '', rawNote(ProgConvert.lineText(o), o));
         return;
       }
       if (g.kind === 'eq') {
         const o = g.outs[0];
-        row(' eq' + grp + (o && o.flag ? ' flagged' : ''), g.i + 1, '', escapeHtml7(g.srcText), o ? outNo.get(o) : '', '', o ? escapeHtml7(ProgConvert.lineText(o)) : '', g.srcText, o ? ProgConvert.lineText(o) : '');
+        row(' eq' + grp + (o && o.flag ? ' flagged' : ''), g.i + 1, '', escapeHtml7(g.srcText), o ? outNo.get(o) : '', '', o ? withNote(escapeHtml7(ProgConvert.lineText(o)), o) : '', g.srcText, o ? rawNote(ProgConvert.lineText(o), o) : '');
         return;
       }
       if (g.kind === 'del') {
@@ -12288,7 +12389,7 @@ SON = M17
         const first = k === 0;
         row((first ? grp : '') + (o.flag ? ' flagged' : ''),
           first ? g.i + 1 : '', ' changed', first ? markWords(g.a, ka, 'del') : '',
-          outNo.get(o), ' changed', markWords(g.bs[k], kb, 'ins'), first ? g.srcText : '', g.bs[k].t);
+          outNo.get(o), ' changed', withNote(markWords(g.bs[k], kb, 'ins'), o), first ? g.srcText : '', rawNote(g.bs[k].t, o));
       });
     });
     gap();
