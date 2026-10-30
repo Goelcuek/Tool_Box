@@ -7776,8 +7776,8 @@ SON = M17
   // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
   const mpHead = (t, title, mpo) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS(mpo || {});
   // Hermle / DMG: MillPlus G74 Z-1 L1 (Z to the machine position) is G75 Z1.0 (Z to the fixed point). L_M54 (safe Z,
-  // turns A and C too) is written after the tool probe and at an ITEM SONU with another item to come (mp2sie); read back as G74 too
-  const MP_HERMLE_LINES = "// G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · L_M54 (A ve C'yi de döndürür) takım ölçümünden sonra ve arkasından yeni ITEM gelen ITEM SONU'nda yazılır, MillPlus'a G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
+  // turns A and C too) is written after the tool probe and at an ITEM SONU whose next item works in another plane (mp2sie); read back as G74 too
+  const MP_HERMLE_LINES = "// G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · L_M54 (A ve C'yi de döndürür) takım ölçümünden sonra ve sonraki ITEM başka düzlemdeyse ITEM SONU'nda yazılır, MillPlus'a G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
   // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
   // M825: accuracy level, not carried over
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
@@ -10480,6 +10480,32 @@ SON = M17
        and on a Mazak, where the way round is a machine parameter). */
     let cPrev = null, cInc = false;
     const m54At = new Set(); // the G74 after a tool probe / an item end: L_M54 there
+    /* The plane an item works in, as the MillPlus program sets it: G7 with its angles, M53 with the C it
+       stands at (M55, a tool change, G7 L1=1 alone: none). nextItemTurns(i): the item after the item end at
+       line i sets another plane before its first X / Y / Z move than the one on at line i (none to come: false). */
+    const isItem = c => /\bITEM\b/i.test(c) && !/ITEM\s*SONU/i.test(c);
+    const planeStep = (st, raw) => {
+      const c = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
+      const cm = c.match(/(?:^|\s)C\s*=?\s*([-+]?[\d.]+)(?=\s|$)/i);
+      if (!/^G7\b/i.test(c) && cm) st.c = norm360(parseFloat(cm[1]));
+      if (/^G7\b/i.test(c)) st.key = /\b[ABC]5\s*=/i.test(c) ? mpKey(c) : 'none';
+      else if (/(^|\s)M53(\s|$)/i.test(c)) st.key = 'M53 C' + st.c;
+      else if (/(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)/i.test(c)) st.key = 'none';
+      return c;
+    };
+    const nextItemTurns = i => {
+      const st = { key: 'none', c: 0 };
+      for (let k = 0; k <= i; k++) planeStep(st, lines[k]);
+      const cur = st.key;
+      let k = i + 1;
+      while (k < lines.length && !mpSplit(lines[k]).comments.some(isItem)) k++;
+      if (k >= lines.length) return false;
+      for (; k < lines.length; k++) {
+        const c = planeStep(st, lines[k]);
+        if (/(^|\s)[XYZ]\s*=?\s*[-+(\d.E]|^G79\b/i.test(c) && !/^G7\b/i.test(c)) break;
+      }
+      return st.key !== cur;
+    };
     // L_M54 (safe Z) after line i: a G74 Z… L1 that comes next becomes it (false), else it follows (true).
     // It sends every axis to 0: where C stands for the program is no longer known, and a tilted plane
     // still on is set again before the next move (see out below)
@@ -10559,9 +10585,8 @@ SON = M17
       if (toolSkip.has(i)) return head.trim();
       const com = comments.length ? ' ;' + comments.join(' ') : '';
       const line = c => (head + c + com).replace(/\s+;/, ' ;').trim();
-      // an item end ((* ITEM SONU *)) with another item to come ((* ITEM 1.2 *)): L_M54 as after the tool probe
-      if (!code && toSie && !o.toMp && comments.some(c => /ITEM\s*SONU/i.test(c))
-        && lines.slice(i + 1).some(l => mpSplit(l).comments.some(c => /\bITEM\b/i.test(c) && !/ITEM\s*SONU/i.test(c))))
+      // an item end ((* ITEM SONU *)) whose next item ((* ITEM 1.2 *)) works in another plane: L_M54 as after the tool probe
+      if (!code && toSie && !o.toMp && comments.some(c => /ITEM\s*SONU/i.test(c)) && nextItemTurns(i))
         return m54After(i) ? [line(''), 'L_M54'] : line('');
       if (!code) return line('');
       if (m54At.has(i)) { cPrev = null; return line('L_M54'); }
