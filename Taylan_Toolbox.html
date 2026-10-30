@@ -10481,7 +10481,8 @@ SON = M17
     let cPrev = null, cInc = false;
     const m54At = new Set(); // the G74 after a tool probe / an item end: L_M54 there
     // L_M54 (safe Z) after line i: a G74 Z… L1 that comes next becomes it (false), else it follows (true).
-    // It turns A and C too: where C stands is no longer known
+    // It sends every axis to 0: where C stands for the program is no longer known, and a tilted plane
+    // still on is set again before the next move (see out below)
     const m54After = i => {
       let j = i + 1;
       while (j < lines.length && !mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code) j++;
@@ -10760,7 +10761,22 @@ SON = M17
       const r = lineOut(raw, i);
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
     };
-    const out = lines.map((raw, i) => withHead(raw, i));
+    // after L_M54 (every axis at 0) the plane that was on is written again before the next move,
+    // unless a plane of its own comes first
+    let plane = null, replane = false;
+    const bare = t => String(t).replace(/^\s*N\d+\s*/i, '').replace(/;.*$/, '').trim();
+    const out = lines.map((raw, i) => {
+      let r = [].concat(withHead(raw, i));
+      if (replane && r.some(t => /^CYCLE800\(/i.test(bare(t)))) replane = false;
+      if (replane && r.some(t => /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE8\d)/i.test(bare(t)))) { r = [...plane, ...r]; replane = false; }
+      r.forEach((t, k) => {
+        const b = bare(t);
+        if (/^CYCLE800\(\s*\)$/i.test(b)) plane = null;
+        else if (/^CYCLE800\(/i.test(b)) plane = [b].concat(/^G17$/i.test(bare(r[k + 1] || '')) ? ['G17'] : []);
+        if (/^L_M54$/i.test(b) && plane) replane = true;
+      });
+      return r.length === 1 ? r[0] : r;
+    });
     // several 840D lines can come from one MillPlus line: srcOf gives each one's MillPlus line
     const flat = [], srcOf = [];
     out.forEach((o, i) => (Array.isArray(o) ? o : [o]).forEach(t => { flat.push(t); srcOf.push(i); }));
