@@ -10233,6 +10233,28 @@ SON = M17
       }).join(' ');
     }
 
+    // a rotary move split over two lines (B75.628, then C71): written as one move, the second line
+    // then has nothing left to move (the target's axes turn together, no pose in between)
+    const rotWordsOf = code => {
+      const ws = [];
+      let m;
+      SIE_ROT_WORD.lastIndex = 0;
+      while ((m = SIE_ROT_WORD.exec(code)) !== null) {
+        const name = m[2].toUpperCase();
+        if (!rot.has(name)) continue;
+        const wrap = m[3] ? m[3].toUpperCase() : null, txt = m[4] != null ? m[4] : m[5] != null ? m[5] : m[6];
+        ws.push({ name, raw: txt, wrap, v: wrap === 'IC' || !isNum(txt) ? null : parseFloat(txt), at: m.index + m[1].length, len: m[0].length - m[1].length });
+      }
+      return ws;
+    };
+    const rotOnly = (code, ws) => {
+      let rest = code;
+      ws.slice().reverse().forEach(w => { rest = rest.slice(0, w.at) + rest.slice(w.at + w.len); });
+      return ws.length > 0 && !rest.replace(/(^|\s)(G0?[01]|G90|F[\d.]+)(?=\s|$)/gi, ' ').trim();
+    };
+    const rotMerged = new Set(); // lines whose rotary words went into the line before
+    const tableTop = zTop(tgtKin);
+
     srcLines.forEach((raw, i) => {
       const p = splitSie(raw);
       let comment = p.comment;
@@ -10277,36 +10299,46 @@ SON = M17
         if (/\bG91\b/i.test(code)) st.abs = false;
         if (/\bG90\b/i.test(code)) st.abs = true;
         if (st.flip) code = flipXY(code, flags);
-      } else if (st.flip && /^(HOLES|POCKET|SLOT|LONGHOLE|CYCLE[67]\d|CYCLE80[1-9])/i.test(code)) {
-        flags.push('düzlem 180° dönük — desen / cep döngüsündeki X / Y işaretini elle çevirin');
         // rotary axis words: TRAORI moves keep the tool direction on the other machine
-        const words = [];
-        let m;
-        SIE_ROT_WORD.lastIndex = 0;
-        while ((m = SIE_ROT_WORD.exec(code)) !== null) {
-          const name = m[2].toUpperCase();
-          if (!rot.has(name)) continue;
-          const wrap = m[3] ? m[3].toUpperCase() : null, txt = m[4] != null ? m[4] : m[5] != null ? m[5] : m[6];
-          words.push({ name, raw: txt, wrap, v: wrap === 'IC' || !isNum(txt) ? null : parseFloat(txt), at: m.index + m[1].length, len: m[0].length - m[1].length });
-        }
-        if (words.length && st.cMap && !st.tcp && words.every(w => w.name === st.cMap.src)) {
+        const words = rotWordsOf(code);
+        if (rotMerged.has(i) && rotOnly(code, words)) code = '';
+        else if (words.length && st.cMap && !st.tcp && words.every(w => w.name === st.cMap.src)) {
           // C alone inside a plane given by axis positions (MillPlus M53: 4-axis work with the head along Y)
           const w = words[0], cm = st.cMap, inc = !st.abs || w.wrap === 'IC';
           const val = t => (inc ? cm.s * t : norm360(cm.off + cm.s * t));
-          const v = w.v != null ? fmt(val(w.v)) : `(${inc ? '' : fmt(cm.off) + (cm.s > 0 ? '+' : '-')}${inc && cm.s < 0 ? '-' : ''}(${w.raw}))`;
+          const v = w.v != null ? fmt(val(w.v)) : cm.s > 0 && (inc || Math.abs(norm360(cm.off)) < 5e-5) ? w.raw
+            : `(${inc ? '' : fmt(cm.off) + (cm.s > 0 ? '+' : '-')}${inc && cm.s < 0 ? '-' : ''}(${w.raw}))`;
           // the table turning the other way on the target: positive becomes negative
           const wr = w.wrap && cm.s < 0 ? { ACP: 'ACN', ACN: 'ACP' }[w.wrap] || w.wrap : w.wrap;
           const text = wr ? `${cm.tgt}=${wr}(${v})` : w.v != null ? cm.tgt + v : `${cm.tgt}=${v}`;
           if (text !== code.substr(w.at, w.len)) code = (code.slice(0, w.at) + text + code.slice(w.at + w.len)).replace(/\s+/g, ' ').trim();
         } else if (words.length && rot.mode !== 'same') {
-          if (!st.abs || words.some(w => w.wrap === 'IC')) flags.push('artımlı döner eksen — başka makineye çevrilmedi');
+          // a turn of the table alone (C=IC(…), G91 C…): the same turn of the part on both machines
+          const srcTop = zTop(srcKin);
+          const tableOnly = srcTop && tableTop && srcTop.name === tableTop.name && srcTop.s === tableTop.s && words.every(w => w.name === srcTop.name);
+          if (!st.abs || words.some(w => w.wrap === 'IC')) { if (!tableOnly) flags.push('artımlı döner eksen — başka makineye çevrilmedi'); }
           else {
-            const r = rot.apply(words.map(w => ({ name: w.name, v: w.v, raw: w.raw })), st.tcp);
+            const given = words.map(w => ({ name: w.name, v: w.v, raw: w.raw }));
+            if (rotOnly(code, words) && words.every(w => w.v != null && !w.wrap)) {
+              let j = i + 1;
+              while (j < srcLines.length && !splitSie(srcLines[j]).code) j++;
+              const nc = j < srcLines.length ? splitSie(srcLines[j]).code : '';
+              const nw = rotWordsOf(nc);
+              if (nc && !/\bG91\b/i.test(nc) && rotOnly(nc, nw) && nw.every(w => w.v != null && !w.wrap && !words.some(x => x.name === w.name))) {
+                nw.forEach(w => given.push({ name: w.name, v: w.v, raw: w.raw }));
+                rotMerged.add(j);
+              }
+            }
+            const r = rot.apply(given, st.tcp);
             if (r.flag) flags.push(r.flag);
             if (!r.flag || r.converted) {
               const wrapOf = new Map(words.map(w => [w.name, w.wrap]));
               const text = r.words.map(x => {
-                const v = x.v != null ? fmt(x.v) : x.raw, wr = wrapOf.get(x.name) || (words[0].wrap && words[0].wrap !== 'IC' ? words[0].wrap : null);
+                // the table's own axis (C) of the target goes the short way round: 0 … 360
+                const top = tableTop && x.name === tableTop.name;
+                const v = x.v != null ? fmt((r.converted || st.tcp) && top ? norm360(x.v) : x.v) : x.raw;
+                // DC / ACP / ACN only on the table's own axis (a tilt axis has its limits, no way round)
+                const wr = wrapOf.get(x.name) || (top && words[0].wrap && words[0].wrap !== 'IC' ? words[0].wrap : null);
                 return wr ? `${x.name}=${wr}(${v})` : x.v == null && !/^-?[\d.]+$/.test(v) ? `${x.name}=${v}` : x.name + v;
               }).join(' ');
               let nc = '';
@@ -10316,6 +10348,8 @@ SON = M17
             }
           }
         }
+      } else if (st.flip && /^(HOLES|POCKET|SLOT|LONGHOLE|CYCLE[67]\d|CYCLE80[1-9])/i.test(code)) {
+        flags.push('düzlem 180° dönük — desen / cep döngüsündeki X / Y işaretini elle çevirin');
       }
       // M codes of the rules
       if (code && R.m.size) {
