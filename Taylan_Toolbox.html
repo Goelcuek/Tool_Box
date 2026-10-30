@@ -10335,6 +10335,19 @@ SON = M17
       else if (code || comment || head.trim() || flags.length) emit(i, line(code, comment), 'changed', flags.join('; '));
       after.forEach(a => emit(i, a.text, 'added', a.flag));
     });
+    // a tool call written as two lines: T… (with the line's comment) then M6 (T2 M6 ;(* X *) → T2 ;(* X *) / M6)
+    for (let k = out.length - 1; k >= 0; k--) {
+      const o = out[k], t = o.text;
+      let q = false, cut = t.length;
+      for (let x = 0; x < t.length; x++) { if (t[x] === '"') q = !q; else if (t[x] === ';' && !q) { cut = x; break; } }
+      const code = t.slice(0, cut), com = t.slice(cut);
+      const m = code.match(/^(\s*(?:N\d+\s+)?)(T\s*=\s*"[^"]*"|T\d+)\s+M0?6\s*$|^(\s*(?:N\d+\s+)?)M0?6\s+(T\s*=\s*"[^"]*"|T\d+)\s*$/i);
+      if (!m) continue;
+      const lead = m[1] != null ? m[1] : m[3], tw = m[2] || m[4];
+      o.text = (lead + tw + (com ? ' ' + com.trim() : '')).replace(/\s+$/, '');
+      if (o.kind === 'same') o.kind = 'changed';
+      out.splice(k + 1, 0, { text: 'M6', src: o.src, kind: 'added', flag: '' });
+    }
     // the target's safety lines before every tool change ([TAKIM DEĞİŞTİRME ÖNCESİ]): before the T of a
     // T… / M6 pair; {BIRIM} the program's G700 / G710, {G} the work offset in use (else the program's first)
     if (R.toolPre && R.toolPre.length) {
