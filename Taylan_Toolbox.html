@@ -10773,7 +10773,7 @@ SON = M17
         const b = bare(t);
         if (/^CYCLE800\(\s*\)$/i.test(b)) plane = null;
         else if (/^CYCLE800\(/i.test(b)) plane = [b].concat(/^G17$/i.test(bare(r[k + 1] || '')) ? ['G17'] : []);
-        if (/^L_M54$/i.test(b) && plane) replane = true;
+        if (/^L_M54$/i.test(b) && plane && toSie && !o.toMp) replane = true; // on a Mazak it is G28 Z only
       });
       return r.length === 1 ? r[0] : r;
     });
