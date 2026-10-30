@@ -7776,8 +7776,8 @@ SON = M17
   // DMG duoBLOCK MillPlus: the DMG (840D) pairs' rules plus the MillPlus sections
   const mpHead = (t, title, mpo) => t.replace(/^\/\/ [^\n]*/, `// ${title} — 840D kuralları + MillPlus bölümleri (en altta)`) + '\n' + MP_SECTIONS(mpo || {});
   // Hermle / DMG: MillPlus G74 Z-1 L1 (Z to the machine position) is G75 Z1.0 (Z to the fixed point). L_M54 (safe Z,
-  // turns A and C too) is written only after the tool probe (mp2sie); read back as G74 too
-  const MP_HERMLE_LINES = "// G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · L_M54 (A ve C'yi de döndürür) yalnız takım ölçümünden sonra yazılır, MillPlus'a G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
+  // turns A and C too) is written after the tool probe and at an ITEM SONU with another item to come (mp2sie); read back as G74 too
+  const MP_HERMLE_LINES = "// G74 Z-1 L1 (Z makine konumuna) = G75 Z1.0 (Z sabit noktaya) · L_M54 (A ve C'yi de döndürür) takım ölçümünden sonra ve arkasından yeni ITEM gelen ITEM SONU'nda yazılır, MillPlus'a G74 Z-1 L1 olur\nG74 Z-1 L1 = L_M54\nG74 Z-1 L1 = G75 Z1.0\nSİL = L_FREI\nG7 L1=1 | G93 X0 Y0 Z0 = IPTAL";
   // MillPlus M10 / M11: rotary axes clamped / unclamped (Variaxis M47 M44 / M46 M43; 840D: not written) ·
   // M825: accuracy level, not carried over
   const MP_CLAMP_NOTE = '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi (yazılmaz)\n';
@@ -10479,7 +10479,16 @@ SON = M17
        position with the way round (Siemens ACP / ACN), or the turn itself (IC: a full turn or more,
        and on a Mazak, where the way round is a machine parameter). */
     let cPrev = null, cInc = false;
-    const m54At = new Set(); // the G74 after a tool probe: L_M54 there
+    const m54At = new Set(); // the G74 after a tool probe / an item end: L_M54 there
+    // L_M54 (safe Z) after line i: a G74 Z… L1 that comes next becomes it (false), else it follows (true).
+    // It turns A and C too: where C stands is no longer known
+    const m54After = i => {
+      let j = i + 1;
+      while (j < lines.length && !mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code) j++;
+      if (j < lines.length && /^G74\s+Z\s*-?[\d.]+\s+L1$/i.test(mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code)) { m54At.add(j); return false; }
+      cPrev = null;
+      return true;
+    };
     const cMove = t => {
       const m = t.match(/^C([-+]?(?:\d+\.?\d*|\.\d+))$/i);
       if (!m) { if (/^C=/i.test(t)) cPrev = null; return t; } // a variable: the way round can't be known
@@ -10549,6 +10558,10 @@ SON = M17
       if (toolSkip.has(i)) return head.trim();
       const com = comments.length ? ' ;' + comments.join(' ') : '';
       const line = c => (head + c + com).replace(/\s+;/, ' ;').trim();
+      // an item end ((* ITEM SONU *)) with another item to come ((* ITEM 1.2 *)): L_M54 as after the tool probe
+      if (!code && toSie && !o.toMp && comments.some(c => /ITEM\s*SONU/i.test(c))
+        && lines.slice(i + 1).some(l => mpSplit(l).comments.some(c => /\bITEM\b/i.test(c) && !/ITEM\s*SONU/i.test(c))))
+        return m54After(i) ? [line(''), 'L_M54'] : line('');
       if (!code) return line('');
       if (m54At.has(i)) { cPrev = null; return line('L_M54'); }
       const U = mpKey(code);
@@ -10603,11 +10616,7 @@ SON = M17
         const call = line(`CALL"/_N_CUS_DIR/${dirs.length ? dirs.join('/') + '/' : ''}_N_SUB${m[1]}_SPF"`);
         // after the tool probe (the BLUM directory) the safe Z subprogram: a G74 Z… L1 that comes next becomes it
         if (!toSie || o.toMp || !/blum/i.test(m[2] || '')) return call;
-        let j = i + 1;
-        while (j < lines.length && !mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code) j++;
-        if (j < lines.length && /^G74\s+Z\s*-?[\d.]+\s+L1$/i.test(mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code)) { m54At.add(j); return call; }
-        cPrev = null; // L_M54 turns A and C
-        return [call, 'L_M54'];
+        return m54After(i) ? [call, 'L_M54'] : call;
       }
       if (/^G22\b/i.test(code)) { flag(i, 'G22 alt program çağrısı çevrilmedi'); return line(code); }
       // tool data: G149 T0 E.. (active tool), G149 T.. L1= R1= (L+DL, R+DR), G321 / G331 T.. I1=n E.. (read / write)
