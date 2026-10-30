@@ -10761,19 +10761,63 @@ SON = M17
       const r = lineOut(raw, i);
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
     };
-    // after L_M54 (every axis at 0) the plane that was on is written again before the next move,
-    // unless a plane of its own comes first
-    let plane = null, replane = false;
+    // L_M54 sends every axis to 0 and parks the machine; the MillPlus program goes on from where it
+    // was. So before the next move: the plane that was on (unless a plane of its own comes first), then
+    // in rapids the last X / Y / C the move doesn't give itself and the last Z (unless the move is a
+    // rapid with its own Z). A tool change or a new plane first: nothing (the program positions afresh there).
+    let plane = null, replane = false, saved = null, abs = true, pos = {};
     const bare = t => String(t).replace(/^\s*N\d+\s*/i, '').replace(/;.*$/, '').trim();
+    const has = (b, a) => new RegExp('(?:^|\\s)' + a + '\\s*=?\\s*[-+(\\d.A-Z]', 'i').test(b);
+    // a machine position (G75 Z1.0, SUPA, G53) is no move of the program: the axes in it are just not known after it
+    const machinePos = b => /(^|\s)(G7[45]|G53|SUPA)(\s|$)/i.test(b);
+    const isMove = b => !machinePos(b) && /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE8(?!00)\d)/i.test(b);
+    const track = b => {
+      if (/^CYCLE800\(|^A?(TRANS|ROT)\b/i.test(b) || /(^|\s)M0?6(\s|$)/i.test(b)) { pos = {}; return; }
+      if (machinePos(b)) { ['X', 'Y', 'Z', 'C'].forEach(a => { if (has(b, a)) delete pos[a]; }); return; }
+      if (/(^|\s)G91(\s|$)/i.test(b)) abs = false;
+      if (/(^|\s)G90(\s|$)/i.test(b)) abs = true;
+      ['X', 'Y', 'Z'].forEach(a => {
+        if (!has(b, a)) return;
+        const m = b.match(new RegExp('(?:^|\\s)' + a + '([-+]?(?:\\d+\\.?\\d*|\\.\\d+))(?=\\s|$)', 'i'));
+        if (m && abs) pos[a] = parseFloat(m[1]); else delete pos[a];
+      });
+      if (has(b, 'C')) {
+        const m = b.match(/(?:^|\s)C(?:=(?:ACP|ACN|DC|AC)\()?([-+]?(?:\d+\.?\d*|\.\d+))\)?(?=\s|$)/i), ic = b.match(/(?:^|\s)C=IC\(([-+]?[\d.]+)\)/i);
+        if (ic && pos.C != null) pos.C = norm360(pos.C + parseFloat(ic[1]));
+        else if (m && abs) pos.C = norm360(parseFloat(m[1])); else delete pos.C;
+      }
+      const cyc = b.match(/^(?:MCALL\s+)?CYCLE8(?!00)\d+\s*\(\s*([-+]?[\d.]+)/i);
+      if (cyc) pos.Z = parseFloat(cyc[1]); // the cycle ends at its retract plane
+    };
     const out = lines.map((raw, i) => {
       let r = [].concat(withHead(raw, i));
-      if (replane && r.some(t => /^CYCLE800\(/i.test(bare(t)))) replane = false;
-      if (replane && r.some(t => /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE8\d)/i.test(bare(t)))) { r = [...plane, ...r]; replane = false; }
-      r.forEach((t, k) => {
-        const b = bare(t);
+      const bs = r.map(bare);
+      if ((replane || saved) && bs.some(b => /^CYCLE800\(|(^|\s)M0?6(\s|$)/i.test(b))) { replane = false; saved = null; }
+      // a machine position the program goes to itself (G75 Z1.0): that axis is not brought back
+      if (saved) bs.filter(machinePos).forEach(b => ['X', 'Y', 'Z', 'C'].forEach(a => { if (has(b, a)) delete saved[a]; }));
+      if ((replane || saved) && bs.some(isMove)) {
+        const pre = replane ? plane.slice() : [];
+        if (saved) {
+          const b = bs.find(isMove);
+          const xyc = ['X', 'Y', 'C'].filter(a => saved[a] != null && !has(b, a)).map(a => a + fmt(saved[a]));
+          if (xyc.length) pre.push('G0 ' + xyc.join(' '));
+          // Z too when the move gives one: a feed from where the program was, not from the park height
+          if (saved.Z != null && !(has(b, 'Z') && /(^|\s)G0?0(\s|$)/.test(b))) pre.push('G0 Z' + fmt(saved.Z));
+          if (pre.length > (replane ? plane.length : 0)) flag(i, 'L_M54 makineyi park eder: son konuma dönüş eklendi — ilk denemede kontrol edin');
+        }
+        r = [...pre, ...r];
+        replane = false; saved = null;
+      }
+      bs.forEach((b, k) => {
         if (/^CYCLE800\(\s*\)$/i.test(b)) plane = null;
-        else if (/^CYCLE800\(/i.test(b)) plane = [b].concat(/^G17$/i.test(bare(r[k + 1] || '')) ? ['G17'] : []);
-        if (/^L_M54$/i.test(b) && plane && toSie && !o.toMp) replane = true; // on a Mazak it is G28 Z only
+        else if (/^CYCLE800\(/i.test(b)) plane = [b].concat(/^G17$/i.test(bs[k + 1] || '') ? ['G17'] : []);
+        if (/^L_M54$/i.test(b) && toSie && !o.toMp) { // on a Mazak it is G28 Z only
+          if (plane) replane = true;
+          saved = Object.keys(pos).length ? Object.assign({}, pos) : null;
+          pos = {};
+          return;
+        }
+        track(b);
       });
       return r.length === 1 ? r[0] : r;
     });
