@@ -7163,7 +7163,7 @@ const ProgConvert = (function () {
 // bırakılırsa o bölüm şablonsuz, satır satır çevrilir.
 `;
   // Hermle's safety lines before every tool change — {BIRIM}: G700 / G710, {G}: the work offset in use
-  const HERMLE_SAFETY = 'ROT\nDIAMOF\nTRAFOOF\nCYCLE800()\nG90 G94 G40 G17 {BIRIM}\n{G} ; AKTIF OFFSET\nG17\nTRAFOOF\n\nG75 Z1.0\n';
+  const HERMLE_SAFETY = 'ROT\nDIAMOF\nTRAFOOF\nCYCLE800()\nG90 G94 G40 G17 {BIRIM}\n{G} ; AKTIF OFFSET\nG17\nTRAFOOF\nG75 Z1.0\n';
   const PLAIN_TOOL = '[TAKIM DEĞİŞTİRME]\n// T.. M06 — {T}: takım numarası\nT{T} ;(* SEARCH SATIRI *)\nM06\nD1\n';
   const HERMLE_TOOL = '[TAKIM DEĞİŞTİRME]\n// T.. M06 — {T}: takım numarası · {BIRIM}: G700 / G710 (programdaki G20 / G21) · {G}: o anki sıfır noktası (henüz yoksa programın ilki)\n' +
     '// Hermle güvenlik bloğu her takım değişiminden önce yazılır\n' + HERMLE_SAFETY + 'T{T} ;(* SEARCH SATIRI *)\nM06\nD1\n';
@@ -11988,6 +11988,8 @@ SON = M17
     // the Hermle safety block before every tool change
     .replace(/^\/\/ Mazak Variaxis → Hermle C52[^]*$/, t => t.split(ProgConvert.PLAIN_TOOL).join(ProgConvert.HERMLE_TOOL))
     .replace(/^\/\/ DMG duoBLOCK (MillPlus )?→ Hermle C52[^]*$/, t => (/\[TAKIM DEĞİŞTİRME ÖNCESİ\]/.test(t) ? t : t.replace(/\s*$/, '\n\n') + ProgConvert.HERMLE_TOOL_PRE))
+    // the Hermle safety block without the blank line before G75 Z1.0
+    .replace(/^\/\/ [^\n]*→ Hermle C52[^]*$/, t => t.split('\nG17\nTRAFOOF\n\nG75 Z1.0\n').join('\nG17\nTRAFOOF\nG75 Z1.0\n'))
     // Hermle M52 isn't needed (M9 turns everything off); MillPlus M7 = Hermle M51 (through-tool coolant)
     .split('M9 = M9 | M52\n').join('M9 = M9\n')
     .replace(/^\/\/ DMG duoBLOCK MillPlus → Hermle C52[^]*$/, t => (/^M7\s*=/m.test(t) ? t : t.replace('M8 = M8 | M51\n', 'M8 = M8\n').replace(/(\[M KODLARI\]\n(?:\/\/[^\n]*\n)*)/, '$1' + ProgConvert.MP_TSC_TO_HERMLE)))
