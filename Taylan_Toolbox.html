@@ -1377,16 +1377,15 @@
   .rules-legacy { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #fdf3e7; color: var(--amber); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .topic-card { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   .topic-card > h4 { margin: 0 0 6px; font-size: 13px; }
-  .topic-sub { font-size: 11px; color: var(--ink-faint); margin: 8px 0 4px; font-weight: 600; }
-  .topic-row { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr); gap: 6px; align-items: center; margin: 3px 0; }
-  .topic-row input, .topic-card textarea.topic-tpl { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--card); color: var(--ink); }
-  .topic-card textarea.topic-tpl { height: auto; min-height: 60px; margin-top: 0; white-space: pre; resize: vertical; }
-  .topic-row .arrow { color: var(--ink-faint); text-align: center; }
-  .topic-out { font-family: var(--mono); font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
-  .topic-out.same { color: var(--ink-faint); font-style: italic; font-family: var(--sans); }
-  .topic-fixed { font-size: 12px; color: var(--ink-faint); margin: 2px 0; }
-  .topic-fixed::before { content: "🔒 "; }
-  @media (max-width: 640px) { .topic-row { grid-template-columns: 1fr; } .topic-row .arrow { display: none; } }
+  .topic-table { display: grid; grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 8px; align-items: center; font-size: 12px; }
+  .topic-table .th { font-size: 11px; color: var(--ink-faint); font-weight: 600; }
+  .topic-table .muted { color: var(--ink-faint); }
+  .topic-table input, .topic-card textarea.topic-tpl { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--card); color: var(--ink); }
+  .topic-tpl-box { margin-top: 6px; font-size: 12px; }
+  .topic-tpl-box summary { cursor: pointer; color: var(--ink); font-weight: 500; }
+  .topic-card textarea.topic-tpl { height: auto; min-height: 50px; margin-top: 6px; white-space: pre; resize: vertical; }
+  .topic-fixed { font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
+  @media (max-width: 640px) { .topic-table { grid-template-columns: 1fr 1fr; } .topic-table .th:first-child { display: none; } .topic-table > span:not(.th):nth-child(3n+1) { grid-column: 1 / -1; font-weight: 600; } }
   .rules-box textarea { margin-top: 10px; height: 460px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
   .conv-head { grid-template-columns: 46px 1fr 46px 1fr; }
   .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
@@ -10730,9 +10729,56 @@ SÜREKLİ
       if (o.kind === 'same') o.kind = 'changed';
       out.splice(k + 1, 0, { text: 'M6', src: o.src, kind: 'added', flag: '' });
     }
-    // the target's safety lines before every tool change ([TAKIM DEĞİŞTİRME ÖNCESİ]): before the T of a
-    // T… / M6 pair; {BIRIM} the program's G700 / G710, {G} the work offset in use (else the program's first)
-    if (R.toolPre && R.toolPre.length) {
+    // the target's templates, as for a Mazak program ([BAŞLANGIÇ], [TAKIM DEĞİŞTİRME ÖNCESİ] + [TAKIM DEĞİŞTİRME],
+    // [İŞ PARÇASI SIFIRI], [PROGRAM SONU]) — not when the program goes on to MillPlus (it writes its own)
+    if (opts.sieTpl && R.tool && R.tool.length) {
+      const codeOf = t => { let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k); } return t; };
+      const bare = t => codeOf(t).replace(/^\s*N\d+\s*/i, '').trim();
+      const plain = srcLines.map(codeOf).join('\n');
+      const unit = /\bG(70|700)\b/i.test(plain) ? 'G700' : /\bG(71|710)\b/i.test(plain) ? 'G710' : null;
+      const workOf = t => (codeOf(t).match(/\bG(5[4-7]|5\d\d)\b/) || [])[0];
+      const first = (srcLines.map(workOf).find(Boolean)) || 'G54';
+      const tpl = (lines, src, vals, kind) => lines.map(t => {
+        const f = fill(t, vals);
+        return { text: f.out.replace(/\s+$/, ''), src, kind: kind || 'template', flag: f.missing.includes('BIRIM') ? 'programda inç / metrik (G700 / G710) yok — birimi yazın' : '' };
+      });
+      let work = null, started = !(R.start && R.start.length) || /^S[İI]L$/i.test((R.start[0] || '').trim());
+      for (let k = 0; k < out.length; k++) {
+        const b = bare(out[k].text);
+        // a line that only sets the work offset: [İŞ PARÇASI SIFIRI]
+        if (/^G(5[4-7]|5\d\d)$/i.test(b) && R.offset && R.offset.length) {
+          work = b.toUpperCase();
+          const ls = tpl(R.offset, out[k].src, { G: work }, 'changed');
+          out.splice(k, 1, ...ls);
+          k += ls.length - 1;
+          continue;
+        }
+        if (workOf(out[k].text)) work = workOf(out[k].text);
+        if (!/^M0?6$/i.test(b)) continue;
+        // the T line before the M6 (split above), with the D1 after it: the template
+        let at = k;
+        for (let j = k - 1; j >= 0 && k - j <= 3; j--) { if (/^T(\s*=|\d)/i.test(bare(out[j].text))) { at = j; break; } if (bare(out[j].text)) break; }
+        const tw = at < k ? bare(out[at].text).match(/^T\s*(=\s*"[^"]*"|\d+)/i) : null;
+        let to = k;
+        if (k + 1 < out.length && /^D\d+$/i.test(bare(out[k + 1].text)) && R.tool.some(l => /^\s*D\d/i.test(l))) to = k + 1;
+        const ls = [];
+        if (!started) { ls.push(...tpl(R.start, out[at].src, {})); started = true; }
+        ls.push(...tpl((R.toolPre || []).concat(R.tool), out[at].src, { T: tw ? tw[1].replace(/^=\s*/, '=') : '', BIRIM: unit, G: work || first }));
+        if (!tw) ls.forEach(x => { if (/\{T\}|^T\s*$/i.test(x.text)) x.flag = 'takım numarası okunamadı'; });
+        out.splice(at, to - at + 1, ...ls);
+        k = at + ls.length - 1;
+      }
+      // [PROGRAM SONU] before the program end
+      if (R.end && R.end.length) {
+        for (let k = out.length - 1; k >= 0; k--) {
+          if (!/(^|\s)M(30|0?2)(\s|$)/i.test(bare(out[k].text))) continue;
+          out.splice(k, 0, ...tpl(R.end, out[k].src, {}));
+          break;
+        }
+      }
+    } else if (R.toolPre && R.toolPre.length) {
+      // the target's safety lines before every tool change ([TAKIM DEĞİŞTİRME ÖNCESİ]): before the T of a
+      // T… / M6 pair; {BIRIM} the program's G700 / G710, {G} the work offset in use (else the program's first)
       const codeOf = t => { let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k); } return t; };
       const plain = srcLines.map(codeOf).join('\n');
       const unit = /\bG(70|700)\b/i.test(plain) ? 'G700' : /\bG(71|710)\b/i.test(plain) ? 'G710' : null;
@@ -12077,7 +12123,7 @@ SÜREKLİ
     const inner = convertSet(inFiles, Object.assign({}, options, {
       sourceMachine: mpS ? sie(sm) : sm, targetMachine: mpT ? sie(tm) : tm,
       source: mpS ? 'siemens840d' : options.source, target: mpT ? 'siemens840d' : options.target,
-      renumber: mpT ? true : options.renumber, _pivot: true
+      renumber: mpT ? true : options.renumber, _pivot: true, _toMp: !!mpT
     }));
     const writer = inner.target.writer;
     const tgtKin = tm ? machineKin(tm.def) : rules.kin;
@@ -12207,7 +12253,7 @@ SÜREKLİ
     const target = TARGETS.find(t => t.id === (tm ? controlOf(tm.control).target : options.target)) || TARGETS[0];
     const route = routeOf(sourceId, target.id) || 'iso-siemens';
     const writer = target.writer;
-    const common = { rules, writer, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
+    const common = { rules, writer, sieTpl: !options._toMp, renumber: options.renumber !== false, suppress: options.suppress !== false, holeMsg: options.holeMsg !== false };
     // each machine's own kinematics; without machines the rules' [KİNEMATİK] (first versions) serves both
     if (sm && tm) { common.srcKin = machineKin(sm.def); common.tgtKin = machineKin(tm.def); }
     if (route === 'siemens-iso') {
@@ -12523,7 +12569,7 @@ SÜREKLİ
 
   /* ---- the rules of the pair: by topic, and each machine's reading / writing / common text ----
      Konular: what the source reads → what the target writes, topic by topic, editable in place
-     (a reading line: code = {KONU}; a writing line: {KONU} = code; templates whole); 🔒: done in
+     (a reading line: code = {KONU}; a writing line: {KONU} = code; templates whole); 'Kodda': done in
      code. The other tabs are the whole texts; Birleşik: the pair's rules made from them. */
   const TOPICS7 = [
     { name: 'Programın başı', secs: ['BAŞLANGIÇ'], fixed: { mazak: "İlk takımdan önceki G28 referans bloğu [BAŞLANGIÇ] ile değişir", millplus: '%PM ve N9999 silinir' } },
@@ -12547,7 +12593,6 @@ SÜREKLİ
     { name: 'Diğer M / G kodları ve komutlar', secs: ['MILLPLUS KODLARI'], tokens: ['DURDUR', 'ÖN OKUMA DURDUR', 'ÖTELEME İPTALİ', 'ÇAP PROGRAMLAMA KAPALI'], rest: true }
   ];
   const K7 = PC.sectionKey;
-  const ISO_ONLY7 = ['BAŞLANGIÇ', 'TAKIM DEĞİŞTİRME', 'İŞ PARÇASI SIFIRI', 'ARA DÖNÜŞ', 'PROGRAM SONU', 'DELİK MESAJI', 'EĞİK DÜZLEM', 'EĞİK DÜZLEM İPTALİ', 'MAKRO*', 'ALT PROGRAM', 'EKSENLER'];
   const secMatch = (pat, name) => (pat.endsWith('*') ? K7(name).startsWith(K7(pat.slice(0, -1))) : K7(name) === K7(pat));
   const topicOfToken = tok => TOPICS7.find(t => (t.tokens || []).some(x => K7(x) === K7(tok))) || TOPICS7[TOPICS7.length - 1];
   const topicOfSec = name => TOPICS7.find(t => (t.secs || []).some(x => secMatch(x, name))) || TOPICS7[TOPICS7.length - 1];
@@ -12585,7 +12630,7 @@ SÜREKLİ
       box.appendChild(b);
     });
     const hints = {
-      konular: 'Okuma: kaynak makinenin kodu = {KONU} · Yazma: {KONU} = hedef makinenin kodu (boş: silinir, satır yoksa kod olduğu gibi kalır) · 🔒 kodda yapılır',
+      konular: 'Her satır bir konu: kaynak makinenin onu okuduğu kodlar ve hedef makinenin yazdığı kod. Değişiklik o makineyi kullanan bütün dönüşümlere uygulanır.',
       okuma: p ? `${p.s.name} kaynak olduğunda — bütün hedef makinelerde kullanılır` : '',
       yazma: p ? `${p.t.name} hedef olduğunda — bütün kaynak makinelerden gelen programlarda kullanılır` : '',
       'ortak-s': p ? `${p.s.name} dilinin iki yönde de kullanılan bölümleri` : '',
@@ -12612,93 +12657,157 @@ SÜREKLİ
   }
   function renderTopics(p) {
     const S = rulesOf(p.s.id), T = rulesOf(p.t.id);
-    const defs = PC.topicDefs(T.yazma);
     const sCtl = PC.controlOf(p.s.control).source, tCtl = PC.controlOf(p.t.control).target;
-    const groups = new Map(TOPICS7.map(t => [t, { read: [], write: [], tpl: [] }]));
-    // reading lines of the topic sections
+    const LINE = /^\s*(.*?)\s*(=>|=)\s*(.*?)\s*$/, DEF = /^\s*\{([^}]+)\}\s*(=>|=)\s*(.*?)\s*$/;
+    const isRule = l => l.trim() && !/^\s*\/\//.test(l);
+    const itemsOf = (sec, rhs) => (K7(sec) === K7('METİN') ? [rhs] : rhs.split('|')).map(x => x.trim()).filter(Boolean);
+    // the topic words: where the source names them, and what the target writes for them
+    const toks = new Map(); // key → {name, sec, codes: [], def: null | {k, sep, rhs}}
+    const tok = (name, sec) => { const k = K7(name); if (!toks.has(k)) toks.set(k, { name, sec, codes: [], def: null }); return toks.get(k); };
+    const direct = [], deleted = [], tgtPlain = [];
     textLines(S.okuma).lines.forEach(x => {
-      if (!isTopicSec7(x.sec) || !x.text.trim() || /^\s*\/\//.test(x.text)) return;
-      const r = PC.resolveTopicLine(x.sec, x.text, defs);
-      if (!r) return;
-      const t = r.topics && r.topics.length ? topicOfToken(r.topics[0]) : K7(x.sec) === K7('METİN') ? TOPICS7.find(z => z.name.startsWith('Metin')) : K7(x.sec) === K7('CYCLE800') ? TOPICS7.find(z => z.name === 'Eğik düzlem') : TOPICS7[TOPICS7.length - 1];
-      groups.get(t).read.push(Object.assign({ r }, x));
+      if (!isTopicSec7(x.sec) || !isRule(x.text)) return;
+      const m = x.text.match(LINE);
+      if (!m) return;
+      const its = itemsOf(x.sec, m[3]);
+      if (!its.length) { deleted.push({ sec: x.sec, code: m[1] }); return; }
+      const named = its.filter(t => /^\{[^}]+\}$/.test(t));
+      named.forEach(t => tok(t.slice(1, -1), x.sec).codes.push(m[1]));
+      if (named.length < its.length) direct.push(Object.assign({ m }, x));
     });
-    // writing lines: {KONU} = code, and the target's own plain lines
     textLines(T.yazma).lines.forEach(x => {
-      if (!isTopicSec7(x.sec) || !x.text.trim() || /^\s*\/\//.test(x.text)) return;
-      const d = x.text.match(/^\s*\{([^}]+)\}\s*(=>|=)\s*(.*?)\s*$/);
-      const t = d ? topicOfToken(d[1]) : K7(x.sec) === K7('METİN') ? TOPICS7.find(z => z.name.startsWith('Metin')) : K7(x.sec) === K7('CYCLE800') ? TOPICS7.find(z => z.name === 'Eğik düzlem') : TOPICS7[TOPICS7.length - 1];
-      groups.get(t).write.push(Object.assign({ d }, x));
+      if (!isTopicSec7(x.sec) || !isRule(x.text)) return;
+      const d = x.text.match(DEF);
+      if (d) { tok(d[1], x.sec).def = { k: x.k, sep: d[2], rhs: d[3] }; return; }
+      const m = x.text.match(LINE);
+      if (m) tgtPlain.push(Object.assign({ m }, x));
     });
-    // template sections, with the text they stand in
+    // the templates in use for this pair (a Mazak program's alone hidden for the others)
+    const viaTpl = sCtl === 'mazak' || sCtl === 'fanuc' ? null : tCtl === 'siemens840d' ? ['BAŞLANGIÇ', 'TAKIM DEĞİŞTİRME', 'TAKIM DEĞİŞTİRME ÖNCESİ', 'İŞ PARÇASI SIFIRI', 'PROGRAM SONU'] : [];
+    const tpls = [];
     [['okuma', p.s, S.okuma], ['ortak', p.s, S.ortak], ['ortak', p.t, p.t.id === p.s.id ? '' : T.ortak], ['yazma', p.t, T.yazma]].forEach(([part, m, text]) => {
-      const tl = textLines(text);
-      tl.secs.forEach(sec => {
+      textLines(text).secs.forEach(sec => {
         if (isTopicSec7(sec.name)) return;
-        groups.get(topicOfSec(sec.name)).tpl.push({ part, m, sec, body: tl.lines.filter(x => x.k >= sec.from && x.k < sec.to).map(x => x.text).join('\n') });
+        if (part === 'yazma' && viaTpl && tCtl !== 'mazak' && !/^MILLPLUS/i.test(K7(sec.name)) && !viaTpl.some(z => secMatch(z, sec.name))) return;
+        tpls.push({ part, m, sec, body: textLines(text).lines.filter(x => x.k >= sec.from && x.k < sec.to).map(x => x.text).join('\n') });
       });
     });
+    const topicOfLine = (sec, tokName) => (tokName ? topicOfToken(tokName) : K7(sec) === K7('METİN') ? TOPICS7.find(z => z.name.startsWith('Metin')) : K7(sec) === K7('CYCLE800') ? TOPICS7.find(z => z.name === 'Eğik düzlem') : TOPICS7[TOPICS7.length - 1]);
+    const KEEP = { MILLPLUS: 'MillPlus', TCP: 'TCP', T: 'T', CYCLE800: 'CYCLE800' };
+    const pretty = n => n.split(/\s+/).map((w, k) => KEEP[w.toUpperCase()] || (k ? w.toLocaleLowerCase('tr') : w.charAt(0) + w.slice(1).toLocaleLowerCase('tr'))).join(' ');
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const inp = (val, ph, on) => { const i = el('input'); i.value = val; if (ph) i.placeholder = ph; i.addEventListener('change', () => on(i.value)); return i; };
     const tv = $('topicView7');
     tv.innerHTML = '';
-    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
-    const partName = (part, m) => ({ okuma: 'Okuma', yazma: 'Yazma', ortak: 'Ortak' })[part] + ' — ' + m.name;
     TOPICS7.forEach(t => {
-      const g = groups.get(t);
-      const fixed = [];
-      const f = t.fixed || {};
-      if (f.all) fixed.push(f.all);
-      if (f[sCtl]) fixed.push(`${p.s.name}: ${f[sCtl]}`);
-      if (f.out840d && sCtl !== 'mazak' && (tCtl === 'siemens840d' || tCtl === 'millplus')) fixed.push(`${p.t.name}: ${f.out840d}`);
-      if (!g.read.length && !g.write.length && !g.tpl.length && !fixed.length) return;
+      const rows = [];
+      [...toks.values()].filter(x => topicOfToken(x.name) === t && (x.codes.length || x.def)).forEach(x => rows.push([
+        el('span', '', pretty(x.name)),
+        inp(x.codes.join(', '), x.codes.length ? '' : 'okunmaz', v => setTokenCodes(p.s.id, x.sec, x.name, v)),
+        inp(x.def ? x.def.rhs : '', x.def ? 'silinir' : 'yazılmaz — kod olduğu gibi kalır', v => setTokenDef(p.t.id, x.sec, x.name, x.def, v))
+      ]));
+      direct.filter(x => topicOfLine(x.sec) === t).forEach(x => rows.push([
+        el('span', 'muted', 'doğrudan'),
+        inp(x.m[1], '', v => editLine(p.s.id, 'okuma', x.k, `${v.trim()} ${x.m[2]} ${x.m[3]}`)),
+        inp(x.m[3], 'silinir', v => editLine(p.s.id, 'okuma', x.k, `${x.m[1]} ${x.m[2]}${v.trim() ? ' ' + v.trim() : ''}`))
+      ]));
+      if (t.rest && deleted.length) rows.push([el('span', '', 'Silinen kodlar'), inp(deleted.map(x => x.code).join(', '), '', v => setDeleted(p.s.id, v)), el('span', 'muted', '—')]);
+      tgtPlain.filter(x => topicOfLine(x.sec) === t).forEach(x => rows.push([
+        el('span', 'muted', x.m[1]), el('span', 'muted', '—'),
+        inp(x.m[3], 'silinir', v => editLine(p.t.id, 'yazma', x.k, `${x.m[1]} ${x.m[2]}${v.trim() ? ' ' + v.trim() : ''}`))
+      ]));
+      const at = x => (t.secs || []).findIndex(z => secMatch(z, x.sec.name));
+      const mine = tpls.filter(x => topicOfSec(x.sec.name) === t).sort((a, b) => at(a) - at(b));
+      const f = t.fixed || {}, fixed = [f.all, f[sCtl] && `${p.s.name}: ${f[sCtl]}`].filter(Boolean);
+      if (!rows.length && !mine.length && !fixed.length) return;
       const card = el('div', 'topic-card');
       card.appendChild(el('h4', '', t.name));
-      if (g.read.length) {
-        card.appendChild(el('div', 'topic-sub', `Okuma — ${p.s.name} (kod = {KONU})  →  ${p.t.name}'de`));
-        g.read.forEach(x => {
-          const row = el('div', 'topic-row');
-          const inp = el('input');
-          inp.value = x.text.trim();
-          inp.title = `[${x.sec}]`;
-          inp.addEventListener('change', () => editLine(p.s.id, 'okuma', x.k, inp.value));
-          const r = x.r;
-          const out = r.plain ? el('div', 'topic-out same', 'olduğu gibi') : r.out === null ? el('div', 'topic-out same', 'olduğu gibi (hedef bu konuyu yazmıyor)') : r.out.length ? el('div', 'topic-out', r.out.join(K7(x.sec) === K7('METİN') ? ' ' : '  ·  ')) : el('div', 'topic-out same', 'silinir');
-          row.append(inp, el('div', 'arrow', '→'), out);
-          card.appendChild(row);
-        });
+      if (rows.length) {
+        const tb = el('div', 'topic-table');
+        [el('span', 'th', ''), el('span', 'th', p.s.name + ' okur'), el('span', 'th', p.t.name + ' yazar')].forEach(e => tb.appendChild(e));
+        rows.forEach(r => r.forEach(e => tb.appendChild(e)));
+        card.appendChild(tb);
       }
-      if (g.write.length) {
-        card.appendChild(el('div', 'topic-sub', `Yazma — ${p.t.name} ({KONU} = kod)`));
-        g.write.forEach(x => {
-          const row = el('div', 'topic-row');
-          const inp = el('input');
-          if (x.d) {
-            inp.value = x.d[3];
-            inp.placeholder = 'boş: silinir';
-            inp.addEventListener('change', () => editLine(p.t.id, 'yazma', x.k, `{${x.d[1]}} ${x.d[2]}${inp.value.trim() ? ' ' + inp.value.trim() : ''}`));
-            row.append(el('div', 'topic-out', `{${x.d[1]}}`), el('div', 'arrow', x.d[2]), inp);
-          } else {
-            inp.value = x.text.trim();
-            inp.addEventListener('change', () => editLine(p.t.id, 'yazma', x.k, inp.value));
-            row.append(inp, el('div', 'arrow', ''), el('div', 'topic-out same', `[${x.sec}]`));
-          }
-          card.appendChild(row);
-        });
-      }
-      const at = x => (t.secs || []).findIndex(z => secMatch(z, x.sec.name));
-      g.tpl.sort((a, b) => at(a) - at(b)).forEach(x => {
-        // a Mazak / Fanuc program's templates: the 840D and MillPlus sources don't use them yet
-        const isoOnly = sCtl !== 'mazak' && sCtl !== 'fanuc' && x.part === 'yazma' && tCtl !== 'mazak' && ISO_ONLY7.some(z => secMatch(z, x.sec.name));
-        card.appendChild(el('div', 'topic-sub', `[${x.sec.name}] — ${partName(x.part, x.m)}${isoOnly ? ' · yalnız Mazak programlarında kullanılır' : ''}`));
+      mine.forEach(x => {
+        const d = el('details', 'topic-tpl-box');
+        const own = ({ okuma: `${x.m.name} okurken`, yazma: `${x.m.name} yazarken`, ortak: `${x.m.name}, iki yönde` })[x.part];
+        d.appendChild(el('summary', '', `${pretty(x.sec.name)} — ${own}`));
         const ta = el('textarea', 'topic-tpl');
         ta.spellcheck = false;
         ta.value = x.body;
         ta.rows = Math.min(14, Math.max(2, x.body.split('\n').length));
         ta.addEventListener('change', () => editRange(x.m.id, x.part, x.sec.from, x.sec.to, ta.value));
-        card.appendChild(ta);
+        d.appendChild(ta);
+        card.appendChild(d);
       });
-      fixed.forEach(txt => card.appendChild(el('div', 'topic-fixed', txt)));
+      if (fixed.length) card.appendChild(el('div', 'topic-fixed', 'Kodda: ' + fixed.join(' · ')));
       tv.appendChild(card);
     });
+  }
+  // a topic's source codes (M8, M51): each line of the section names it or not; a new code gets its own line
+  function setTokenCodes(id, sec, name, value) {
+    const text = rulesOf(id).okuma, tl = textLines(text), lines = text.split('\n');
+    const want = value.split(/[,\s]+/).map(x => x.trim()).filter(Boolean), token = `{${name}}`;
+    const has = new Set();
+    const drop = new Set();
+    tl.lines.forEach(x => {
+      if (K7(x.sec) !== K7(sec) || !x.text.trim() || /^\s*\/\//.test(x.text)) return;
+      const m = x.text.match(/^\s*(.*?)\s*(=>|=)\s*(.*?)\s*$/);
+      if (!m) return;
+      const sep = K7(sec) === K7('METİN') ? ' ' : ' | ';
+      let its = (K7(sec) === K7('METİN') ? [m[3]] : m[3].split('|')).map(z => z.trim()).filter(Boolean);
+      const had = its.some(z => K7(z) === K7(token));
+      const keep = want.some(c => c.toUpperCase() === m[1].toUpperCase());
+      if (keep) has.add(m[1].toUpperCase());
+      if (had && !keep) { its = its.filter(z => K7(z) !== K7(token)); if (!its.length) { drop.add(x.k); return; } }
+      else if (!had && keep) its.push(token);
+      else return;
+      lines[x.k] = `${m[1]} ${m[2]} ${its.join(sep)}`;
+    });
+    drop.forEach(k => { lines[k] = null; });
+    const add = want.filter(c => !has.has(c.toUpperCase())).map(c => `${c} ${K7(sec) === K7('METİN') ? '=>' : '='} ${token}`);
+    if (add.length) insertAfterSections(lines, tl, new Map([[sec, add]]));
+    setRulePart(id, 'okuma', lines.filter(l => l !== null).join('\n'));
+    renderRules();
+    rulesChanged();
+  }
+  // what the target writes for a topic: its line, made if there isn't one
+  function setTokenDef(id, sec, name, def, value) {
+    const lines = rulesOf(id).yazma.split('\n'), v = value.trim();
+    const sep = K7(sec) === K7('METİN') ? '=>' : '=';
+    if (def) lines[def.k] = `{${name}} ${def.sep}${v ? ' ' + v : ''}`;
+    else {
+      const sx = textLines(lines.join('\n')).secs.find(z => K7(z.name) === K7(sec));
+      if (sx) lines.splice(sx.to, 0, `{${name}} ${sep}${v ? ' ' + v : ''}`); else lines.push('', `[${sec}]`, `{${name}} ${sep}${v ? ' ' + v : ''}`);
+    }
+    setRulePart(id, 'yazma', lines.join('\n'));
+    renderRules();
+    rulesChanged();
+  }
+  // the codes the source drops: M… in M KODLARI, G… in G KODLARI, the rest in KOMUTLAR
+  function setDeleted(id, value) {
+    const text = rulesOf(id).okuma, tl = textLines(text), lines = text.split('\n');
+    const want = value.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+    const secOf = c => (/^M\d/i.test(c) ? 'M KODLARI' : /^G\d/i.test(c) ? 'G KODLARI' : 'KOMUTLAR');
+    const have = new Set();
+    tl.lines.forEach(x => {
+      if (!['M KODLARI', 'G KODLARI', 'KOMUTLAR'].some(z => K7(z) === K7(x.sec)) || /^\s*\/\//.test(x.text)) return;
+      const m = x.text.match(/^\s*(\S.*?)\s*=\s*$/);
+      if (!m) return;
+      if (want.some(c => c.toUpperCase() === m[1].toUpperCase())) have.add(m[1].toUpperCase()); else lines[x.k] = null;
+    });
+    const adds = new Map();
+    want.filter(c => !have.has(c.toUpperCase())).forEach(c => { const sx = secOf(c); adds.set(sx, (adds.get(sx) || []).concat(`${c} =`)); });
+    insertAfterSections(lines, tl, adds);
+    setRulePart(id, 'okuma', lines.filter(l => l !== null).join('\n'));
+    renderRules();
+    rulesChanged();
+  }
+  // new lines at the end of their sections (a missing section at the end of the text); lines keeps its numbering
+  function insertAfterSections(lines, tl, adds) {
+    [...adds.entries()].map(([name, ls]) => [tl.secs.find(z => K7(z.name) === K7(name)), name, ls])
+      .sort((a, b) => (b[0] ? b[0].to : Infinity) - (a[0] ? a[0].to : Infinity))
+      .forEach(([sec, name, ls]) => { if (sec) lines.splice(sec.to, 0, ...ls); else lines.push('', `[${name}]`, ...ls); });
   }
   let rulesTimer = null;
   const rulesChanged = () => { updateRulesState(); clearTimeout(rulesTimer); if (result) rulesTimer = setTimeout(run, 400); };
