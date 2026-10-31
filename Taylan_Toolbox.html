@@ -1373,6 +1373,20 @@
   /* Program Dönüştürücü */
   .rules-box { margin-top: 16px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--card); }
   .rules-box summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .rules-tabs { margin-top: 10px; flex-wrap: wrap; }
+  .rules-legacy { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #fdf3e7; color: var(--amber); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .topic-card { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .topic-card > h4 { margin: 0 0 6px; font-size: 13px; }
+  .topic-sub { font-size: 11px; color: var(--ink-faint); margin: 8px 0 4px; font-weight: 600; }
+  .topic-row { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr); gap: 6px; align-items: center; margin: 3px 0; }
+  .topic-row input, .topic-card textarea.topic-tpl { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--card); color: var(--ink); }
+  .topic-card textarea.topic-tpl { height: auto; min-height: 60px; margin-top: 0; white-space: pre; resize: vertical; }
+  .topic-row .arrow { color: var(--ink-faint); text-align: center; }
+  .topic-out { font-family: var(--mono); font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
+  .topic-out.same { color: var(--ink-faint); font-style: italic; font-family: var(--sans); }
+  .topic-fixed { font-size: 12px; color: var(--ink-faint); margin: 2px 0; }
+  .topic-fixed::before { content: "🔒 "; }
+  @media (max-width: 640px) { .topic-row { grid-template-columns: 1fr; } .topic-row .arrow { display: none; } }
   .rules-box textarea { margin-top: 10px; height: 460px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
   .conv-head { grid-template-columns: 46px 1fr 46px 1fr; }
   .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
@@ -2438,6 +2452,10 @@
           </details>
           <details class="rules-box" id="rulesBox7">
             <summary>Dönüşüm kuralları ve şablonlar — <span id="rulesFor7"></span> <span class="rules-state" id="rulesState7"></span></summary>
+            <div class="rules-legacy" id="legacyNote7" style="display:none;">Bu çift için önceden kaydedilmiş tek parça kurallar kullanılıyor (makine kuralları devre dışı). <button class="btn secondary" id="legacyDropBtn7">Kaldır, makine kurallarını kullan</button></div>
+            <div class="segmented rules-tabs" id="rulesTabs7"></div>
+            <div class="zoom-hint" id="rulesHint7" style="margin-top:6px;"></div>
+            <div id="topicView7"></div>
             <textarea id="rulesText7" spellcheck="false"></textarea>
             <div class="controls-row" style="margin-top:10px; flex-wrap:wrap;">
               <button class="btn secondary" id="rulesResetBtn7">Varsayılana Dön</button>
@@ -7814,9 +7832,255 @@ SON = M17
     id: `generic-${sr.id}-${tg.id}`, name: 'Genel makine', source: sr.id, target: tg.id, rules: genericRules(sr.id, tg.id)
   })));
 
+
+  /* ---------- the rules of each machine: reading, writing, common ----------
+     A pair's rules are put together from the source machine's reading rules (OKUMA: what its
+     codes mean), the target machine's writing rules (YAZMA: how it says each thing) and the
+     common sections of both (ORTAK: a control's own language, used in both directions).
+     In M KODLARI, G KODLARI, KOMUTLAR, METİN and CYCLE800 a reading line names a topic in
+     braces, M8 = {SOĞUTMA DIŞ}, and the target's writing line gives its code, {SOĞUTMA DIŞ} = M8:
+     the pair gets M8 = M8. A topic the target doesn't write leaves the code as it is (a list
+     drops it); an empty one deletes it. Plain codes are taken as they are; the target's plain
+     lines come after the source's. Every other section is taken whole, the target's last. */
+  const TOPIC_SECTIONS = ['M KODLARI', 'G KODLARI', 'KOMUTLAR', 'METİN', 'CYCLE800'];
+  // [{name, lines}] in order (the lines as written, comments too)
+  function ruleSections(text) {
+    const out = [];
+    let cur = null;
+    String(text || '').split(/\r\n|\r|\n/).forEach(l => {
+      const h = l.match(/^\s*\[([^\]]+)\]/);
+      if (h) { cur = { name: h[1].trim(), lines: [] }; out.push(cur); return; }
+      if (cur) cur.lines.push(l);
+    });
+    out.forEach(x => { while (x.lines.length && !x.lines[x.lines.length - 1].trim()) x.lines.pop(); });
+    return out;
+  }
+  const sectionText = x => `[${x.name}]\n${x.lines.join('\n')}`;
+  const pickSections = (text, names) => {
+    const keys = names.map(sectionKey);
+    return ruleSections(text).filter(x => keys.some(k => (k.endsWith('*') ? sectionKey(x.name).startsWith(k.slice(0, -1)) : sectionKey(x.name) === k))).map(sectionText).join('\n\n');
+  };
+  const TOPIC_LINE = /^\s*(.*?)\s*(=>|=)\s*(.*?)\s*$/;
+  const TOPIC_DEF = /^\s*\{([^}]+)\}\s*(=>|=)\s*(.*?)\s*$/;
+  // the topics a writing text gives, per section: Map(sectionKey → Map(topic → right side))
+  function topicDefs(text) {
+    const defs = new Map();
+    ruleSections(text).forEach(x => {
+      const k = sectionKey(x.name);
+      if (!TOPIC_SECTIONS.some(t => sectionKey(t) === k)) return;
+      const m = defs.get(k) || new Map();
+      x.lines.forEach(l => { const d = l.match(TOPIC_DEF); if (d && !/^\s*\/\//.test(l)) m.set(sectionKey(d[1]), d[3]); });
+      defs.set(k, m);
+    });
+    return defs;
+  }
+  // a reading line of a topic section with the target's codes: {lhs, sep, out} (out: [] deletes,
+  // null leaves the code as it is — the target writes none of its topics); null for no rule line
+  function resolveTopicLine(section, line, defs) {
+    if (!line.trim() || /^\s*\/\//.test(line)) return null;
+    const k = sectionKey(section), d = defs.get(k) || new Map(), text = k === sectionKey('METİN');
+    const m = line.match(TOPIC_LINE);
+    if (!m) return { lhs: line.trim(), sep: '', out: null, plain: true };
+    const items = text ? [m[3]] : m[3].split('|').map(t => t.trim());
+    let topics = 0, known = 0;
+    const out = [];
+    items.forEach(it => {
+      const t = it.match(/^\{([^}]+)\}$/);
+      if (!t) { if (it) out.push(it); return; }
+      topics++;
+      if (!d.has(sectionKey(t[1]))) return;
+      known++;
+      const v = d.get(sectionKey(t[1]));
+      if (v) out.push(...(text ? [v] : v.split('|').map(x => x.trim()).filter(Boolean)));
+    });
+    return { lhs: m[1], sep: m[2], out: topics && !known && !out.length ? null : out, topics: items.filter(it => /^\{[^}]+\}$/.test(it)).map(it => it.slice(1, -1)) };
+  }
+  // src / tgt: {name, okuma, yazma, ortak} → the pair's rules text
+  function composeRules(src, tgt) {
+    const read = ruleSections(src.okuma), write = ruleSections(tgt.yazma), defs = topicDefs(tgt.yazma);
+    const isTopicSec = x => TOPIC_SECTIONS.some(t => sectionKey(t) === sectionKey(x.name));
+    const parts = [`// ${src.name} → ${tgt.name} — ${src.name} okuma, ${tgt.name} yazma kurallarından\n${HEADER}`];
+    // the topic sections: the source's lines with the target's codes, then the target's own plain lines
+    TOPIC_SECTIONS.forEach(name => {
+      const k = sectionKey(name), lines = [];
+      read.filter(x => sectionKey(x.name) === k).forEach(x => x.lines.forEach(l => {
+        const r = resolveTopicLine(name, l, defs);
+        if (!r) return;
+        if (r.plain) { lines.push(l); return; }
+        if (r.out === null) return; // the target says nothing about it: as it is
+        lines.push(`${r.lhs} ${r.sep}${r.out.length ? ' ' + r.out.join(k === sectionKey('METİN') ? ' ' : ' | ') : ''}`);
+      }));
+      write.filter(x => sectionKey(x.name) === k).forEach(x => x.lines.forEach(l => {
+        if (!l.trim() || /^\s*\/\//.test(l) || TOPIC_DEF.test(l)) return;
+        lines.push(l);
+      }));
+      if (lines.length) parts.push(`[${name}]\n${lines.join('\n')}`);
+    });
+    // every other section as it is: the source's reading and common ones, then the target's
+    [read, ruleSections(src.ortak), ruleSections(tgt.ortak), write].forEach(list => list.filter(x => !isTopicSec(x)).forEach(x => parts.push(sectionText(x))));
+    return parts.join('\n\n') + '\n';
+  }
+
+  // the built-in machines' rules, taken from the pair rules they replace
+  const MP_COMMON = MP_SECTIONS({ lines: MP_HERMLE_LINES });
+  const SIE_READ = (record, name, extra) => `// Okuma: bu makinenin kodu = {KONU} (hedef makinenin Yazma kurallarındaki karşılığı) · düz kod olduğu gibi yazılır · boş: silinir
+
+[M KODLARI]
+// M25 M27: eksen kilidi açma (yalnız programın başında) · M51 içten soğutma · M52 gerekmez
+M25 =
+M27 =
+M8 = {SOĞUTMA DIŞ}${extra.m8 || ''}
+M51 = {SOĞUTMA İÇ}
+M52 =
+M9 = {SOĞUTMA KAPAT}
+${extra.m || ''}
+[G KODLARI]
+G70 = {İNÇ}
+G700 = {İNÇ}
+G71 = {METRİK}
+G710 = {METRİK}
+G54 = {İŞ SIFIRI 1}
+G500 =
+
+[KOMUTLAR]
+// satırın tamamı olan komut ya da alt program adı
+L_M54 = {GÜVENLİ PARK}
+${extra.cmds || ''}IPTAL = {İPTAL ALT PROGRAMI}
+STOPRE = {ÖN OKUMA DURDUR}
+TRANS = {ÖTELEME İPTALİ}
+TRAFOOF = {TCP KAPAT}
+TRAORI = {TCP AÇ}
+DIAMOF = {ÇAP PROGRAMLAMA KAPALI}
+
+[METİN]
+// yorumlarda: aranan => {KONU} ya da yeni metin · yeni boşsa yorum silinir
+${name} => {MAKİNE ADI}
+
+[CYCLE800]
+// CYCLE800'deki döner eksen veri kaydı (_TC)
+"${record}" = {VERİ KAYDI}
+`;
+  const SIE_WRITE = (o) => `// Yazma: {KONU} = bu makinenin kodu · | : alt alta satırlar · boş: silinir
+
+[M KODLARI]
+{DURDUR} = M1
+{SOĞUTMA DIŞ} = M8
+{SOĞUTMA İÇ} =${o.tsc ? ' ' + o.tsc : ''}
+{SOĞUTMA KAPAT} = M9
+{EKSEN KİLİTLE} =${o.lock ? ' ' + o.lock : ''}
+{EKSEN KİLİDİ AÇ} =${o.unlock ? ' ' + o.unlock : ''}
+
+[G KODLARI]
+{YÜKSEK HIZ} = CYCLE832(0.001,1,1)
+{YÜKSEK HIZ İPTALİ} =
+{İNÇ} = G700
+{METRİK} = G710
+
+[KOMUTLAR]
+{GÜVENLİ PARK} = ${o.park}
+
+[METİN]
+{MAKİNE ADI} => ${o.name}
+
+[CYCLE800]
+// döner eksen veri kaydı (_TC) · DIR: _DIR değeri (+1 / -1)
+{VERİ KAYDI} = "${o.record}"
+DIR = ${o.dir}
+`;
+  const ISO_TPL = ['EKSENLER', 'BAŞLANGIÇ', 'TAKIM DEĞİŞTİRME', 'İŞ PARÇASI SIFIRI', 'ARA DÖNÜŞ', 'PROGRAM SONU', 'DELİK MESAJI', 'EĞİK DÜZLEM', 'EĞİK DÜZLEM İPTALİ', 'MAKRO *', 'ALT PROGRAM'];
+  const HERMLE_TOOL_ONLY = '[TAKIM DEĞİŞTİRME]\n// T.. M06 — {T}: takım numarası · önce [TAKIM DEĞİŞTİRME ÖNCESİ] yazılır\nT{T} ;(* SEARCH SATIRI *)\nM06\nD1\n';
+  const MACHINE_RULES = {
+    'm-variaxis': {
+      okuma: `// Okuma: bu makinenin kodu = {KONU} (hedef makinenin Yazma kurallarındaki karşılığı) · düz kod olduğu gibi yazılır · boş: silinir
+
+[M KODLARI]
+// M43 / M46 eksen kilidi açma, M44 / M47 kilitleme · M8 soğutma (3R başlıkla içten de)
+M0 = {DURDUR}
+M43 = {EKSEN KİLİDİ AÇ}
+M44 = {EKSEN KİLİTLE}
+M46 = {EKSEN KİLİDİ AÇ}
+M47 = {EKSEN KİLİTLE}
+M8 = {SOĞUTMA DIŞ} | {SOĞUTMA İÇ}
+M9 = {SOĞUTMA KAPAT}
+
+[G KODLARI]
+G61.1 = {YÜKSEK HIZ}
+G5 = {YÜKSEK HIZ}
+G5.1 = {YÜKSEK HIZ İPTALİ}
+G49 =
+G67 =
+G20 = {İNÇ}
+G21 = {METRİK}
+
+[METİN]
+// yorumlarda: aranan => {KONU} ya da yeni metin · yeni boşsa yorum silinir
+MAZAK - VARI-AXIS I700-I800 => {MAKİNE ADI}
+_MAIN *) =>
+LOKASYON ISLENECEK =>
+
+` + pickSections(DEFAULT_RULES, ['R PARAMETRELERİ']) + '\n',
+      yazma: `// Yazma: {KONU} = bu makinenin kodu · | : alt alta satırlar · boş: silinir
+
+[M KODLARI]
+{SOĞUTMA DIŞ} = M8
+{SOĞUTMA İÇ} =
+{SOĞUTMA KAPAT} = M9
+{EKSEN KİLİTLE} = M47 M44
+{EKSEN KİLİDİ AÇ} = M46 M43
+
+[G KODLARI]
+{İNÇ} = G20
+{METRİK} = G21
+{İŞ SIFIRI 1} = G54.1 P1
+
+[KOMUTLAR]
+{GÜVENLİ PARK} = G91 G28 Z0. | G90
+{İPTAL ALT PROGRAMI} = G69 (* IPTAL *)
+{ÖN OKUMA DURDUR} =
+{ÖTELEME İPTALİ} =
+{TCP KAPAT} = G49
+{TCP AÇ} = G43.4 (!! KONTROL: 5 eksen dönüşümü)
+{ÇAP PROGRAMLAMA KAPALI} =
+
+[METİN]
+{MAKİNE ADI} => MAZAK - VARI-AXIS I700-I800
+-should be smaller from tool rad. =>
+-for Radius measurement =>
+
+` + ruleSections(HERMLE_TO_VARIAXIS).filter(x => !TOPIC_SECTIONS.concat(['TAKIM VERİSİ']).some(t => sectionKey(t) === sectionKey(x.name))).map(sectionText).join('\n\n') + '\n',
+      ortak: pickSections(DEFAULT_RULES, ['TAKIM VERİSİ']) + '\n'
+    },
+    'm-hermle-c52': {
+      okuma: SIE_READ('HERMLE', 'HERMLE  VARI-AXIS', {}),
+      yazma: SIE_WRITE({ tsc: 'M51', park: 'L_M54', name: 'HERMLE  VARI-AXIS', record: 'HERMLE', dir: '-1' }) + '\n' +
+        pickSections(DEFAULT_RULES, ISO_TPL).replace(/\[TAKIM DEĞİŞTİRME\]\n[^]*?(?=\n\[)/, HERMLE_TOOL_ONLY.trim()) + '\n\n' + HERMLE_TOOL_PRE,
+      ortak: ''
+    },
+    'm-dmg-duoblock': {
+      okuma: SIE_READ('TC1', 'DMG DUOBLOCK', { m8: ' | {SOĞUTMA İÇ}', cmds: '// L_FREI DMG\'ye özel (L_M54\'ten önce)\nL_FREI =\n' }),
+      yazma: SIE_WRITE({ park: 'L_FREI | L_M54', name: 'DMG DUOBLOCK', record: 'TC1', dir: '1' }) + '\n' + pickSections(VARIAXIS_TO_DMG, ISO_TPL) + '\n',
+      ortak: ''
+    },
+    'm-dmg-duoblock-mp': {
+      okuma: SIE_READ('TC1', 'DMG DUOBLOCK', { m: '// MillPlus: M10 eksen kilitle, M11 kilit aç · M825 hassasiyet seviyesi · M140–M149 makineye özel (yazılmaz) · M7 içten soğutma\nM10 = {EKSEN KİLİTLE}\nM11 = {EKSEN KİLİDİ AÇ}\nM825 =\n' + Array.from({ length: 10 }, (x, k) => `M14${k} =\n`).join('') + 'M7 = {SOĞUTMA İÇ}\n', cmds: 'L_FREI =\n' })
+        .replace('// Okuma: bu makinenin kodu', '// Okuma: MillPlus önce 840D\'ye çevrilir (MILLPLUS bölümleri, Ortak\'ta); buradaki kodlar o 840D satırlarındakiler · bu makinenin kodu'),
+      yazma: SIE_WRITE({ tsc: 'M7', lock: 'M10', unlock: 'M11', park: 'L_FREI | L_M54', name: 'DMG DUOBLOCK', record: 'TC1', dir: '1' })
+        .replace('// Yazma: {KONU}', '// Yazma: MillPlus 840D üzerinden yazılır: aşağıdakiler o 840D satırları (MILLPLUS bölümleri, Ortak\'ta) · {KONU}') + '\n' + pickSections(VARIAXIS_TO_DMGMP, ISO_TPL) + '\n',
+      ortak: MP_COMMON.trim() + '\n'
+    }
+  };
+  const machineRulesOf = id => MACHINE_RULES[id] || null;
+
   // the built-in rules of a machine pair, or the generic ones of its controls
-  function pairRules(srcMachine, tgtMachine) {
+  // the rules of a pair of built-in machines are put together from their machine rules (rulesOf(id):
+  // the user's {okuma, yazma, ortak}, else MACHINE_RULES); id: the pair's old built-in id (saved edits of the
+  // whole pair text from before, see the page)
+  function pairRules(srcMachine, tgtMachine, rulesOf) {
     const own = PROFILES.find(p => p.src && p.src === srcMachine.id && p.tgt === tgtMachine.id);
+    const get = id => (rulesOf && rulesOf(id)) || MACHINE_RULES[id];
+    if (own && get(srcMachine.id) && get(tgtMachine.id)) {
+      return { id: own.id, rules: composeRules(Object.assign({ name: srcMachine.name }, get(srcMachine.id)), Object.assign({ name: tgtMachine.name }, get(tgtMachine.id))), builtin: true, composed: true };
+    }
     if (own) return { id: own.id, rules: own.rules, builtin: true };
     const s = controlOf(srcMachine.control), t = controlOf(tgtMachine.control);
     return { id: null, rules: genericRules(s.source, t.target), builtin: false };
@@ -8770,19 +9034,21 @@ SON = M17
 
       // ---- tool change ----
       if (has(ws, 'M', 6)) st.toolChanges++;
+      // the target's lines before every tool change ([TAKIM DEĞİŞTİRME ÖNCESİ]) and the tool change itself
+      const toolTpl = (R.toolPre || []).concat(R.tool);
       if (has(ws, 'M', 6) && R.tool.length) {
         const tW = get(ws, 'T');
         const T = tW ? tW.raw : st.tool;
         const tVal = T == null ? null : /^[-+]?[\d.]+$/.test(T) ? String(parseFloat(T)) : T;
         const rest = ws.filter(w => !(w.letter === 'M' && w.value === 6) && w.letter !== 'T');
         if (rest.length) emit(i, joinWords(rest), 'changed', '');
-        emitTpl(i, R.tool, { T: tVal, BIRIM: SIE ? sieUnit : null, G: SIE ? st.work || firstWork : null });
+        emitTpl(i, toolTpl, { T: tVal, BIRIM: SIE ? sieUnit : null, G: SIE ? st.work || firstWork : null });
         // the template's own CYCLE800() / ROT / TRAFOOF leave no plane, turn or TCP on
-        if (R.tool.some(l => /^\s*CYCLE800\(\s*\)/i.test(l))) st.plane = null;
-        if (R.tool.some(l => /^\s*ROT\s*$/i.test(l))) st.arot = false;
-        if (R.tool.some(l => /^\s*TRAFOOF\b/i.test(l))) st.traori = false;
-        if (R.tool.some(l => /\bG90\b/.test(l))) st.outAbs = true;
-        if (R.tool.some(l => /\bG91\b/.test(l))) st.outAbs = false;
+        if (toolTpl.some(l => /^\s*CYCLE800\(\s*\)/i.test(l))) st.plane = null;
+        if (toolTpl.some(l => /^\s*ROT\s*$/i.test(l))) st.arot = false;
+        if (toolTpl.some(l => /^\s*TRAFOOF\b/i.test(l))) st.traori = false;
+        if (toolTpl.some(l => /\bG90\b/.test(l))) st.outAbs = true;
+        if (toolTpl.some(l => /\bG91\b/.test(l))) st.outAbs = false;
         if (comments.length) emit(i, withComments('', comments), 'changed');
         st.tool = T; forget();
         continue;
@@ -11916,7 +12182,7 @@ SON = M17
     return { programs: out, missing, rules, target, route };
   }
 
-  return { PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_M140, MP_HERMLE_LINES, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
+  return { MACHINE_RULES, machineRulesOf, composeRules, ruleSections, TOPIC_SECTIONS, topicDefs, resolveTopicLine, sectionKey, PLAIN_TOOL, HERMLE_TOOL, HERMLE_TOOL_PRE, MP_M_TO_MAZAK, MP_M_TO_SIE, MP_M140, MP_HERMLE_LINES, MP_TSC_TO_HERMLE, MAZAK_CLAMP_TO_MP, SOURCES, TARGETS, CONTROLS, MACHINES, BLANK_MACHINE_DEF, PROFILES, DEFAULT_RULES, KIN_HELP, routeOf, targetsFor, machineRoute, controlOf, pairRules, machineKin, genericRules, parseRules, convertProgram, convertFromSiemens, convertSet, lineText };
 })();
 
 /* ================= Tool: Program Dönüştürücü ================= */
@@ -11960,7 +12226,7 @@ SON = M17
     if (old) { raw1 = raw1 || { overrides: {} }; raw1.overrides = raw1.overrides || {}; if (!raw1.overrides['hermle-c52']) raw1.overrides['hermle-c52'] = old; localStorage.removeItem('toolbox.convRules'); }
   } catch (e) { /* storage off or unreadable: start fresh */ }
   if (raw1) store = Object.assign(store, raw1);
-  ['overrides', 'pairs', 'machineOverrides'].forEach(k => { if (!store[k] || typeof store[k] !== 'object') store[k] = {}; });
+  ['overrides', 'pairs', 'machineOverrides', 'machineRules'].forEach(k => { if (!store[k] || typeof store[k] !== 'object') store[k] = {}; });
   if (!Array.isArray(store.machines)) store.machines = [];
   if (!store.selected || typeof store.selected !== 'object') store.selected = {};
   function saveStore() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* storage off */ } }
@@ -12093,14 +12359,34 @@ SON = M17
   const machineById = id => machines().find(m => m.id === id);
   const label = m => `${m.name} · ${ctlName(m.control)}`;
   const pairKey = () => srcMachSel7.value + '|' + tgtMachSel7.value;
-  // the pair's rules: built-in pair (and its override), else the user's, else the controls' generic ones
+  // a built-in machine's rules: reading (okuma), writing (yazma), common (ortak) — the user's edit of a part, else the default
+  const RULE_PARTS = ['okuma', 'yazma', 'ortak'];
+  function rulesOf(id) {
+    const d = PC.machineRulesOf(id);
+    if (!d) return null;
+    const o = store.machineRules[id] || {};
+    const r = {};
+    RULE_PARTS.forEach(k => { r[k] = o[k] != null ? o[k] : d[k]; });
+    return r;
+  }
+  function setRulePart(id, part, text) {
+    const d = PC.machineRulesOf(id);
+    if (!d) return;
+    const o = store.machineRules[id] = store.machineRules[id] || {};
+    if (text === d[part]) delete o[part]; else o[part] = text;
+    if (!Object.keys(o).length) delete store.machineRules[id];
+    saveStore();
+  }
+  // the pair's rules: put together from the two machines' rules (a whole pair text saved before wins),
+  // else the user's pair text, else the controls' generic ones
   function pairInfo() {
     const s = machineById(srcMachSel7.value), t = machineById(tgtMachSel7.value);
     if (!s || !t) return null;
-    const base = PC.pairRules(s, t);
+    const base = PC.pairRules(s, t, rulesOf);
     const def = base.rules;
-    const rules = base.builtin ? (store.overrides[base.id] != null ? store.overrides[base.id] : def) : (store.pairs[pairKey()] != null ? store.pairs[pairKey()] : def);
-    return { s, t, id: base.id, builtin: base.builtin, def, rules };
+    const legacy = base.builtin && store.overrides[base.id] != null;
+    const rules = base.builtin ? (legacy ? store.overrides[base.id] : def) : (store.pairs[pairKey()] != null ? store.pairs[pairKey()] : def);
+    return { s, t, id: base.id, builtin: base.builtin, composed: !!base.composed && !legacy, legacy, def, rules };
   }
 
   function fillMachineSelects() {
@@ -12129,16 +12415,212 @@ SON = M17
     const p = pairInfo();
     store.selected = Object.assign(store.selected, { src: srcMachSel7.value, tgt: tgtMachSel7.value });
     saveStore();
-    rulesText7.value = p ? p.rules : '';
     rulesFor7.textContent = p ? `${p.s.name} → ${p.t.name}` : '—';
-    updateRulesState();
+    renderRules();
     $('convHeadA7').textContent = p ? label(p.s) : '';
     $('convHeadB7').textContent = p ? label(p.t) : '';
     convertBtn7.disabled = !p;
   }
   function updateRulesState() {
     const p = pairInfo();
-    rulesState7.textContent = !p ? '' : rulesText7.value !== p.def ? 'Varsayılandan farklı' : p.builtin ? '' : 'Genel kurallar';
+    const own = p && p.composed && [p.s.id, p.t.id].some(id => store.machineRules[id]);
+    rulesState7.textContent = !p ? '' : p.legacy ? 'Eski tek parça kurallar' : own ? 'Varsayılandan farklı' : !p.composed && p.rules !== p.def ? 'Varsayılandan farklı' : p.builtin ? '' : 'Genel kurallar';
+  }
+
+  /* ---- the rules of the pair: by topic, and each machine's reading / writing / common text ----
+     Konular: what the source reads → what the target writes, topic by topic, editable in place
+     (a reading line: code = {KONU}; a writing line: {KONU} = code; templates whole); 🔒: done in
+     code. The other tabs are the whole texts; Birleşik: the pair's rules made from them. */
+  const TOPICS7 = [
+    { name: 'Programın başı', secs: ['BAŞLANGIÇ'], fixed: { mazak: "İlk takımdan önceki G28 referans bloğu [BAŞLANGIÇ] ile değişir", millplus: '%PM ve N9999 silinir' } },
+    { name: 'Takım değişimi', secs: ['TAKIM DEĞİŞTİRME ÖNCESİ', 'TAKIM DEĞİŞTİRME', 'MILLPLUS TAKIM DEĞİŞTİRME', 'TAKIM NUMARALARI'], fixed: { millplus: 'T.. M=E53 (önündeki G17 M55, E53=6 ile) takım değişimi olarak okunur · tek başına T3 (sıradaki takım) silinir', out840d: 'T ve M6 iki satır yazılır; [TAKIM DEĞİŞTİRME ÖNCESİ] T satırından önce' } },
+    { name: 'İş parçası sıfırı', secs: ['İŞ PARÇASI SIFIRI'], tokens: ['İŞ SIFIRI 1'], fixed: { mazak: 'G54.1 P1…P4 → G54…G57 · P5 ve sonrası → G505…', millplus: 'G54 I1…I4 → G54…G57 · I5 ve sonrası → G505…' } },
+    { name: 'Birim (inç / metrik)', tokens: ['İNÇ', 'METRİK'] },
+    { name: 'Takım ölçümü', secs: ['MAKRO*', 'ÇAĞRI SUB*'], fixed: { millplus: 'G23 N=… N5="\\blum\\" → CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB…_SPF", ardından L_M54 · G327 / G29 kırık takım kontrolü silinir' } },
+    { name: 'Eğik düzlem', secs: ['EĞİK DÜZLEM', 'EĞİK DÜZLEM GERİ ÇEKME'], tokens: ['VERİ KAYDI'], extra: ['CYCLE800'], fixed: { mazak: 'G68.2 açıları makinelerin kinematiğine göre döner eksen konumuna çevrilir', millplus: 'G7 A5 B5 C5 L1=1 → CYCLE800 (_MODE 27) · M53 (kafa yatay) → CYCLE800 192 + G17, sonraki X/Y/Z düzleme göre · G18 yazılmaz', siemens840d: 'CYCLE800 doğrudan mod (192) eksen konumları kinematiğe göre' } },
+    { name: 'Eğik düzlem iptali', secs: ['EĞİK DÜZLEM İPTALİ'], fixed: { millplus: 'G7 L1=1 (açısız), M55, takım değişimi → CYCLE800()' } },
+    { name: 'Eşzamanlı işleme (TCP)', tokens: ['TCP AÇ', 'TCP KAPAT'], fixed: { mazak: 'G43.4 → TRAORI · G49 → TRAFOOF', millplus: "G141 → TRAORI · G141'den sonraki G40 → TRAFOOF" } },
+    { name: 'Döner eksenler', secs: ['EKSENLER'], tokens: ['EKSEN KİLİTLE', 'EKSEN KİLİDİ AÇ'], fixed: { all: 'B/C ↔ A/C hareketleri makinelerin kinematiğine göre (Makineler ve kinematik)', millplus: "C sürekli okunur: 180°'den uzun dönüş C=ACP / ACN / IC ile" } },
+    { name: 'Soğutma', tokens: ['SOĞUTMA DIŞ', 'SOĞUTMA İÇ', 'SOĞUTMA KAPAT'] },
+    { name: 'Yüksek hız', secs: ['YÜKSEK HIZ', 'YÜKSEK HIZ İPTALİ'], tokens: ['YÜKSEK HIZ', 'YÜKSEK HIZ İPTALİ'] },
+    { name: 'Güvenli konum ve park', secs: ['SABİT NOKTA', 'ARA DÖNÜŞ', 'MILLPLUS'], tokens: ['GÜVENLİ PARK'], fixed: { millplus: "ITEM SONU: sonraki ITEM başka düzlemdeyse L_M54 · L_M54'ten sonra açık düzlem ve son konum yeniden yazılır" } },
+    { name: 'Delme döngüleri', secs: ['DELİK MESAJI'], fixed: { mazak: 'G73, G76, G81–G89 → MCALL CYCLE8x', millplus: 'G81–G85 tanımı + G79 (C ile) / G78 noktaları → CYCLE8x' } },
+    { name: 'Değişkenler ve atlamalar', secs: ['R PARAMETRELERİ', 'E PARAMETRELERİ'], fixed: { mazak: 'IF / GOTO / WHILE → IF … GOTOF / GOTOB, WHILE', millplus: 'G29 → IF … GOTOF / GOTOB · G14 → REPEAT' } },
+    { name: 'Alt programlar', secs: ['ALT PROGRAM', 'ALT PROGRAM NUMARALARI'] },
+    { name: 'Takım verisi', secs: ['TAKIM VERİSİ'], fixed: { millplus: 'G149 / G321 / G331 → $P_TOOLNO, $TC_DPn' } },
+    { name: 'Programın sonu', secs: ['PROGRAM SONU'], tokens: ['İPTAL ALT PROGRAMI'] },
+    { name: 'Metin (yorumlar)', tokens: ['MAKİNE ADI'], extra: ['METİN'] },
+    { name: 'Diğer M / G kodları ve komutlar', tokens: ['DURDUR', 'ÖN OKUMA DURDUR', 'ÖTELEME İPTALİ', 'ÇAP PROGRAMLAMA KAPALI'], rest: true, fixed: { millplus: 'G25 / G26 (G26 KONTROL ile), G354, M55 yazılmaz' } }
+  ];
+  const K7 = PC.sectionKey;
+  const ISO_ONLY7 = ['BAŞLANGIÇ', 'TAKIM DEĞİŞTİRME', 'İŞ PARÇASI SIFIRI', 'ARA DÖNÜŞ', 'PROGRAM SONU', 'DELİK MESAJI', 'EĞİK DÜZLEM', 'EĞİK DÜZLEM İPTALİ', 'MAKRO*', 'ALT PROGRAM', 'EKSENLER'];
+  const secMatch = (pat, name) => (pat.endsWith('*') ? K7(name).startsWith(K7(pat.slice(0, -1))) : K7(name) === K7(pat));
+  const topicOfToken = tok => TOPICS7.find(t => (t.tokens || []).some(x => K7(x) === K7(tok))) || TOPICS7[TOPICS7.length - 1];
+  const topicOfSec = name => TOPICS7.find(t => (t.secs || []).some(x => secMatch(x, name))) || TOPICS7[TOPICS7.length - 1];
+  // a text's lines with the section each stands in: [{sec, text, k (line number)}] and its sections' line ranges
+  function textLines(text) {
+    const out = [], secs = [];
+    let sec = null;
+    String(text).split('\n').forEach((l, k) => {
+      const h = l.match(/^\s*\[([^\]]+)\]/);
+      if (h) { sec = { name: h[1].trim(), head: k, from: k + 1, to: k + 1 }; secs.push(sec); return; }
+      if (sec) { out.push({ sec: sec.name, text: l, k }); if (l.trim()) sec.to = k + 1; }
+    });
+    return { lines: out, secs };
+  }
+  const isTopicSec7 = name => PC.TOPIC_SECTIONS.some(t => K7(t) === K7(name));
+  let rulesTab = 'konular';
+  function renderRules() {
+    const p = pairInfo();
+    $('legacyNote7').style.display = p && p.legacy ? 'flex' : 'none';
+    const tabs = [];
+    if (p && p.composed) {
+      tabs.push(['konular', 'Konular'], ['okuma', 'Okuma — ' + p.s.name], ['yazma', 'Yazma — ' + p.t.name]);
+      if (rulesOf(p.s.id).ortak.trim()) tabs.push(['ortak-s', 'Ortak — ' + p.s.name]);
+      if (p.t.id !== p.s.id && rulesOf(p.t.id).ortak.trim()) tabs.push(['ortak-t', 'Ortak — ' + p.t.name]);
+      tabs.push(['birlesik', 'Birleşik']);
+    } else tabs.push(['birlesik', 'Kurallar']);
+    if (!tabs.some(t => t[0] === rulesTab)) rulesTab = tabs[0][0];
+    const box = $('rulesTabs7');
+    box.innerHTML = '';
+    tabs.forEach(([id, name]) => {
+      const b = document.createElement('button');
+      b.className = 'seg-btn' + (id === rulesTab ? ' active' : '');
+      b.textContent = name;
+      b.addEventListener('click', () => { rulesTab = id; renderRules(); });
+      box.appendChild(b);
+    });
+    const hints = {
+      konular: 'Okuma: kaynak makinenin kodu = {KONU} · Yazma: {KONU} = hedef makinenin kodu (boş: silinir, satır yoksa kod olduğu gibi kalır) · 🔒 kodda yapılır',
+      okuma: p ? `${p.s.name} kaynak olduğunda — bütün hedef makinelerde kullanılır` : '',
+      yazma: p ? `${p.t.name} hedef olduğunda — bütün kaynak makinelerden gelen programlarda kullanılır` : '',
+      'ortak-s': p ? `${p.s.name} dilinin iki yönde de kullanılan bölümleri` : '',
+      'ortak-t': p ? `${p.t.name} dilinin iki yönde de kullanılan bölümleri` : '',
+      birlesik: p && p.composed ? 'Bu çiftin kullanılan kuralları — okuma, yazma ve ortak kurallardan oluşturulur; burada değiştirilmez' : ''
+    };
+    $('rulesHint7').textContent = hints[rulesTab] || '';
+    const tv = $('topicView7');
+    if (rulesTab === 'konular' && p) { rulesText7.style.display = 'none'; tv.style.display = ''; renderTopics(p); }
+    else {
+      tv.style.display = 'none'; tv.innerHTML = '';
+      rulesText7.style.display = '';
+      const part = partOfTab(p);
+      rulesText7.value = part ? rulesOf(part.id)[part.part] : p ? p.rules : '';
+      rulesText7.readOnly = !!(p && p.composed && rulesTab === 'birlesik');
+    }
+    rulesResetBtn7.disabled = !!(p && p.composed && rulesTab === 'birlesik');
+    updateRulesState();
+  }
+  // the machine text the open tab edits: {id, part} (null: the pair's own text)
+  function partOfTab(p) {
+    if (!p || !p.composed) return null;
+    return { okuma: { id: p.s.id, part: 'okuma' }, yazma: { id: p.t.id, part: 'yazma' }, 'ortak-s': { id: p.s.id, part: 'ortak' }, 'ortak-t': { id: p.t.id, part: 'ortak' } }[rulesTab] || null;
+  }
+  function renderTopics(p) {
+    const S = rulesOf(p.s.id), T = rulesOf(p.t.id);
+    const defs = PC.topicDefs(T.yazma);
+    const sCtl = PC.controlOf(p.s.control).source, tCtl = PC.controlOf(p.t.control).target;
+    const groups = new Map(TOPICS7.map(t => [t, { read: [], write: [], tpl: [] }]));
+    // reading lines of the topic sections
+    textLines(S.okuma).lines.forEach(x => {
+      if (!isTopicSec7(x.sec) || !x.text.trim() || /^\s*\/\//.test(x.text)) return;
+      const r = PC.resolveTopicLine(x.sec, x.text, defs);
+      if (!r) return;
+      const t = r.topics && r.topics.length ? topicOfToken(r.topics[0]) : K7(x.sec) === K7('METİN') ? TOPICS7.find(z => z.name.startsWith('Metin')) : K7(x.sec) === K7('CYCLE800') ? TOPICS7.find(z => z.name === 'Eğik düzlem') : TOPICS7[TOPICS7.length - 1];
+      groups.get(t).read.push(Object.assign({ r }, x));
+    });
+    // writing lines: {KONU} = code, and the target's own plain lines
+    textLines(T.yazma).lines.forEach(x => {
+      if (!isTopicSec7(x.sec) || !x.text.trim() || /^\s*\/\//.test(x.text)) return;
+      const d = x.text.match(/^\s*\{([^}]+)\}\s*(=>|=)\s*(.*?)\s*$/);
+      const t = d ? topicOfToken(d[1]) : K7(x.sec) === K7('METİN') ? TOPICS7.find(z => z.name.startsWith('Metin')) : K7(x.sec) === K7('CYCLE800') ? TOPICS7.find(z => z.name === 'Eğik düzlem') : TOPICS7[TOPICS7.length - 1];
+      groups.get(t).write.push(Object.assign({ d }, x));
+    });
+    // template sections, with the text they stand in
+    [['okuma', p.s, S.okuma], ['ortak', p.s, S.ortak], ['ortak', p.t, p.t.id === p.s.id ? '' : T.ortak], ['yazma', p.t, T.yazma]].forEach(([part, m, text]) => {
+      const tl = textLines(text);
+      tl.secs.forEach(sec => {
+        if (isTopicSec7(sec.name)) return;
+        groups.get(topicOfSec(sec.name)).tpl.push({ part, m, sec, body: tl.lines.filter(x => x.k >= sec.from && x.k < sec.to).map(x => x.text).join('\n') });
+      });
+    });
+    const tv = $('topicView7');
+    tv.innerHTML = '';
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const partName = (part, m) => ({ okuma: 'Okuma', yazma: 'Yazma', ortak: 'Ortak' })[part] + ' — ' + m.name;
+    TOPICS7.forEach(t => {
+      const g = groups.get(t);
+      const fixed = [];
+      const f = t.fixed || {};
+      if (f.all) fixed.push(f.all);
+      if (f[sCtl]) fixed.push(`${p.s.name}: ${f[sCtl]}`);
+      if (f.out840d && sCtl !== 'mazak' && (tCtl === 'siemens840d' || tCtl === 'millplus')) fixed.push(`${p.t.name}: ${f.out840d}`);
+      if (!g.read.length && !g.write.length && !g.tpl.length && !fixed.length) return;
+      const card = el('div', 'topic-card');
+      card.appendChild(el('h4', '', t.name));
+      if (g.read.length) {
+        card.appendChild(el('div', 'topic-sub', `Okuma — ${p.s.name} (kod = {KONU})  →  ${p.t.name}'de`));
+        g.read.forEach(x => {
+          const row = el('div', 'topic-row');
+          const inp = el('input');
+          inp.value = x.text.trim();
+          inp.title = `[${x.sec}]`;
+          inp.addEventListener('change', () => editLine(p.s.id, 'okuma', x.k, inp.value));
+          const r = x.r;
+          const out = r.plain ? el('div', 'topic-out same', 'olduğu gibi') : r.out === null ? el('div', 'topic-out same', 'olduğu gibi (hedef bu konuyu yazmıyor)') : r.out.length ? el('div', 'topic-out', r.out.join(K7(x.sec) === K7('METİN') ? ' ' : '  ·  ')) : el('div', 'topic-out same', 'silinir');
+          row.append(inp, el('div', 'arrow', '→'), out);
+          card.appendChild(row);
+        });
+      }
+      if (g.write.length) {
+        card.appendChild(el('div', 'topic-sub', `Yazma — ${p.t.name} ({KONU} = kod)`));
+        g.write.forEach(x => {
+          const row = el('div', 'topic-row');
+          const inp = el('input');
+          if (x.d) {
+            inp.value = x.d[3];
+            inp.placeholder = 'boş: silinir';
+            inp.addEventListener('change', () => editLine(p.t.id, 'yazma', x.k, `{${x.d[1]}} ${x.d[2]}${inp.value.trim() ? ' ' + inp.value.trim() : ''}`));
+            row.append(el('div', 'topic-out', `{${x.d[1]}}`), el('div', 'arrow', x.d[2]), inp);
+          } else {
+            inp.value = x.text.trim();
+            inp.addEventListener('change', () => editLine(p.t.id, 'yazma', x.k, inp.value));
+            row.append(inp, el('div', 'arrow', ''), el('div', 'topic-out same', `[${x.sec}]`));
+          }
+          card.appendChild(row);
+        });
+      }
+      const at = x => (t.secs || []).findIndex(z => secMatch(z, x.sec.name));
+      g.tpl.sort((a, b) => at(a) - at(b)).forEach(x => {
+        // a Mazak / Fanuc program's templates: the 840D and MillPlus sources don't use them yet
+        const isoOnly = sCtl !== 'mazak' && sCtl !== 'fanuc' && x.part === 'yazma' && tCtl !== 'mazak' && ISO_ONLY7.some(z => secMatch(z, x.sec.name));
+        card.appendChild(el('div', 'topic-sub', `[${x.sec.name}] — ${partName(x.part, x.m)}${isoOnly ? ' · yalnız Mazak programlarında kullanılır' : ''}`));
+        const ta = el('textarea', 'topic-tpl');
+        ta.spellcheck = false;
+        ta.value = x.body;
+        ta.rows = Math.min(14, Math.max(2, x.body.split('\n').length));
+        ta.addEventListener('change', () => editRange(x.m.id, x.part, x.sec.from, x.sec.to, ta.value));
+        card.appendChild(ta);
+      });
+      fixed.forEach(txt => card.appendChild(el('div', 'topic-fixed', txt)));
+      tv.appendChild(card);
+    });
+  }
+  let rulesTimer = null;
+  const rulesChanged = () => { updateRulesState(); clearTimeout(rulesTimer); if (result) rulesTimer = setTimeout(run, 400); };
+  function editLine(id, part, k, text) {
+    const lines = rulesOf(id)[part].split('\n');
+    lines[k] = text;
+    setRulePart(id, part, lines.join('\n'));
+    renderRules();
+    rulesChanged();
+  }
+  function editRange(id, part, from, to, text) {
+    const lines = rulesOf(id)[part].split('\n');
+    lines.splice(from, to - from, ...text.replace(/\s+$/, '').split('\n'));
+    setRulePart(id, part, lines.join('\n'));
+    renderRules();
+    rulesChanged();
   }
   function showMachineEditor() {
     const m = machineById(machEditSel7.value);
@@ -12171,22 +12653,42 @@ SON = M17
   });
   machEditSel7.addEventListener('change', () => { showMachineEditor(); saveStore(); });
 
-  let rulesTimer = null;
   rulesText7.addEventListener('input', () => {
     const p = pairInfo();
-    if (!p) return;
-    if (p.builtin) { if (rulesText7.value === p.def) delete store.overrides[p.id]; else store.overrides[p.id] = rulesText7.value; }
-    else { if (rulesText7.value === p.def) delete store.pairs[pairKey()]; else store.pairs[pairKey()] = rulesText7.value; }
-    saveStore();
-    updateRulesState();
-    clearTimeout(rulesTimer);
-    if (result) rulesTimer = setTimeout(run, 400);
+    if (!p || rulesText7.readOnly) return;
+    const part = partOfTab(p);
+    if (part) setRulePart(part.id, part.part, rulesText7.value);
+    else if (p.builtin) { if (rulesText7.value === p.def) delete store.overrides[p.id]; else store.overrides[p.id] = rulesText7.value; saveStore(); }
+    else { if (rulesText7.value === p.def) delete store.pairs[pairKey()]; else store.pairs[pairKey()] = rulesText7.value; saveStore(); }
+    rulesChanged();
   });
   rulesResetBtn7.addEventListener('click', () => {
     const p = pairInfo();
-    if (!p || rulesText7.value === p.def) return;
-    if (!confirm(`"${p.s.name} → ${p.t.name}" kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
-    if (p.builtin) delete store.overrides[p.id]; else delete store.pairs[pairKey()];
+    if (!p) return;
+    const part = partOfTab(p);
+    if (p.composed && rulesTab === 'konular') {
+      if (![p.s.id, p.t.id].some(id => store.machineRules[id])) return;
+      if (!confirm(`${p.s.name} okuma, ${p.t.name} yazma ve ortak kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
+      [[p.s.id, 'okuma'], [p.s.id, 'ortak'], [p.t.id, 'yazma'], [p.t.id, 'ortak']].forEach(([id, k]) => setRulePart(id, k, PC.machineRulesOf(id)[k]));
+    } else if (part) {
+      const name = machineById(part.id).name + ' ' + ({ okuma: 'okuma', yazma: 'yazma', ortak: 'ortak' })[part.part];
+      if (rulesOf(part.id)[part.part] === PC.machineRulesOf(part.id)[part.part]) return;
+      if (!confirm(`${name} kuralları varsayılana dönsün mü? Bu makineyi kullanan bütün dönüşümler etkilenir.`)) return;
+      setRulePart(part.id, part.part, PC.machineRulesOf(part.id)[part.part]);
+    } else {
+      if (p.rules === p.def) return;
+      if (!confirm(`"${p.s.name} → ${p.t.name}" kuralları varsayılana dönsün mü? Yaptığınız değişiklikler silinir.`)) return;
+      if (p.builtin) delete store.overrides[p.id]; else delete store.pairs[pairKey()];
+      saveStore();
+    }
+    showPair();
+    if (result) run();
+  });
+  $('legacyDropBtn7').addEventListener('click', () => {
+    const p = pairInfo();
+    if (!p || !p.legacy) return;
+    if (!confirm(`"${p.s.name} → ${p.t.name}" için kaydedilmiş tek parça kurallar silinsin mi? Bundan sonra ${p.s.name} okuma ve ${p.t.name} yazma kuralları kullanılır.`)) return;
+    delete store.overrides[p.id];
     saveStore();
     showPair();
     if (result) run();
@@ -12334,15 +12836,31 @@ SON = M17
   exportBtn7.addEventListener('click', () => {
     const p = pairInfo();
     if (!p) return;
+    if (p.composed) {
+      // both machines' reading / writing / common rules
+      const ms = [p.s, p.t].filter((m, k, a) => a.findIndex(x => x.id === m.id) === k).map(m => Object.assign({ id: m.id, name: m.name, control: m.control }, rulesOf(m.id)));
+      download(fileName(`${p.s.name} → ${p.t.name}`) + '.kurallar.json', new Blob([JSON.stringify({ format: 'toolbox-makine-kurallari', version: 1, machines: ms }, null, 2)], { type: 'application/json' }));
+      return;
+    }
     const data = { format: 'toolbox-kurallar', version: 1,
-      source: { name: p.s.name, control: p.s.control, def: p.s.def }, target: { name: p.t.name, control: p.t.control, def: p.t.def }, rules: rulesText7.value };
+      source: { name: p.s.name, control: p.s.control, def: p.s.def }, target: { name: p.t.name, control: p.t.control, def: p.t.def }, rules: p.rules };
     download(fileName(`${p.s.name} → ${p.t.name}`) + '.kurallar.json', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   });
   importBtn7.addEventListener('click', () => importInput7.click());
   importInput7.addEventListener('change', async () => {
     const data = await readJson(importInput7);
     if (!data) return;
-    if (data.format === 'toolbox-kurallar' && data.source && data.target && typeof data.rules === 'string') {
+    if (data.format === 'toolbox-makine-kurallari' && Array.isArray(data.machines)) {
+      let n = 0;
+      data.machines.forEach(m => {
+        const mm = PC.machineRulesOf(m.id) ? machineById(m.id) : machines().find(x => x.name === m.name && PC.machineRulesOf(x.id));
+        if (!mm) return;
+        RULE_PARTS.forEach(k => { if (typeof m[k] === 'string') setRulePart(mm.id, k, m[k]); });
+        n++;
+      });
+      if (!n) { alert('Dosyadaki makineler bu sayfada yok.'); return; }
+      showPair();
+    } else if (data.format === 'toolbox-kurallar' && data.source && data.target && typeof data.rules === 'string') {
       const s = machineFor(data.source), t = machineFor(data.target);
       if (!PC.machineRoute(s.control, t.control)) { alert('Bu iki kontrol arasında dönüşüm bu sürümde yok.'); return; }
       const base = PC.pairRules(s, t);
@@ -12417,7 +12935,7 @@ SON = M17
     result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
       sourceMachine: sm,
       targetMachine: tm,
-      rulesText: rulesText7.value,
+      rulesText: (pairInfo() || {}).rules,
       renumber: optRenum.checked,
       suppress: optSupp.checked,
       holeMsg: optHole.checked,
