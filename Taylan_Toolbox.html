@@ -10514,6 +10514,29 @@ SÜREKLİ
       else if (tc && tc !== '0' && R.c800.tc.size) flags.push(`veri kaydı "${tc}" CYCLE800 kuralında yok`);
       if (R.c800.dir != null && (args[13] || '').trim()) args[13] = R.c800.dir;
       const mode = evalExpr(args[3] || '', new Map());
+      // axis by axis (_MODE 27: Z, then Y, then X …) with plain angles: the target's own axis positions
+      // (direct mode, 192; not on the way to MillPlus, which writes G7's angles) — the program reads as the machine stands; a turn about the tool the axes
+      // can't give is written after it as AROT Z (half a turn: the plane's X / Y change sign instead)
+      if (mode != null && diff && opts.sieTpl && (Math.round(mode) & 0xC0) === 0 && [7, 8, 9].every(k => isNum(args[k] || '0'))) {
+        const md = Math.round(mode) & 0x3F, seq = [md % 4, (md >> 2) % 4, (md >> 4) % 4].map(d => ['', 'X', 'Y', 'Z'][d]);
+        if (seq.every(Boolean) && new Set(seq).size === 3) {
+          const ang = [7, 8, 9].map(k => parseFloat((args[k] || '0').trim() || '0'));
+          const r = kinSolve(tgtKin, turns(seq.map((ax, k) => [ax, ang[k]])));
+          const half = r && Math.abs(Math.abs(r.rest) - 180) <= 5e-5;
+          if (r) {
+            planes++;
+            args[3] = '192';
+            tgtKin.axes.forEach((a, k) => { if (k < 2) args[7 + k] = fmt(r.vals[a.name]); });
+            args[9] = '0';
+            if (half) {
+              flip = true;
+              [10, 11].forEach(k => { if ((args[k] || '').trim()) args[k] = negSie(args[k].trim()); });
+              flags.push('düzlem eksen eksen açılardan eksen konumlarına çevrildi, takım ekseni etrafında 180° dönük: düzlemdeki X / Y işaret değiştirdi — ilk denemede kontrol edin');
+            } else if (Math.abs(r.rest) > 5e-5) rest = r.rest;
+            return { args, flags, rest, flip };
+          }
+        }
+      }
       if (mode == null || (Math.round(mode) & 0xC0) !== 0xC0 || !diff) return { args, flags, rest };
       // direct mode: the source machine's axis positions → the plane → the target's positions
       planes++;
@@ -10624,6 +10647,8 @@ SÜREKLİ
         ls.forEach((l, k) => emit(i, k ? l : line(l, comment), 'changed'));
         return;
       }
+      // a tool change whose template turns the frame back (ROT): no AROT left to undo
+      if (st.arot && /(^|\s)M0?6(\s|$)/i.test(code) && (R.toolPre || []).concat(opts.sieTpl ? R.tool || [] : []).some(l => /^\s*ROT\s*$/i.test(l))) st.arot = 0;
       // CYCLE800
       const cm = code.match(/\bCYCLE800\s*\((.*)\)/i);
       if (cm) {
@@ -12577,7 +12602,7 @@ SÜREKLİ
     { name: 'İş parçası sıfırı', secs: ['İŞ PARÇASI SIFIRI'], tokens: ['İŞ SIFIRI 1'], fixed: { mazak: 'G54.1 P1…P4 → G54…G57 · P5 ve sonrası → G505…', millplus: 'G54 I1…I4 → G54…G57 · I5 ve sonrası → G505…' } },
     { name: 'Birim (inç / metrik)', tokens: ['İNÇ', 'METRİK'] },
     { name: 'Takım ölçümü', secs: ['MAKRO*', 'ÇAĞRI SUB*', 'MILLPLUS ÇAĞRI', 'MILLPLUS TAKIM ÖLÇÜMÜ'], fixed: { millplus: 'G327 sonucuna bakan G29 atlaması silinir (ölçüm her seferinde yapılır)' } },
-    { name: 'Eğik düzlem', secs: ['EĞİK DÜZLEM', 'EĞİK DÜZLEM GERİ ÇEKME', 'MILLPLUS EĞİK DÜZLEM', 'MILLPLUS KAFA YATAY'], tokens: ['VERİ KAYDI'], extra: ['CYCLE800'], fixed: { mazak: 'G68.2 açıları makinelerin kinematiğine göre döner eksen konumuna çevrilir', millplus: 'M53 kafa konumu kinematikten · M53 altında X/Y/Z düzleme göre çevrilir, C hareketleri olduğu gibi · M53 için yazılan G18 silinir', siemens840d: 'CYCLE800 doğrudan mod (192) eksen konumları kinematiğe göre' } },
+    { name: 'Eğik düzlem', secs: ['EĞİK DÜZLEM', 'EĞİK DÜZLEM GERİ ÇEKME', 'MILLPLUS EĞİK DÜZLEM', 'MILLPLUS KAFA YATAY'], tokens: ['VERİ KAYDI'], extra: ['CYCLE800'], fixed: { mazak: 'G68.2 açıları makinelerin kinematiğine göre döner eksen konumuna çevrilir', millplus: 'G7 açıları (eksen eksen, _MODE 27) hedefin döner eksen konumlarına (192) çevrilir, eksenlerin veremediği dönüş AROT Z ile · M53 kafa konumu kinematikten, altında X/Y/Z düzleme göre çevrilir, C hareketleri olduğu gibi · M53 için yazılan G18 silinir', siemens840d: 'CYCLE800 doğrudan mod (192) eksen konumları kinematiğe göre · eksen eksen (_MODE 27) açılar hedefin döner eksen konumlarına (192) çevrilir, kalan dönüş AROT Z ile' } },
     { name: 'Eğik düzlem iptali', secs: ['EĞİK DÜZLEM İPTALİ', 'MILLPLUS EĞİK DÜZLEM İPTALİ'], fixed: { millplus: 'M55, takım değişimi, G7, G17 / G19 ya da M30 M53 düzlemini CYCLE800() ile kapatır' } },
     { name: 'Eşzamanlı işleme (TCP)', secs: ['MILLPLUS TCP', 'MILLPLUS TCP İPTALİ'], tokens: ['TCP AÇ', 'TCP KAPAT'], fixed: { mazak: 'G43.4 → TRAORI · G49 → TRAFOOF' } },
     { name: 'Döner eksenler', secs: ['EKSENLER', 'MILLPLUS C EKSENİ'], tokens: ['EKSEN KİLİTLE', 'EKSEN KİLİDİ AÇ'], fixed: { all: 'B/C ↔ A/C hareketleri makinelerin kinematiğine göre (Makineler ve kinematik)' } },
