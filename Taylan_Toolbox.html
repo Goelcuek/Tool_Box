@@ -10763,6 +10763,49 @@ SÜREKLİ
       if (o.kind === 'same') o.kind = 'changed';
       out.splice(k + 1, 0, { text: 'M6', src: o.src, kind: 'added', flag: '' });
     }
+    // radius compensation on and off on a straight move: 840D refuses G41 / G42 / G40 on an arc (MillPlus
+    // takes it). One on an arc, or alone before one, goes to the nearest straight move with X / Y — on: the
+    // one before, off: the one after; with none (a plane, a tool change in between) it stays, told
+    if (opts.sieTpl) {
+      const codeOf = t => { let q = false; for (let k = 0; k < t.length; k++) { if (t[k] === '"') q = !q; else if (t[k] === ';' && !q) return t.slice(0, k); } return t; };
+      const motionAfter = [];
+      let mo = 0;
+      out.forEach((o, k) => { const m = codeOf(o.text).match(/(^|\s)G0?([0-3])(?=\s|$)/g); if (m) mo = +m[m.length - 1].trim().replace(/^G0?/i, ''); motionAfter[k] = mo; });
+      const moves = k => /(^|\s)[XY]\s*=?\s*[-+(.\dR]/i.test(codeOf(out[k].text).replace(/^\s*N\d+\s*/i, ''));
+      const wall = k => /CYCLE800|TRAORI|TRAFOOF|(^|\s)M0?6(\s|$)|TRANS|AROT|(^|\s)T\d/i.test(codeOf(out[k].text));
+      const arcAt = k => moves(k) && motionAfter[k] >= 2;
+      // the first move with X / Y from k on (dir +1) or back (dir -1); null at a wall
+      const nextMove = (k, dir) => { for (let j = k; j >= 0 && j < out.length; j += dir) { if (j !== k && wall(j)) return null; if (moves(j)) return j; } return null; };
+      const takeWord = (k, re) => {
+        const t = out[k].text, c = codeOf(t), rest = t.slice(c.length);
+        const m = c.match(re);
+        out[k].text = (c.replace(re, ' ').replace(/\s+/g, ' ').trim() + (rest ? ' ' + rest.trim() : '')).trim();
+        if (out[k].kind === 'same') out[k].kind = 'changed';
+        return m[0].trim();
+      };
+      const putWord = (k, w) => {
+        const t = out[k].text, c = codeOf(t), rest = t.slice(c.length);
+        const n = c.match(/^\s*N\d+\s*/i);
+        const body = n ? c.slice(n[0].length) : c;
+        out[k].text = ((n ? n[0] : '') + body.replace(/^(\s*(?:G0?[0-3]\s+)?)/i, `$1${w} `).replace(/\s+/g, ' ').trim() + (rest ? ' ' + rest.trim() : '')).trim();
+        if (out[k].kind === 'same') out[k].kind = 'changed';
+        out[k].flag = [out[k].flag, `${w} düz harekete alındı (840D yayda kabul etmez)`].filter(Boolean).join('; ');
+      };
+      const tell = (k, w) => { out[k].flag = [out[k].flag, `${w} yay hareketinde — 840D kabul etmez, önüne düz bir hareket yazın`].filter(Boolean).join('; '); };
+      for (let k = 0; k < out.length; k++) {
+        const c = codeOf(out[k].text);
+        const on = c.match(/(^|\s)G4[12](?=\s|$)/i), off = c.match(/(^|\s)G40(?=\s|$)/i);
+        if (!on && !off) continue;
+        // the move it acts on: this line's, else the next one
+        const at = moves(k) ? k : nextMove(k, 1);
+        if (at == null || !arcAt(at)) continue;
+        const re = on ? /(^|\s)G4[12](?=\s|$)/i : /(^|\s)G40(?=\s|$)/i;
+        const to = on ? (() => { for (let j = k - 1; j >= 0; j--) { if (wall(j)) return null; if (moves(j)) return j; } return null; })()
+          : (() => { for (let j = at + 1; j < out.length; j++) { if (wall(j)) return null; if (moves(j) && motionAfter[j] <= 1) return j; } return null; })();
+        if (to == null || to === k || (on && arcAt(to))) { tell(k, (on || off)[0].trim()); continue; }
+        putWord(to, takeWord(k, re));
+      }
+    }
     // the target's templates, as for a Mazak program ([BAŞLANGIÇ], [TAKIM DEĞİŞTİRME ÖNCESİ] + [TAKIM DEĞİŞTİRME],
     // [İŞ PARÇASI SIFIRI], [PROGRAM SONU]) — not when the program goes on to MillPlus (it writes its own)
     if (opts.sieTpl && R.tool && R.tool.length) {
