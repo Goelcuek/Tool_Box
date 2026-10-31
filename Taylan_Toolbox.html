@@ -8069,6 +8069,63 @@ LOKASYON ISLENECEK =>
       ortak: MP_COMMON.trim() + '\n'
     }
   };
+  // how a MillPlus program is read: what the code still did by itself, now in the MillPlus reading rules
+  MACHINE_RULES['m-dmg-duoblock-mp'].okuma += `
+[MILLPLUS KODLARI]
+// MillPlus kodu = 840D'de yerine yazılan · boş: kod silinir · SATIR SİL: bütün satır silinir · !! metin: silinir ve KONTROL notu
+// G25 / G26 ilerleme override açık / kapalı · G354 · G327 kırık takım kontrolü · M55 kafa konumlama kapalı
+G25 =
+G26 = !! G26 (ilerleme override kapalı) yazılmadı — override açık kalır
+G354 = SATIR SİL
+G327 = SATIR SİL
+M55 =
+
+[MILLPLUS TEK T]
+// tek başına T3 (sıradaki takımı hazırlama): SİL ya da YAZ
+SİL
+
+[MILLPLUS ÇAĞRI]
+// G23 N=2006 N5="\\blum\\" — {N}: alt program numarası · {DIZIN}: N5'teki dizinler (_N_BLUM_DIR/)
+CALL"/_N_CUS_DIR/{DIZIN}_N_SUB{N}_SPF"
+
+[MILLPLUS TAKIM ÖLÇÜMÜ]
+// DİZİN: çağrının N5 dizininde bu geçerse takım ölçümüdür · altındaki satırlar çağrıdan sonra yazılır
+// (hemen sonra gelen G74 Z… L1 bunların yerine geçer) · satır yoksa bir şey yazılmaz
+DİZİN = blum
+L_M54
+
+[MILLPLUS ITEM SONU]
+// METİN: parça sonu yorumu · KOŞUL: DÜZLEM DEĞİŞİRSE (sonraki ITEM başka düzlemdeyse) · HER ZAMAN · HİÇ
+// altındaki satırlar yorumdan sonra yazılır (sonraki ITEM varsa; hemen sonra gelen G74 Z… L1 bunların yerine geçer)
+METİN = ITEM SONU
+KOŞUL = DÜZLEM DEĞİŞİRSE
+L_M54
+
+[MILLPLUS EĞİK DÜZLEM]
+// G7 A5= B5= C5= L1=1 — {A} {B} {C}: G7'deki açılar (X, Y, Z etrafında) · "TC1" hedef makinede CYCLE800 kuralıyla değişir
+CYCLE800(1,"TC1",0,27,0,0,0,{C},{B},{A},0,0,0,1)
+
+[MILLPLUS EĞİK DÜZLEM İPTALİ]
+// G7 L1=1 (açısız)
+CYCLE800()
+
+[MILLPLUS KAFA YATAY]
+// M53: kafa yatay (G18 konumu) — tabla bu düzlemle döner · {EKSEN1} {EKSEN2}: makinenin döner eksen konumları (kinematikten)
+CYCLE800(1,"TC1",0,192,0,0,0,{EKSEN1},{EKSEN2},0,0,0,0,1)
+G17
+
+[MILLPLUS TCP]
+// G141
+TRAORI
+
+[MILLPLUS TCP İPTALİ]
+// G141'den sonraki G40
+TRAFOOF
+
+[MILLPLUS C EKSENİ]
+// SÜREKLİ: C93 → C374 +281° döner (uzun dönüşler C=ACP / ACN / IC ile) · MODÜLO: her C en kısa yoldan
+SÜREKLİ
+`;
   const machineRulesOf = id => MACHINE_RULES[id] || null;
 
   // the built-in rules of a machine pair, or the generic ones of its controls
@@ -8178,6 +8235,31 @@ LOKASYON ISLENECEK =>
     // [MILLPLUS] lines, [MILLPLUS TAKIM DEĞİŞTİRME], [E PARAMETRELERİ]
     const mpSide = t => (/^S[İI]L$/i.test(t.trim()) ? '' : t.trim());
     const mp = { lines: [], tool: trimBlock(sections['MILLPLUS TAKIM DEGISTIRME']), e2r: new Map(), r2e: new Map(), scratch: 'E1' };
+    // how a MillPlus program is read (MillPlus Okuma): a section that isn't there keeps the built-in way
+    const tplOr = (k, def) => (sections[k] ? trimBlock(sections[k]) : def);
+    const keyVals = arr => { const m = new Map(); (arr || []).forEach(l => { const r = l.match(/^\s*([^=]+?)\s*=\s*(.*?)\s*$/); if (r) m.set(sectionKey(r[1]), r[2]); }); return m; };
+    const word = (arr, def) => { const w = trimBlock(arr || [])[0]; return w ? sectionKey(w) : def; };
+    mp.single = word(sections['MILLPLUS TEK T'], 'SIL');
+    mp.cAxis = word(sections['MILLPLUS C EKSENI'], 'SUREKLI');
+    mp.call = tplOr('MILLPLUS CAGRI', ['CALL"/_N_CUS_DIR/{DIZIN}_N_SUB{N}_SPF"']);
+    mp.plane = tplOr('MILLPLUS EGIK DUZLEM', ['CYCLE800(1,"TC1",0,27,0,0,0,{C},{B},{A},0,0,0,1)']);
+    mp.planeOff = tplOr('MILLPLUS EGIK DUZLEM IPTALI', ['CYCLE800()']);
+    mp.head = tplOr('MILLPLUS KAFA YATAY', ['CYCLE800(1,"TC1",0,192,0,0,0,{EKSEN1},{EKSEN2},0,0,0,0,1)', 'G17']);
+    mp.tcpOn = tplOr('MILLPLUS TCP', ['TRAORI']);
+    mp.tcpOff = tplOr('MILLPLUS TCP IPTALI', ['TRAFOOF']);
+    {
+      const pr = sections['MILLPLUS TAKIM OLCUMU'], kv = keyVals(pr);
+      mp.probe = { dir: kv.has('DIZIN') ? kv.get('DIZIN') : 'blum', after: pr ? trimBlock(pr).filter(l => !/^\s*[^=]*=/.test(l)) : ['L_M54'] };
+      const it = sections['MILLPLUS ITEM SONU'], kw = keyVals(it);
+      mp.itemEnd = { text: kw.has('METIN') ? kw.get('METIN') : 'ITEM SONU', when: kw.has('KOSUL') ? sectionKey(kw.get('KOSUL')) : 'DUZLEM DEGISIRSE', lines: it ? trimBlock(it).filter(l => !/^\s*[^=]*=/.test(l)) : ['L_M54'] };
+    }
+    // [MILLPLUS KODLARI]: G25 = (the word goes) · G354 = SATIR SİL · G26 = !! note · G0 = G1 (another word)
+    mp.codes = (sections['MILLPLUS KODLARI'] || [
+      'G25 =', 'G26 = !! G26 (ilerleme override kapalı) yazılmadı — override açık kalır', 'G354 = SATIR SİL', 'G327 = SATIR SİL', 'M55 ='
+    ]).map(l => l.match(/^\s*([A-Z]\d+(?:\.\d+)?)\s*=\s*(.*?)\s*$/i)).filter(Boolean).map(r => {
+      const v = r[2];
+      return { code: r[1].toUpperCase(), line: /^SATIR\s+S[İI]L$/i.test(v), note: (v.match(/^!!\s*(.*)$/) || [])[1] || null, to: /^!!|^SATIR\s+S[İI]L$/i.test(v) ? '' : v };
+    });
     (sections['MILLPLUS'] || []).forEach(l => { const r = l.match(/^(.*?)\s=\s(.*)$/); if (r) mp.lines.push({ mp: mpSide(r[1]), sie: mpSide(r[2]) }); });
     (sections['E PARAMETRELERI'] || []).forEach(l => {
       let r = l.match(/^\s*E(\d+)\s*=\s*R(\d+)\s*$/i);
@@ -10779,11 +10861,14 @@ LOKASYON ISLENECEK =>
        position with the way round (Siemens ACP / ACN), or the turn itself (IC: a full turn or more,
        and on a Mazak, where the way round is a machine parameter). */
     let cPrev = null, cInc = false;
-    const m54At = new Set(); // the G74 after a tool probe / an item end: L_M54 there
+    const m54At = new Map(); // the G74 after a tool probe / an item end: its lines (L_M54) there
     /* The plane an item works in, as the MillPlus program sets it: G7 with its angles, M53 with the C it
        stands at (M55, a tool change, G7 L1=1 alone: none). nextItemTurns(i): the item after the item end at
        line i sets another plane before its first X / Y / Z move than the one on at line i (none to come: false). */
-    const isItem = c => /\bITEM\b/i.test(c) && !/ITEM\s*SONU/i.test(c);
+    const endWords = () => R.mp.itemEnd.text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+    const isItemEnd = c => !!R.mp.itemEnd.text.trim() && new RegExp(endWords(), 'i').test(c);
+    const isItem = c => /\bITEM\b/i.test(c) && !isItemEnd(c);
+    const nextItemAt = i => { for (let k = i + 1; k < lines.length; k++) if (mpSplit(lines[k]).comments.some(isItem)) return k; return -1; };
     const planeStep = (st, raw) => {
       const c = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
       const cm = c.match(/(?:^|\s)C\s*=?\s*([-+]?[\d.]+)(?=\s|$)/i);
@@ -10809,10 +10894,10 @@ LOKASYON ISLENECEK =>
     // L_M54 (safe Z) after line i: a G74 Z… L1 that comes next becomes it (false), else it follows (true).
     // It sends every axis to 0: where C stands for the program is no longer known, and a tilted plane
     // still on is set again before the next move (see out below)
-    const m54After = i => {
+    const m54After = (i, ls) => {
       let j = i + 1;
       while (j < lines.length && !mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code) j++;
-      if (j < lines.length && /^G74\s+Z\s*-?[\d.]+\s+L1$/i.test(mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code)) { m54At.add(j); return false; }
+      if (j < lines.length && /^G74\s+Z\s*-?[\d.]+\s+L1$/i.test(mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code)) { m54At.set(j, ls); return false; }
       cPrev = null;
       return true;
     };
@@ -10823,7 +10908,8 @@ LOKASYON ISLENECEK =>
       if (cInc) { if (cPrev != null) cPrev += v; return t; }
       const prev = cPrev, p = norm360(v), d = prev == null ? 0 : v - prev;
       cPrev = v;
-      if (prev == null || Math.abs(d) < 180 - 1e-9) return 'C' + fmt(p);
+      // [MILLPLUS C EKSENİ] MODÜLO: the MillPlus took the short way too — the position alone
+      if (prev == null || Math.abs(d) < 180 - 1e-9 || R.mp.cAxis === 'MODULO') return 'C' + fmt(p);
       if (Math.abs(d) >= 360 - 1e-9 || !toSie) return `C=IC(${fmt(d)})`;
       return `C=${d > 0 ? 'ACP' : 'ACN'}(${fmt(p)})`;
     };
@@ -10832,7 +10918,7 @@ LOKASYON ISLENECEK =>
     const hz = hz0 && Object.assign(hz0, { on: false, c: null });
     const hzPlane = () => {
       const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? hz.c || '0' : fmt(hz.vals[a.name] || 0)));
-      return `CYCLE800(1,"TC1",0,192,0,0,0,${slot[0]},${slot[1] || 0},0,0,0,0,1)`;
+      return R.mp.head.map(t => fill(t, { EKSEN1: slot[0], EKSEN2: slot[1] || '0' }).out);
     };
     const hzWord = t => {
       const m = t.match(/^([XYZIJK])(=?)(.+)$/i);
@@ -10875,21 +10961,25 @@ LOKASYON ISLENECEK =>
       if (/^\s*%/.test(body)) return ';' + body.trim();
       const sp = mpSplit(body), comments = sp.comments;
       let code = sp.code;
-      // G25 / G26: feed override on / off — on the others it is always on (G26 noted) · G354: not carried over
-      if (!o.toMp && /^G354\b/i.test(code)) code = '';
-      if (!o.toMp && /(^|\s)G2[56](?=\s|$)/i.test(code)) {
-        if (/(^|\s)G26(?=\s|$)/i.test(code)) flag(i, 'G26 (ilerleme override kapalı) yazılmadı — override açık kalır');
-        code = code.replace(/(^|\s)G2[56](?=\s|$)/gi, ' ').replace(/\s+/g, ' ').trim();
-      }
+      // [MILLPLUS KODLARI]: a word dropped or written as another (G25, M55), its line dropped (G354, G327), a note (G26)
+      if (!o.toMp && code) R.mp.codes.forEach(cr => {
+        const re = new RegExp('(^|\\s)' + cr.code.replace('.', '\\.').replace(/^([A-Z])0*/, '$10*') + '(?![\\d.])', 'i');
+        if (!re.test(code)) return;
+        if (cr.note) flag(i, cr.note);
+        code = cr.line ? '' : code.replace(new RegExp(re.source, 'gi'), (m, sp) => sp + cr.to).replace(/\s+/g, ' ').trim();
+      });
       const head = n != null && targets.has(n) ? "N" + n + " " : "";
       if (toolSkip.has(i)) return head.trim();
       const com = comments.length ? ' ;' + comments.join(' ') : '';
       const line = c => (head + c + com).replace(/\s+;/, ' ;').trim();
-      // an item end ((* ITEM SONU *)) whose next item ((* ITEM 1.2 *)) works in another plane: L_M54 as after the tool probe
-      if (!code && toSie && !o.toMp && comments.some(c => /ITEM\s*SONU/i.test(c)) && nextItemTurns(i))
-        return m54After(i) ? [line(''), 'L_M54'] : line('');
+      // an item end ((* ITEM SONU *)) with another item to come ([MILLPLUS ITEM SONU] KOŞUL: always, or when it works
+      // in another plane): its lines (L_M54) as after the tool probe
+      const ie = R.mp.itemEnd;
+      if (!code && toSie && !o.toMp && ie.lines.length && ie.when !== 'HIC' && comments.some(c => isItemEnd(c)) && (ie.when === 'HER ZAMAN' ? nextItemAt(i) >= 0 : nextItemTurns(i)))
+        return m54After(i, ie.lines) ? [line(''), ...ie.lines] : line('');
       if (!code) return line('');
-      if (m54At.has(i)) { cPrev = null; return line('L_M54'); }
+      if (o.toMp && /^G327\b/i.test(code)) return line(code); // MillPlus to MillPlus: the tool check stays as it is
+      if (m54At.has(i)) { cPrev = null; const ls = m54At.get(i); return [line(ls[0]), ...ls.slice(1)]; }
       const U = mpKey(code);
       if (mapLines.has(U)) return line(mapLines.get(U));
       // E parameters
@@ -10910,7 +11000,6 @@ LOKASYON ISLENECEK =>
         const dir = (lineOfN.get(+t[1]) ?? i + 1) > i ? 'GOTOF' : 'GOTOB';
         return line(c ? `IF ${cond(c[1])} ${dir} N${+t[1]}` : `${dir} N${+t[1]}`);
       }
-      if (/^G327\b/i.test(code)) return line('');
       // G14 N1=10 N2=20 J2: blocks 10 to 20 run J times more (J1 if not given) → REPEAT N10 N20 P=2
       if (/^G14\b/i.test(code)) {
         const a = code.match(/\bN1\s*=\s*0*(\d+)/i), b = code.match(/\bN2\s*=\s*0*(\d+)/i), j = code.match(/\bJ\s*=?\s*(\([^)]*\)|[^\s]+)/i);
@@ -10924,25 +11013,29 @@ LOKASYON ISLENECEK =>
         const ang = k => { const w = code.match(new RegExp('\\b' + k + '5\\s*=\\s*(\\([^]*?\\)|[^\\s]+)', 'i')); return w ? expr(w[1]) : '0'; };
         const L1 = (code.match(/\bL1\s*=\s*(\d)/i) || [])[1];
         const a = ang('A'), b = ang('B'), c = ang('C');
-        if ([a, b, c].every(v => /^0*\.?0*$/.test(v))) return line('CYCLE800()');
+        const tpl = (ls, v) => { const r = ls.map(t => fill(t, v || {}).out); return r.length ? [line(r[0]), ...r.slice(1)] : line(''); };
+        if ([a, b, c].every(v => /^0*\.?0*$/.test(v))) return tpl(R.mp.planeOff);
         if (L1 === '0') flag(i, 'G7 L1=0: döner eksenler hareket etmez');
-        return line(`CYCLE800(1,"TC1",0,27,0,0,0,${c},${b},${a},0,0,0,1)`);
+        return tpl(R.mp.plane, { A: a, B: b, C: c });
       }
       if (/^G93\b/i.test(code)) {
         let ax = (code.match(/\b[XYZ]\s*=?\s*[-+]?[\w.()]+/gi) || []).map(w => w.replace(/\s+/g, '').replace(/=/, ''));
         if (hz && hz.on) { ax = ax.map(w => hzWord(w.replace(/^([XYZ])(?![-+\d.])/i, '$1=')).replace(/^([XYZ])=(?=[-+]?[\d.]+$)/i, '$1')); flag(i, 'G93 kafa yatayken (M53) — düzleme çevrildi, kontrol edin'); }
         return line(ax.some(w => !/^[XYZ]-?0*\.?0*$/i.test(w)) ? 'TRANS ' + ax.map(expr).join(' ') : 'TRANS');
       }
-      if (/^G141\b/i.test(code)) { tcp = true; return line('TRAORI'); }
-      if (/^G40$/i.test(code) && tcp) { tcp = false; if (comp) flag(i, 'G40 hem G141 hem yarıçap telafisini kapatır'); comp = false; return line('TRAFOOF'); }
+      const many = ls => (ls.length ? [line(ls[0]), ...ls.slice(1)] : line(''));
+      if (/^G141\b/i.test(code)) { tcp = true; return many(R.mp.tcpOn); }
+      if (/^G40$/i.test(code) && tcp) { tcp = false; if (comp) flag(i, 'G40 hem G141 hem yarıçap telafisini kapatır'); comp = false; return many(R.mp.tcpOff); }
       // calls
       m = code.match(/^G23\b.*?\bN\s*=\s*(\d+)(?:.*?\bN5\s*=\s*"([^"]*)")?/i);
       if (m) {
         const dirs = (m[2] || '').split(/[\\/]+/).filter(Boolean).map(d => `_N_${d.toUpperCase()}_DIR`);
-        const call = line(`CALL"/_N_CUS_DIR/${dirs.length ? dirs.join('/') + '/' : ''}_N_SUB${m[1]}_SPF"`);
-        // after the tool probe (the BLUM directory) the safe Z subprogram: a G74 Z… L1 that comes next becomes it
-        if (!toSie || o.toMp || !/blum/i.test(m[2] || '')) return call;
-        return m54After(i) ? [call, 'L_M54'] : call;
+        const cl = R.mp.call.map(t => fill(t, { N: m[1], DIZIN: dirs.length ? dirs.join('/') + '/' : '' }).out);
+        const call = [line(cl[0] || ''), ...cl.slice(1)];
+        // after the tool probe ([MILLPLUS TAKIM ÖLÇÜMÜ]: its directory, BLUM) its lines (L_M54): a G74 Z… L1 that comes next becomes them
+        const pd = R.mp.probe;
+        if (!toSie || o.toMp || !pd.after.length || !pd.dir || !(m[2] || '').toLowerCase().includes(pd.dir.toLowerCase())) return call.length > 1 ? call : call[0];
+        return m54After(i, pd.after) ? [...call, ...pd.after] : (call.length > 1 ? call : call[0]);
       }
       if (/^G22\b/i.test(code)) { flag(i, 'G22 alt program çağrısı çevrilmedi'); return line(code); }
       // tool data: G149 T0 E.. (active tool), G149 T.. L1= R1= (L+DL, R+DR), G321 / G331 T.. I1=n E.. (read / write)
@@ -10964,7 +11057,7 @@ LOKASYON ISLENECEK =>
         return line(m[1] === '321' ? `${e}=$TC_DP${dp}[${t},1]` : `$TC_DP${dp}[${t},1]=${e}`);
       }
       if (/^T\s*=?\s*\S+\s+M67$/i.test(code)) return line(''); // activates a written tool table: 840D and Mazak read it as it is
-      if (!o.toMp && /^T\d+$/i.test(code)) return line(''); // T3 alone: the next tool made ready — the other machines don't need it
+      if (!o.toMp && /^T\d+$/i.test(code) && R.mp.single !== 'YAZ') return line(''); // T3 alone: the next tool made ready ([MILLPLUS TEK T])
       if (/^G(149|150|321|331)\b/i.test(code)) { flag(i, `G${code.match(/^G(\d+)/)[1]} takım verisi okuma/yazma çevrilmedi`); return line(code); }
       if (/^G74\b/i.test(code)) {
         flag(i, 'G74 makine konumu — SUPA ile yazıldı, [MILLPLUS] satırlarına ekleyin');
@@ -11012,7 +11105,6 @@ LOKASYON ISLENECEK =>
       }
       // words of a plain block
       let ws = code;
-      ws = ws.replace(/(^|\s)M55(?=\s|$)/gi, ' ').replace(/\s+/g, ' ').trim(); // M55: MillPlus head positioning off (before G7)
       if (!ws) return line('');
       const mo = ws.match(/\bG0?([0-3])\b(?!\.)/); if (mo) cy.motion = 'G' + mo[1];
       if (/(^|\s)M4(\s|$)/.test(ws)) cy.M4 = true; if (/(^|\s)M3(\s|$)/.test(ws)) cy.M4 = false;
@@ -11081,7 +11173,7 @@ LOKASYON ISLENECEK =>
           if (hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
         }
         flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre, C hareketleri olduğu gibi yazıldı — ilk denemede kontrol edin');
-        return [...pre, hzPlane(), 'G17', ...r];
+        return [...pre, ...hzPlane(), ...r];
       }
       const r = lineOut(raw, i);
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
@@ -11091,11 +11183,13 @@ LOKASYON ISLENECEK =>
     // in rapids the last X / Y / C the move doesn't give itself and the last Z (unless the move is a
     // rapid with its own Z). A tool change or a new plane first: nothing (the program positions afresh there).
     let plane = null, replane = false, saved = null, abs = true, pos = {};
+    // the lines that send the machine to its park position (L_M54): after the probe and at an item end
+    const parkLines = new Set(R.mp.probe.after.concat(R.mp.itemEnd.lines).map(t => t.replace(/;.*$/, '').trim().toUpperCase()).filter(t => /^L_|G75|SUPA/.test(t)));
     const bare = t => String(t).replace(/^\s*N\d+\s*/i, '').replace(/;.*$/, '').trim();
     const has = (b, a) => new RegExp('(?:^|\\s)' + a + '\\s*=?\\s*[-+(\\d.A-Z]', 'i').test(b);
     // a machine position (G75 Z1.0, SUPA, G53) is no move of the program: the axes in it are just not known after it
     const machinePos = b => /(^|\s)(G7[45]|G53|SUPA)(\s|$)/i.test(b);
-    const isMove = b => !machinePos(b) && /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE8(?!00)\d)/i.test(b);
+    const isMove = b => !machinePos(b) && /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE(8[1-9]|840)\b)/i.test(b);
     const track = b => {
       if (/^CYCLE800\(|^A?(TRANS|ROT)\b/i.test(b) || /(^|\s)M0?6(\s|$)/i.test(b)) { pos = {}; return; }
       if (machinePos(b)) { ['X', 'Y', 'Z', 'C'].forEach(a => { if (has(b, a)) delete pos[a]; }); return; }
@@ -11111,7 +11205,7 @@ LOKASYON ISLENECEK =>
         if (ic && pos.C != null) pos.C = norm360(pos.C + parseFloat(ic[1]));
         else if (m && abs) pos.C = norm360(parseFloat(m[1])); else delete pos.C;
       }
-      const cyc = b.match(/^(?:MCALL\s+)?CYCLE8(?!00)\d+\s*\(\s*([-+]?[\d.]+)/i);
+      const cyc = b.match(/^(?:MCALL\s+)?CYCLE(?:8[1-9]|840)\s*\(\s*([-+]?[\d.]+)/i);
       if (cyc) pos.Z = parseFloat(cyc[1]); // the cycle ends at its retract plane
     };
     const out = lines.map((raw, i) => {
@@ -11136,7 +11230,7 @@ LOKASYON ISLENECEK =>
       bs.forEach((b, k) => {
         if (/^CYCLE800\(\s*\)$/i.test(b)) plane = null;
         else if (/^CYCLE800\(/i.test(b)) plane = [b].concat(/^G17$/i.test(bs[k + 1] || '') ? ['G17'] : []);
-        if (/^L_M54$/i.test(b) && toSie && !o.toMp) { // on a Mazak it is G28 Z only
+        if (parkLines.has(b.toUpperCase()) && toSie && !o.toMp) { // on a Mazak it is G28 Z only
           if (plane) replane = true;
           saved = Object.keys(pos).length ? Object.assign({}, pos) : null;
           pos = {};
@@ -12433,24 +12527,24 @@ LOKASYON ISLENECEK =>
      code. The other tabs are the whole texts; Birleşik: the pair's rules made from them. */
   const TOPICS7 = [
     { name: 'Programın başı', secs: ['BAŞLANGIÇ'], fixed: { mazak: "İlk takımdan önceki G28 referans bloğu [BAŞLANGIÇ] ile değişir", millplus: '%PM ve N9999 silinir' } },
-    { name: 'Takım değişimi', secs: ['TAKIM DEĞİŞTİRME ÖNCESİ', 'TAKIM DEĞİŞTİRME', 'MILLPLUS TAKIM DEĞİŞTİRME', 'TAKIM NUMARALARI'], fixed: { millplus: 'T.. M=E53 (önündeki G17 M55, E53=6 ile) takım değişimi olarak okunur · tek başına T3 (sıradaki takım) silinir', out840d: 'T ve M6 iki satır yazılır; [TAKIM DEĞİŞTİRME ÖNCESİ] T satırından önce' } },
+    { name: 'Takım değişimi', secs: ['TAKIM DEĞİŞTİRME ÖNCESİ', 'TAKIM DEĞİŞTİRME', 'MILLPLUS TAKIM DEĞİŞTİRME', 'MILLPLUS TEK T', 'TAKIM NUMARALARI'], fixed: { millplus: 'T.. M=E53 (önündeki [MILLPLUS TAKIM DEĞİŞTİRME] satırlarıyla) takım değişimi olarak okunur', out840d: 'T ve M6 iki satır yazılır; [TAKIM DEĞİŞTİRME ÖNCESİ] T satırından önce' } },
     { name: 'İş parçası sıfırı', secs: ['İŞ PARÇASI SIFIRI'], tokens: ['İŞ SIFIRI 1'], fixed: { mazak: 'G54.1 P1…P4 → G54…G57 · P5 ve sonrası → G505…', millplus: 'G54 I1…I4 → G54…G57 · I5 ve sonrası → G505…' } },
     { name: 'Birim (inç / metrik)', tokens: ['İNÇ', 'METRİK'] },
-    { name: 'Takım ölçümü', secs: ['MAKRO*', 'ÇAĞRI SUB*'], fixed: { millplus: 'G23 N=… N5="\\blum\\" → CALL"/_N_CUS_DIR/_N_BLUM_DIR/_N_SUB…_SPF", ardından L_M54 · G327 / G29 kırık takım kontrolü silinir' } },
-    { name: 'Eğik düzlem', secs: ['EĞİK DÜZLEM', 'EĞİK DÜZLEM GERİ ÇEKME'], tokens: ['VERİ KAYDI'], extra: ['CYCLE800'], fixed: { mazak: 'G68.2 açıları makinelerin kinematiğine göre döner eksen konumuna çevrilir', millplus: 'G7 A5 B5 C5 L1=1 → CYCLE800 (_MODE 27) · M53 (kafa yatay) → CYCLE800 192 + G17, sonraki X/Y/Z düzleme göre · G18 yazılmaz', siemens840d: 'CYCLE800 doğrudan mod (192) eksen konumları kinematiğe göre' } },
-    { name: 'Eğik düzlem iptali', secs: ['EĞİK DÜZLEM İPTALİ'], fixed: { millplus: 'G7 L1=1 (açısız), M55, takım değişimi → CYCLE800()' } },
-    { name: 'Eşzamanlı işleme (TCP)', tokens: ['TCP AÇ', 'TCP KAPAT'], fixed: { mazak: 'G43.4 → TRAORI · G49 → TRAFOOF', millplus: "G141 → TRAORI · G141'den sonraki G40 → TRAFOOF" } },
-    { name: 'Döner eksenler', secs: ['EKSENLER'], tokens: ['EKSEN KİLİTLE', 'EKSEN KİLİDİ AÇ'], fixed: { all: 'B/C ↔ A/C hareketleri makinelerin kinematiğine göre (Makineler ve kinematik)', millplus: "C sürekli okunur: 180°'den uzun dönüş C=ACP / ACN / IC ile" } },
+    { name: 'Takım ölçümü', secs: ['MAKRO*', 'ÇAĞRI SUB*', 'MILLPLUS ÇAĞRI', 'MILLPLUS TAKIM ÖLÇÜMÜ'], fixed: { millplus: 'G327 sonucuna bakan G29 atlaması silinir (ölçüm her seferinde yapılır)' } },
+    { name: 'Eğik düzlem', secs: ['EĞİK DÜZLEM', 'EĞİK DÜZLEM GERİ ÇEKME', 'MILLPLUS EĞİK DÜZLEM', 'MILLPLUS KAFA YATAY'], tokens: ['VERİ KAYDI'], extra: ['CYCLE800'], fixed: { mazak: 'G68.2 açıları makinelerin kinematiğine göre döner eksen konumuna çevrilir', millplus: 'M53 kafa konumu kinematikten · M53 altında X/Y/Z düzleme göre çevrilir, C hareketleri olduğu gibi · M53 için yazılan G18 silinir', siemens840d: 'CYCLE800 doğrudan mod (192) eksen konumları kinematiğe göre' } },
+    { name: 'Eğik düzlem iptali', secs: ['EĞİK DÜZLEM İPTALİ', 'MILLPLUS EĞİK DÜZLEM İPTALİ'], fixed: { millplus: 'M55, takım değişimi, G7, G17 / G19 ya da M30 M53 düzlemini CYCLE800() ile kapatır' } },
+    { name: 'Eşzamanlı işleme (TCP)', secs: ['MILLPLUS TCP', 'MILLPLUS TCP İPTALİ'], tokens: ['TCP AÇ', 'TCP KAPAT'], fixed: { mazak: 'G43.4 → TRAORI · G49 → TRAFOOF' } },
+    { name: 'Döner eksenler', secs: ['EKSENLER', 'MILLPLUS C EKSENİ'], tokens: ['EKSEN KİLİTLE', 'EKSEN KİLİDİ AÇ'], fixed: { all: 'B/C ↔ A/C hareketleri makinelerin kinematiğine göre (Makineler ve kinematik)' } },
     { name: 'Soğutma', tokens: ['SOĞUTMA DIŞ', 'SOĞUTMA İÇ', 'SOĞUTMA KAPAT'] },
     { name: 'Yüksek hız', secs: ['YÜKSEK HIZ', 'YÜKSEK HIZ İPTALİ'], tokens: ['YÜKSEK HIZ', 'YÜKSEK HIZ İPTALİ'] },
-    { name: 'Güvenli konum ve park', secs: ['SABİT NOKTA', 'ARA DÖNÜŞ', 'MILLPLUS'], tokens: ['GÜVENLİ PARK'], fixed: { millplus: "ITEM SONU: sonraki ITEM başka düzlemdeyse L_M54 · L_M54'ten sonra açık düzlem ve son konum yeniden yazılır" } },
+    { name: 'Güvenli konum ve park', secs: ['SABİT NOKTA', 'ARA DÖNÜŞ', 'MILLPLUS', 'MILLPLUS ITEM SONU'], tokens: ['GÜVENLİ PARK'], fixed: { millplus: "L_M54'ten sonra açık düzlem ve son konum yeniden yazılır" } },
     { name: 'Delme döngüleri', secs: ['DELİK MESAJI'], fixed: { mazak: 'G73, G76, G81–G89 → MCALL CYCLE8x', millplus: 'G81–G85 tanımı + G79 (C ile) / G78 noktaları → CYCLE8x' } },
     { name: 'Değişkenler ve atlamalar', secs: ['R PARAMETRELERİ', 'E PARAMETRELERİ'], fixed: { mazak: 'IF / GOTO / WHILE → IF … GOTOF / GOTOB, WHILE', millplus: 'G29 → IF … GOTOF / GOTOB · G14 → REPEAT' } },
     { name: 'Alt programlar', secs: ['ALT PROGRAM', 'ALT PROGRAM NUMARALARI'] },
     { name: 'Takım verisi', secs: ['TAKIM VERİSİ'], fixed: { millplus: 'G149 / G321 / G331 → $P_TOOLNO, $TC_DPn' } },
     { name: 'Programın sonu', secs: ['PROGRAM SONU'], tokens: ['İPTAL ALT PROGRAMI'] },
     { name: 'Metin (yorumlar)', tokens: ['MAKİNE ADI'], extra: ['METİN'] },
-    { name: 'Diğer M / G kodları ve komutlar', tokens: ['DURDUR', 'ÖN OKUMA DURDUR', 'ÖTELEME İPTALİ', 'ÇAP PROGRAMLAMA KAPALI'], rest: true, fixed: { millplus: 'G25 / G26 (G26 KONTROL ile), G354, M55 yazılmaz' } }
+    { name: 'Diğer M / G kodları ve komutlar', secs: ['MILLPLUS KODLARI'], tokens: ['DURDUR', 'ÖN OKUMA DURDUR', 'ÖTELEME İPTALİ', 'ÇAP PROGRAMLAMA KAPALI'], rest: true }
   ];
   const K7 = PC.sectionKey;
   const ISO_ONLY7 = ['BAŞLANGIÇ', 'TAKIM DEĞİŞTİRME', 'İŞ PARÇASI SIFIRI', 'ARA DÖNÜŞ', 'PROGRAM SONU', 'DELİK MESAJI', 'EĞİK DÜZLEM', 'EĞİK DÜZLEM İPTALİ', 'MAKRO*', 'ALT PROGRAM', 'EKSENLER'];
