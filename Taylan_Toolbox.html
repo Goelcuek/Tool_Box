@@ -2384,14 +2384,31 @@
         <!-- Step 1: files -->
         <div class="panel">
           <div class="col-label">1. Programları yükleyin</div>
-          <div class="dropzone compact" id="dropzone7">
-            <input type="file" id="fileInput7" multiple>
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
-              <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
-            </svg>
-            <div class="dz-title"><b>Dosya seç</b> ya da sürükle</div>
-            <div class="dz-sub">Ana program ve alt programları birlikte</div>
+          <div class="diff-input-grid">
+            <div>
+              <div class="col-label">Ana programlar</div>
+              <div class="dropzone compact" id="dropzone7">
+                <input type="file" id="fileInput7" multiple>
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+                  <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                </svg>
+                <div class="dz-title"><b>Ana program seç</b> ya da sürükle</div>
+                <div class="dz-sub">Makinede doğrudan çalışan programlar</div>
+              </div>
+            </div>
+            <div>
+              <div class="col-label">Alt programlar</div>
+              <div class="dropzone compact" id="dropzoneSub7">
+                <input type="file" id="fileInputSub7" multiple>
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+                  <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                </svg>
+                <div class="dz-title"><b>Alt program seç</b> ya da sürükle</div>
+                <div class="dz-sub">Ana programların çağırdığı alt programlar</div>
+              </div>
+            </div>
           </div>
           <div class="controls-row" style="margin-top:10px;">
             <button class="btn secondary" id="clearBtn7">Listeyi Temizle</button>
@@ -12192,7 +12209,7 @@ SÜREKLİ
       return res;
     }
     const rot = files.map(f => Object.assign({ orig: f.text }, f, fam === 'siemens' ? rotateSie(f.text, deg, kin, dz) : rotateIso(f.text, deg, kin, dz)));
-    const res = convertSet(rot.map(f => ({ name: f.name, text: f.text })), Object.assign({}, options, { _rotated: true }));
+    const res = convertSet(rot.map(f => ({ name: f.name, text: f.text, role: f.role })), Object.assign({}, options, { _rotated: true }));
     const target = res.target;
     const cursor = new Map();
     res.programs.forEach(pg => {
@@ -12224,12 +12241,15 @@ SÜREKLİ
     const numsOfName = n => [...n.replace(/\.[^.]*$/, '').matchAll(/\d+/g)].map(x => String(parseInt(x[0], 10)));
     const callsIn = f => split(f.text).map(l => (mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code.match(/^G23\b.*?\bN\s*=\s*(\d+)/i) || [])[1]).filter(Boolean).map(x => String(parseInt(x, 10)));
     const subOf = new Map();       // number → index of the file
-    if (mpS) files.forEach((f, k) => numsOfName(f.name).forEach(n => { if (!subOf.has(n)) subOf.set(n, k); }));
+    // files given as main or sub (the two upload areas) are that; without roles a file is a subprogram when another calls its number
+    const hasRoles = files.some(f => f.role);
+    if (mpS) files.forEach((f, k) => { if (!hasRoles || f.role === 'sub') numsOfName(f.name).forEach(n => { if (!subOf.has(n)) subOf.set(n, k); }); });
     const calledIdx = new Set();
-    files.forEach((f, k) => { if (mpS) callsIn(f).forEach(n => { const j = subOf.get(n); if (j != null && j !== k) calledIdx.add(j); }); });
+    if (hasRoles) files.forEach((f, k) => { if (mpS && f.role === 'sub') calledIdx.add(k); });
+    else files.forEach((f, k) => { if (mpS) callsIn(f).forEach(n => { const j = subOf.get(n); if (j != null && j !== k) calledIdx.add(j); }); });
     const subNum = new Map();      // file index → its number, for the files that are called
     subOf.forEach((j, n) => { if (calledIdx.has(j) && !subNum.has(j)) subNum.set(j, n); });
-    const nameOf = (f, k) => (subNum.has(k) ? 'SUB' + subNum.get(k) + '.SPF' : f.name.replace(/\.[^.]*$/, '') + '.MPF');
+    const nameOf = (f, k) => (subNum.has(k) ? 'SUB' + subNum.get(k) + '.SPF' : f.name.replace(/\.[^.]*$/, '') + (mpS && f.role === 'sub' ? '.SPF' : '.MPF'));
     const initOf = new Map();      // file index → the state its caller was in
     const subNotes = new Map();
     const order = [], seen = new Set();
@@ -12424,7 +12444,7 @@ SÜREKLİ
       // every file one program: .SPF (or a file ending in M17/RET) is a subprogram named by its L number
       const subOf = f => {
         const base = f.name.replace(/\.[^.]+$/, '');
-        const isSub = /\.SPF$/i.test(f.name) || /\b(M17|RET)\b/i.test(f.text.replace(/;.*$/gm, ''));
+        const isSub = f.role ? f.role === 'sub' : /\.SPF$/i.test(f.name) || /\b(M17|RET)\b/i.test(f.text.replace(/;.*$/gm, ''));
         // L1234 → 1234; a named one (SUBIT14) from ALT PROGRAM NUMARALARI, or the digits in its name
         const num = (base.match(/^L?(\d+)$/i) || [])[1] || rules.subNames.get(base.toUpperCase()) || (isSub ? (base.match(/(\d+)$/) || [])[1] : null);
         return { base, isSub, num };
@@ -12441,12 +12461,12 @@ SÜREKLİ
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'siemens-siemens') {
-      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: /\.SPF$/i.test(f.name), number: null, result: withLead(f.name, f.text, options, t => convertSieSie(t, common)) }));
+      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: f.role ? f.role === 'sub' : /\.SPF$/i.test(f.name), number: null, result: withLead(f.name, f.text, options, t => convertSieSie(t, common)) }));
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'iso-iso') {
       // same dialect: every file stays one program under its own name
-      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: false, number: null, result: convertProgram(f.text, Object.assign({ isSub: false }, common)) }));
+      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: f.role === 'sub', number: null, result: convertProgram(f.text, Object.assign({ isSub: f.role === 'sub' }, common)) }));
       return { programs, missing: [], rules, target, route };
     }
     const progs = [];
@@ -12464,7 +12484,7 @@ SÜREKLİ
       chunks.forEach((c, k) => {
         const fromName = (f.name.match(/O?(\d{3,})/i) || [])[1];
         const number = c.number || (chunks.length === 1 ? fromName : null);
-        progs.push({ srcName: f.name + (chunks.length > 1 ? ` [${k + 1}]` : ''), baseName: f.name.replace(/\.[^.]+$/, ''), number: number != null ? String(parseInt(number, 10)) : null, text: c.lines.join('\n') });
+        progs.push({ srcName: f.name + (chunks.length > 1 ? ` [${k + 1}]` : ''), baseName: f.name.replace(/\.[^.]+$/, ''), number: number != null ? String(parseInt(number, 10)) : null, role: f.role, text: c.lines.join('\n') });
       });
     });
     // subprograms: anything another program calls with M98
@@ -12476,9 +12496,9 @@ SÜREKLİ
       while ((m = re.exec(plain)) !== null) called.add(String(parseInt(m[1], 10)));
     });
     const out = progs.map(pg => {
-      const isSub = pg.number != null && called.has(pg.number) && !/M\s*0*30\b|M\s*0*2\b/i.test(pg.text.replace(/\([^)]*\)/g, ''));
+      const isSub = pg.role ? pg.role === 'sub' : pg.number != null && called.has(pg.number) && !/M\s*0*30\b|M\s*0*2\b/i.test(pg.text.replace(/\([^)]*\)/g, ''));
       const result = convertProgram(pg.text, Object.assign({ isSub }, common));
-      const outName = isSub ? fill(rules.sub.file, { P: pg.number }).out : pg.baseName + target.mainExt;
+      const outName = isSub && pg.number != null ? fill(rules.sub.file, { P: pg.number }).out : pg.baseName + target.mainExt;
       return { srcName: pg.srcName, outName, isSub, number: pg.number, result };
     });
     const have = new Set(out.filter(o => o.isSub).map(o => o.number));
@@ -12492,7 +12512,7 @@ SÜREKLİ
 /* ================= Tool: Program Dönüştürücü ================= */
 (function () {
   const $ = id => document.getElementById(id);
-  const dropzone7 = $('dropzone7'), fileInput7 = $('fileInput7'), fileList7 = $('fileList7');
+  const dropzone7 = $('dropzone7'), fileInput7 = $('fileInput7'), dropzoneSub7 = $('dropzoneSub7'), fileInputSub7 = $('fileInputSub7'), fileList7 = $('fileList7');
   const fileCount7 = $('fileCount7'), clearBtn7 = $('clearBtn7');
   const convertBtn7 = $('convertBtn7'), rulesText7 = $('rulesText7'), rulesResetBtn7 = $('rulesResetBtn7');
   const resultPanel7 = $('resultPanel7'), notes7 = $('notes7'), progList7 = $('progList7');
@@ -12501,7 +12521,7 @@ SÜREKLİ
   const prevFlagBtn7 = $('prevFlagBtn7'), nextFlagBtn7 = $('nextFlagBtn7'), flagPos7 = $('flagPos7');
   const copyBtn7 = $('copyBtn7'), downloadBtn7 = $('downloadBtn7'), zipBtn7 = $('zipBtn7');
 
-  let files = [];       // {id, name, text}
+  let files = [];       // {id, name, text, role: 'main' | 'sub'}
   let nextId = 1;
   let result = null;    // ProgConvert.convertSet output
   let current = 0;      // index of the program in the preview
@@ -13127,15 +13147,15 @@ SÜREKLİ
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
     catch (e) { return new TextDecoder('windows-1254').decode(buf); }
   }
-  async function addFiles(list) {
+  async function addFiles(list, role) {
     for (const f of list) {
       let text;
       try { text = await readText(f); } catch (e) { continue; }
-      const existing = files.findIndex(x => x.name === f.name);
-      const rec = { id: nextId++, name: f.name, text };
+      const existing = files.findIndex(x => x.name === f.name && x.role === role);
+      const rec = { id: nextId++, name: f.name, text, role };
       if (existing >= 0) files[existing] = rec; else files.push(rec);
     }
-    files.sort((a, b) => a.name.localeCompare(b.name, 'tr', { numeric: true }));
+    files.sort((a, b) => (a.role === b.role ? 0 : a.role === 'main' ? -1 : 1) || a.name.localeCompare(b.name, 'tr', { numeric: true }));
     renderFiles();
     if (result) run();
   }
@@ -13144,11 +13164,11 @@ SÜREKLİ
     files.forEach(f => {
       const row = document.createElement('div');
       row.className = 'fl-row';
-      const role = result && result.programs.filter(pg => pg.srcName === f.name || pg.srcName.startsWith(f.name + ' ['));
-      const tag = role && role.length ? role.map(pg => (pg.isSub ? 'Alt program → ' : result.route === 'iso-iso' ? '→ ' : 'Ana program → ') + pg.outName).join(' · ') : '';
+      const outs = result && result.programs.filter(pg => (pg.srcName === f.name || pg.srcName.startsWith(f.name + ' [')) && !!pg.isSub === (f.role === 'sub'));
+      const tag = (f.role === 'sub' ? 'Alt program' : 'Ana program') + (outs && outs.length ? ' → ' + outs.map(pg => pg.outName).join(' · ') : '');
       row.innerHTML = `<span class="fl-name"></span><span class="fl-meta"></span><button class="fl-remove" title="Kaldır">×</button>`;
       row.querySelector('.fl-name').textContent = f.name;
-      row.querySelector('.fl-meta').textContent = (tag ? tag + ' · ' : '') + f.text.split(/\r\n|\r|\n/).length + ' satır';
+      row.querySelector('.fl-meta').textContent = tag + ' · ' + f.text.split(/\r\n|\r|\n/).length + ' satır';
       row.querySelector('.fl-remove').addEventListener('click', () => {
         files = files.filter(x => x.id !== f.id);
         renderFiles();
@@ -13158,13 +13178,17 @@ SÜREKLİ
     });
     fileCount7.textContent = files.length + ' dosya';
   }
-  fileInput7.addEventListener('change', () => { addFiles(Array.from(fileInput7.files)); fileInput7.value = ''; });
-  ['dragenter', 'dragover'].forEach(evt => dropzone7.addEventListener(evt, e => { e.preventDefault(); dropzone7.classList.add('dragover'); }));
-  ['dragleave', 'drop'].forEach(evt => dropzone7.addEventListener(evt, e => { e.preventDefault(); dropzone7.classList.remove('dragover'); }));
-  dropzone7.addEventListener('drop', e => {
-    const list = Array.from(e.dataTransfer.items || []).map(it => (it.kind === 'file' ? it.getAsFile() : null)).filter(Boolean);
-    addFiles(list.length ? list : Array.from(e.dataTransfer.files || []));
-  });
+  const wireDrop = (dz, input, role) => {
+    input.addEventListener('change', () => { addFiles(Array.from(input.files), role); input.value = ''; });
+    ['dragenter', 'dragover'].forEach(evt => dz.addEventListener(evt, e => { e.preventDefault(); dz.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(evt => dz.addEventListener(evt, e => { e.preventDefault(); dz.classList.remove('dragover'); }));
+    dz.addEventListener('drop', e => {
+      const list = Array.from(e.dataTransfer.items || []).map(it => (it.kind === 'file' ? it.getAsFile() : null)).filter(Boolean);
+      addFiles(list.length ? list : Array.from(e.dataTransfer.files || []), role);
+    });
+  };
+  wireDrop(dropzone7, fileInput7, 'main');
+  wireDrop(dropzoneSub7, fileInputSub7, 'sub');
   clearBtn7.addEventListener('click', () => { files = []; result = null; renderFiles(); resultPanel7.style.display = 'none'; });
 
   /* ---- convert ---- */
@@ -13172,7 +13196,7 @@ SÜREKLİ
     if (!files.length) return;
     const sm = machineById(srcMachSel7.value), tm = machineById(tgtMachSel7.value);
     if (!sm || !tm || !PC.machineRoute(sm.control, tm.control)) return;
-    result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text })), {
+    result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text, role: f.role })), {
       sourceMachine: sm,
       targetMachine: tm,
       rulesText: (pairInfo() || {}).rules,
