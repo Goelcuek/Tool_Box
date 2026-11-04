@@ -1388,6 +1388,18 @@
   .topic-fixed { font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
   @media (max-width: 640px) { .topic-table { grid-template-columns: 1fr 1fr; } .topic-table .th:first-child { display: none; } .topic-table > span:not(.th):nth-child(3n+1) { grid-column: 1 / -1; font-weight: 600; } }
   .rules-box textarea { margin-top: 10px; height: 460px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+  /* conversion progress: the page keeps working while a big program is converted */
+  .conv-progress { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card); }
+  .conv-progress .cp-top { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink); }
+  .conv-progress .cp-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-progress .cp-time { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
+  .conv-progress .cp-bar { height: 8px; border-radius: 4px; background: var(--line-soft); overflow: hidden; margin-top: 10px; }
+  .conv-progress .cp-fill {
+    height: 100%; width: 3%; background-color: var(--blue); transition: width .25s ease;
+    background-image: linear-gradient(45deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%);
+    background-size: 16px 16px; animation: cp-move .8s linear infinite;
+  }
+  @keyframes cp-move { to { background-position: 16px 0; } }
   .conv-head { grid-template-columns: var(--numw) 1fr var(--numw) 1fr; }
   .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
   .rules-state { font-weight: 500; font-size: 12px; color: var(--amber); margin-left: 6px; }
@@ -1397,6 +1409,10 @@
   .diff-row.conv-row .dtext.side-a.cont { color: var(--ink-faint); }
   .diff-row mark.del { background: #f6c6c1; color: #8c1d18; }
   .diff-row mark.ins { background: #bfe5cc; color: #14532d; }
+  /* the preview draws only the rows in view (a program can have 100 000 lines): every row is one height */
+  #convBody7 .diff-row, #convBody7 .conv-gap { height: 20px; box-sizing: border-box; }
+  #convBody7 .diff-row > div { box-sizing: border-box; height: 20px; line-height: 16px; padding-top: 2px; padding-bottom: 2px; }
+  #convBody7 .conv-gap { line-height: 14px; white-space: nowrap; overflow: hidden; }
   .conv-gap { padding: 3px 12px; font-size: 11px; color: var(--ink-faint); background: var(--paper); text-align: center; font-family: var(--sans); border-top: 1px solid var(--line-soft); }
   .diff-row.conv-row.flagged .side-b { background: #fdecea; }
   .diff-row.conv-row.flagged .dnum.side-b { color: #b3261e; font-weight: 700; }
@@ -2443,6 +2459,14 @@
             <label class="checkbox-field" title="Parçayı kendi Z'si boyunca kaydırır (+ yukarı): mutlak Z'ler, TCP'li hareketler, delik döngüsü düzeyleri ve eğik düzlem başlangıçları. Eğik TCP'siz konumlarda kayma X/Y/Z'ye dağıtılır.">Z'de kaydır <input type="number" id="shiftZInp7" autocomplete="off" class="plain-number" value="0" step="0.1" style="width:80px;height:32px;"></label>
             <div class="spacer"></div>
             <button class="btn" id="convertBtn7">Dönüştür</button>
+          </div>
+          <div class="conv-progress" id="convProg7" hidden>
+            <div class="cp-top">
+              <span class="cp-text" id="convProgText7">Dönüştürülüyor…</span>
+              <span class="cp-time" id="convProgTime7"></span>
+              <button class="btn secondary" id="convCancel7">İptal</button>
+            </div>
+            <div class="cp-bar"><div class="cp-fill" id="convProgFill7"></div></div>
           </div>
           <details class="rules-box" id="machBox7">
             <summary>Makineler ve kinematik — <span id="machFor7"></span> <span class="rules-state" id="machState7"></span></summary>
@@ -12314,6 +12338,7 @@ SÜREKLİ
     order.forEach(k => {
       const f = files[k];
       if (!mpS) { done.set(k, f); return; }
+      step(options, `${f.name} — MillPlus okunuyor`);
       const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'),
         { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k) });
       // what the called files are given: the state at the first call; a later call in another plane is noted
@@ -12364,6 +12389,7 @@ SÜREKLİ
         pg.result.notes.unshift(...rd.r.notes);
       }
       if (mpT) {
+        step(options, `${pg.srcName} — MillPlus yazılıyor`);
         pg.result.lines = sie2mp(pg.result, rules, tgtKin, options);
         pg.outName = pg.outName.replace(/\.[^.]*$/, '') + '.pm';
         pg.result.notes.push('MillPlus 840D üzerinden yazıldı: E parametreleri, G29 atlamaları, G7 / G93 düzlemleri, G141, G23 çağrıları ve G81–G85 / G79 delme döngüleri çevrildi.');
@@ -12453,9 +12479,24 @@ SÜREKLİ
     return res;
   }
 
+  /* Progress of a long conversion: options.onProgress({text, done, total}) is told before each file of
+     each step (MillPlus read, conversion, MillPlus write) and before the finishing. */
+  function step(options, text) {
+    const p = options._prog;
+    if (!p || !options.onProgress) return;
+    options.onProgress({ text, done: Math.min(p.done, p.total), total: p.total });
+    p.done++;
+  }
   function convertSet(files, options) {
+    if (options.onProgress && !options._prog) {
+      const sm = options.sourceMachine, tm = options.targetMachine;
+      const mpS = (sm ? controlOf(sm.control).source : options.source) === 'millplus', mpT = (tm ? controlOf(tm.control).target : options.target) === 'millplus';
+      options = Object.assign({}, options, { _prog: { done: 0, total: files.length * (1 + mpS + mpT) + 1 } });
+    }
     const res = convertAll(files, options);
-    return options._pivot || options._rotated ? res : finishSet(res, options);
+    if (options._pivot || options._rotated) return res;
+    step(options, 'Sonuç hazırlanıyor');
+    return finishSet(res, options);
   }
   /* A subprogram works in the plane its caller called it in. The lines that set that plane
      (options._leads: file name → lines) go before the program while it is converted, so the
@@ -12500,6 +12541,7 @@ SÜREKLİ
       const localSubs = new Map();
       files.forEach(f => { const s = subOf(f); if (s.isSub && s.num) localSubs.set(s.base.toUpperCase(), String(parseInt(s.num, 10))); });
       const programs = files.map(f => {
+        step(options, `${f.name} — çevriliyor`);
         const { base, isSub, num } = subOf(f);
         const outName = isSub && num ? fill(rules.sub.file, { P: String(parseInt(num, 10)) }).out : base + target.mainExt;
         const result = withLead(f.name, f.text, options, t => convertFromSiemens(t, Object.assign({ isSub, localSubs }, common)));
@@ -12509,12 +12551,12 @@ SÜREKLİ
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'siemens-siemens') {
-      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: f.role ? f.role === 'sub' : /\.SPF$/i.test(f.name), number: null, result: withLead(f.name, f.text, options, t => convertSieSie(t, common)) }));
+      const programs = files.map(f => (step(options, `${f.name} — çevriliyor`), { srcName: f.name, outName: f.name, isSub: f.role ? f.role === 'sub' : /\.SPF$/i.test(f.name), number: null, result: withLead(f.name, f.text, options, t => convertSieSie(t, common)) }));
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'iso-iso') {
       // same dialect: every file stays one program under its own name
-      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: f.role === 'sub', number: null, result: convertProgram(f.text, Object.assign({ isSub: f.role === 'sub' }, common)) }));
+      const programs = files.map(f => (step(options, `${f.name} — çevriliyor`), { srcName: f.name, outName: f.name, isSub: f.role === 'sub', number: null, result: convertProgram(f.text, Object.assign({ isSub: f.role === 'sub' }, common)) }));
       return { programs, missing: [], rules, target, route };
     }
     const progs = [];
@@ -12544,6 +12586,7 @@ SÜREKLİ
       while ((m = re.exec(plain)) !== null) called.add(String(parseInt(m[1], 10)));
     });
     const out = progs.map(pg => {
+      step(options, `${pg.srcName} — çevriliyor`);
       const isSub = pg.role ? pg.role === 'sub' : pg.number != null && called.has(pg.number) && !/M\s*0*30\b|M\s*0*2\b/i.test(pg.text.replace(/\([^)]*\)/g, ''));
       const result = convertProgram(pg.text, Object.assign({ isSub }, common));
       const outName = isSub && pg.number != null ? fill(rules.sub.file, { P: pg.number }).out : pg.baseName + target.mainExt;
@@ -13239,12 +13282,67 @@ SÜREKLİ
   wireDrop(dropzoneSub7, fileInputSub7, 'sub');
   clearBtn7.addEventListener('click', () => { files = []; result = null; renderFiles(); resultPanel7.style.display = 'none'; });
 
-  /* ---- convert ---- */
+  /* ---- convert ----
+     The conversion runs in a worker made from this page's own converter code, so the page stays
+     responsive on a big program and a progress bar shows the step; without workers it runs here. */
+  const convProg7 = $('convProg7'), convProgText7 = $('convProgText7'), convProgTime7 = $('convProgTime7'), convProgFill7 = $('convProgFill7');
+  let worker = null, workerUrl = null, runId = 0, busy = false, started = 0, tick = null;
+  function getWorker() {
+    if (worker) return worker;
+    try {
+      if (!workerUrl) {
+        const src = [...document.scripts].map(x => x.textContent).find(t => t.includes('const ProgConvert = (function'));
+        const a = src.indexOf('const ProgConvert = (function'), b = src.indexOf('/* ================= Tool: Program Dönüştürücü');
+        const onMsg = `
+self.onmessage = e => {
+  const { id, files, opts } = e.data;
+  try {
+    opts.onProgress = p => self.postMessage({ id, type: 'progress', p });
+    const r = ProgConvert.convertSet(files, opts);
+    self.postMessage({ id, type: 'done', result: { programs: r.programs, missing: r.missing, route: r.route } });
+  } catch (err) { self.postMessage({ id, type: 'error', message: String((err && err.message) || err) }); }
+};`;
+        workerUrl = URL.createObjectURL(new Blob([src.slice(a, b), onMsg], { type: 'text/javascript' }));
+      }
+      worker = new Worker(workerUrl);
+      return worker;
+    } catch (e) { return null; }
+  }
+  const fmtTime = ms => { const t = Math.floor(ms / 1000); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+  function showProgress(p) {
+    convProg7.hidden = false;
+    const pct = p && p.total ? Math.max(3, Math.round(p.done / p.total * 100)) : 3;
+    convProgFill7.style.width = pct + '%';
+    convProgText7.textContent = (p && p.text ? p.text : 'Dönüştürülüyor…') + (p && p.total ? ` · %${Math.round(p.done / p.total * 100)}` : '');
+  }
+  function startBusy() {
+    busy = true; started = Date.now();
+    convertBtn7.disabled = true;
+    convProgTime7.textContent = '0:00';
+    clearInterval(tick);
+    tick = setInterval(() => { convProgTime7.textContent = fmtTime(Date.now() - started); }, 250);
+    showProgress({ text: 'Başlıyor…', done: 0, total: 1 });
+  }
+  function stopBusy() {
+    busy = false;
+    convertBtn7.disabled = false;
+    clearInterval(tick);
+    convProg7.hidden = true;
+  }
+  $('convCancel7').addEventListener('click', () => {
+    runId++;
+    if (worker) { worker.terminate(); worker = null; }
+    stopBusy();
+  });
   function run() {
     if (!files.length) return;
     const sm = machineById(srcMachSel7.value), tm = machineById(tgtMachSel7.value);
     if (!sm || !tm || !PC.machineRoute(sm.control, tm.control)) return;
-    result = ProgConvert.convertSet(files.map(f => ({ name: f.name, text: f.text, role: f.role })), {
+    // a run still going is dropped: its worker stops, the new one starts
+    if (busy && worker) { worker.terminate(); worker = null; }
+    const id = ++runId;
+    const inFiles = files.map(f => ({ name: f.name, text: f.text, role: f.role }));
+    const opts = {
       sourceMachine: sm,
       targetMachine: tm,
       rulesText: (pairInfo() || {}).rules,
@@ -13254,13 +13352,41 @@ SÜREKLİ
       notes: optNotes.checked,
       rotate: parseFloat(optRot.value) || 0,
       shiftZ: parseFloat(optShiftZ.value) || 0
-    });
-    if (current >= result.programs.length) current = 0;
-    resultPanel7.style.display = 'block';
-    renderSummary();
-    renderFiles();
-    renderProgList();
-    renderPreview();
+    };
+    startBusy();
+    const finish = r => {
+      if (id !== runId) return;
+      showProgress({ text: 'Görünüm hazırlanıyor', done: 1, total: 1 });
+      // let the bar paint before the (main-thread) preview is built
+      setTimeout(() => {
+        if (id !== runId) return;
+        result = r;
+        if (current >= result.programs.length) current = 0;
+        resultPanel7.style.display = 'block';
+        renderSummary();
+        renderFiles();
+        renderProgList();
+        renderPreview();
+        stopBusy();
+      }, 30);
+    };
+    const fail = msg => { if (id !== runId) return; stopBusy(); alert('Dönüştürme hatası: ' + msg); };
+    const here = () => setTimeout(() => {
+      if (id !== runId) return;
+      try { finish(ProgConvert.convertSet(inFiles, opts)); } catch (e) { fail(String((e && e.message) || e)); }
+    }, 30);
+    const w = getWorker();
+    if (!w) { here(); return; }
+    w.onmessage = e => {
+      const m = e.data;
+      if (m.id !== runId) return;
+      if (m.type === 'progress') showProgress(m.p);
+      else if (m.type === 'done') finish(m.result);
+      else fail(m.message);
+    };
+    // the worker could not start (a browser that refuses it): run here
+    w.onerror = e => { e.preventDefault(); if (worker) { worker.terminate(); worker = null; } workerUrl = null; if (id === runId) here(); };
+    try { w.postMessage({ id, files: inFiles, opts }); } catch (e) { w.terminate(); worker = null; here(); }
   }
   convertBtn7.addEventListener('click', () => { current = 0; run(); });
 
@@ -13402,6 +13528,9 @@ SÜREKLİ
     const row = (cls, aNum, aCls, aText, bNum, bCls, bText, aRaw, bRaw) =>
       html.push(`<div class="diff-row conv-row${cls}"><div class="dnum side-a${aCls}">${aNum}</div><div class="dtext side-a${aCls}"${tip(aRaw)}>${aText}</div><div class="dnum side-b${bCls}">${bNum}</div><div class="dtext side-b${bCls}"${tip(bRaw)}>${bText}</div></div>`);
     let hidden = 0, prevKind = 'eq';
+    const flagged = [];
+    const row0 = row;
+    const rowF = (cls, ...a) => { if (/\bflagged\b/.test(cls)) flagged.push(html.length); row0(cls, ...a); };
     const gap = () => { if (hidden) html.push(`<div class="conv-gap">··· ${hidden} satır aynı ···</div>`); hidden = 0; };
     groups.forEach(g => {
       if (only && g.kind === 'eq') { hidden++; prevKind = 'eq'; return; }
@@ -13410,16 +13539,16 @@ SÜREKLİ
       prevKind = g.kind;
       if (g.kind === 'add') {
         const o = g.outs[0];
-        row(grp + (o.flag ? ' flagged' : ''), '+', ' filler', '', outNo.get(o), ' changed added', withNote(escapeHtml7(ProgConvert.lineText(o)), o), '', rawNote(ProgConvert.lineText(o), o));
+        rowF(grp + (o.flag ? ' flagged' : ''), '+', ' filler', '', outNo.get(o), ' changed added', withNote(escapeHtml7(ProgConvert.lineText(o)), o), '', rawNote(ProgConvert.lineText(o), o));
         return;
       }
       if (g.kind === 'eq') {
         const o = g.outs[0];
-        row(' eq' + grp + (o && o.flag ? ' flagged' : ''), g.i + 1, '', escapeHtml7(g.srcText), o ? outNo.get(o) : '', '', o ? withNote(escapeHtml7(ProgConvert.lineText(o)), o) : '', g.srcText, o ? rawNote(ProgConvert.lineText(o), o) : '');
+        rowF(' eq' + grp + (o && o.flag ? ' flagged' : ''), g.i + 1, '', escapeHtml7(g.srcText), o ? outNo.get(o) : '', '', o ? withNote(escapeHtml7(ProgConvert.lineText(o)), o) : '', g.srcText, o ? rawNote(ProgConvert.lineText(o), o) : '');
         return;
       }
       if (g.kind === 'del') {
-        row(grp, g.i + 1, ' changed', `<mark class="del">${escapeHtml7(g.srcText)}</mark>`, g.outs.length ? outNo.get(g.outs[0]) : '', ' filler gone', 'silindi', g.srcText, '');
+        rowF(grp, g.i + 1, ' changed', `<mark class="del">${escapeHtml7(g.srcText)}</mark>`, g.outs.length ? outNo.get(g.outs[0]) : '', ' filler gone', 'silindi', g.srcText, '');
         return;
       }
       // changed: the words of the source against the words of all it turned into
@@ -13427,18 +13556,34 @@ SÜREKLİ
       const { ka, kb } = commonWords(g.a.words, all);
       g.outs.forEach((o, k) => {
         const first = k === 0;
-        row((first ? grp : '') + (o.flag ? ' flagged' : ''),
+        rowF((first ? grp : '') + (o.flag ? ' flagged' : ''),
           first ? g.i + 1 : '', ' changed', first ? markWords(g.a, ka, 'del') : '',
           outNo.get(o), ' changed', withNote(markWords(g.bs[k], kb, 'ins'), o), first ? g.srcText : '', rawNote(g.bs[k].t, o));
       });
     });
     gap();
-    convBody7.innerHTML = html.join('');
-    convBody7.scrollTop = 0;
-    flagRows = Array.from(convBody7.querySelectorAll('.diff-row.flagged'));
+    vRows = html;
+    vFocus = -1;
+    flagRows = flagged;
     flagAt = -1;
+    convBody7.scrollTop = 0;
+    vDraw(true);
     updateFlagNav();
   }
+  // the rows in view (and some around them), placed at their height in a spacer as tall as all rows
+  const ROW_H = 20, V_PAD = 60;
+  let vRows = [], vFocus = -1, vFrom = -1, vTo = -1;
+  function vDraw(force) {
+    const top = convBody7.scrollTop, h = convBody7.clientHeight || 560;
+    const from = Math.max(0, Math.floor(top / ROW_H) - V_PAD), to = Math.min(vRows.length, Math.ceil((top + h) / ROW_H) + V_PAD);
+    if (!force && from >= vFrom && to <= vTo && vFrom >= 0) return;
+    const a = Math.max(0, from - V_PAD), b = Math.min(vRows.length, to + V_PAD);
+    vFrom = a; vTo = b;
+    const part = [];
+    for (let k = a; k < b; k++) part.push(k === vFocus ? vRows[k].replace('class="diff-row', 'class="diff-row focused') : vRows[k]);
+    convBody7.innerHTML = `<div style="height:${vRows.length * ROW_H}px;position:relative"><div style="position:absolute;left:0;right:0;top:${a * ROW_H}px">${part.join('')}</div></div>`;
+  }
+  convBody7.addEventListener('scroll', () => vDraw(false));
   function updateFlagNav() {
     prevFlagBtn7.disabled = nextFlagBtn7.disabled = flagRows.length === 0;
     flagPos7.textContent = flagRows.length ? (flagAt >= 0 ? `${flagAt + 1} / ${flagRows.length}` : `${flagRows.length} KONTROL`) : 'KONTROL yok';
@@ -13446,10 +13591,9 @@ SÜREKLİ
   function goFlag(step) {
     if (!flagRows.length) return;
     flagAt = flagAt < 0 ? (step > 0 ? 0 : flagRows.length - 1) : (flagAt + step + flagRows.length) % flagRows.length;
-    flagRows.forEach(r => r.classList.remove('focused'));
-    const row = flagRows[flagAt];
-    row.classList.add('focused');
-    convBody7.scrollTop = row.offsetTop - convBody7.clientHeight / 2;
+    vFocus = flagRows[flagAt];
+    convBody7.scrollTop = Math.max(0, vFocus * ROW_H - convBody7.clientHeight / 2);
+    vDraw(true);
     updateFlagNav();
   }
   onlyChg7.addEventListener('change', () => { if (result) renderPreview(); });
