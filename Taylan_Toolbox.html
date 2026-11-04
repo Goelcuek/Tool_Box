@@ -11033,9 +11033,9 @@ SÜREKLİ
     const hz0 = !o.toMp && o.kin ? mpHorizontalHead(o.kin) : null;
     // a subprogram starts in the plane its caller called it in (o.init: {hz: {on, c}, plane}); the calls it makes are noted (calls)
     const ini = o.init || {}, calls = [];
-    const hz = hz0 && Object.assign(hz0, { on: !!(ini.hz && ini.hz.on), c: ini.hz && ini.hz.c != null ? ini.hz.c : null });
+    const hz = hz0 && Object.assign(hz0, { on: !!(ini.hz && ini.hz.on) });
     const hzPlane = () => {
-      const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? hz.c || '0' : fmt(hz.vals[a.name] || 0)));
+      const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? '0' : fmt(hz.vals[a.name] || 0)));
       return R.mp.head.map(t => fill(t, { EKSEN1: slot[0], EKSEN2: slot[1] || '0' }).out);
     };
     const hzWord = t => {
@@ -11147,7 +11147,7 @@ SÜREKLİ
       // calls
       m = code.match(/^G23\b.*?\bN\s*=\s*(\d+)(?:.*?\bN5\s*=\s*"([^"]*)")?/i);
       if (m) {
-        calls.push({ n: +m[1], hz: hz ? { on: hz.on, c: hz.c } : null, plane: plane ? plane.slice() : null });
+        calls.push({ n: +m[1], hz: hz ? { on: hz.on } : null, plane: plane ? plane.slice() : null });
         const dirs = (m[2] || '').split(/[\\/]+/).filter(Boolean).map(d => `_N_${d.toUpperCase()}_DIR`);
         const cl = R.mp.call.map(t => fill(t, { N: m[1], DIZIN: dirs.length ? dirs.join('/') + '/' : '' }).out);
         const call = [line(cl[0] || ''), ...cl.slice(1)];
@@ -11254,16 +11254,6 @@ SÜREKLİ
     // It holds until M55, a tool change, G7, G17 or G19, or the program end; then the plane goes.
     // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
     // M53 to come is noted), nor is it given back when the plane goes.
-    // the first C a called subprogram gives under the head (the plane starts from it)
-    const subC = n => {
-      for (const l of (o.subLines && o.subLines.get(n)) || []) {
-        const cs = mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code;
-        if (hzEnd(cs)) return null;
-        const cm = !/^G7\b/i.test(cs) && cs.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i);
-        if (cm) return expr(cm[1]);
-      }
-      return null;
-    };
     const hzStart = /(^|\s)M53(?=\s|$)/i;
     const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
     const G18_RE = /(\([^)]*\))|(^|\s)G0?18(?=\s|$)/gi;
@@ -11286,22 +11276,10 @@ SÜREKLİ
         raw = raw.replace(G18_RE, (m, c) => c || ' ');
         code = mpSplit(raw.replace(/^\s*N\d+\s*/i, '')).code;
       }
-      // where C stands (outside the plane): the table position the plane starts from
-      const cOf = c => { const cm = !/^G7\b/i.test(c) && c.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i); return cm ? expr(cm[1]) : null; };
-      if (!hz.on && cOf(code) != null) hz.c = cOf(code);
+      // M53 is the plane at C0 (CYCLE800 192 with the head angle and 0); the C moves that follow stay C moves
       if (!hz.on && hzStart.test(code)) {
         hz.on = true;
         const r = [].concat(lineOut(raw.replace(hzStart, ' '), i)).filter(t => t !== '');
-        // C not known yet: the first C under the head (G0 C0) is where the plane starts
-        if (hz.c == null) {
-          for (let j = i + 1; j < lines.length && hz.c == null; j++) {
-            const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
-            if (hzEnd(cj)) break;
-            hz.c = cOf(cj);
-            if (hz.c == null) { const g = cj.match(/^G23\b.*?\bN\s*=\s*(\d+)/i); if (g) hz.c = subC(+g[1]); }
-          }
-          if (hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
-        }
         flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre, C hareketleri olduğu gibi yazıldı — ilk denemede kontrol edin');
         return [...pre, ...hzPlane(), ...r];
       }
@@ -12222,7 +12200,6 @@ SÜREKLİ
     files.forEach((f, k) => { if (mpS) callsIn(f).forEach(n => { const j = subOf.get(n); if (j != null && j !== k) calledIdx.add(j); }); });
     const subNum = new Map();      // file index → its number, for the files that are called
     subOf.forEach((j, n) => { if (calledIdx.has(j) && !subNum.has(j)) subNum.set(j, n); });
-    const subLines = new Map([...subNum].map(([j, n]) => [+n, split(files[j].text)]));
     const nameOf = (f, k) => (subNum.has(k) ? 'SUB' + subNum.get(k) + '.SPF' : f.name.replace(/\.[^.]*$/, '') + '.MPF');
     const initOf = new Map();      // file index → the state its caller was in
     const subNotes = new Map();
@@ -12241,7 +12218,7 @@ SÜREKLİ
       const f = files[k];
       if (!mpS) { done.set(k, f); return; }
       const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'),
-        { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k), subLines });
+        { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k) });
       // what the called files are given: the state at the first call; a later call in another plane is noted
       r.calls.forEach(c => {
         const j = subOf.get(String(c.n));
