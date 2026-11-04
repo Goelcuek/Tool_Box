@@ -7505,6 +7505,12 @@ ${o.lines || 'G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | 
 // {SON}: ITEM'ın son satırının numarası — takım kırık çıkarsa (E201=1) ITEM atlanır, program da buradan aranabilir
 ${o.tool || 'G17 M55\nE53=6 ( AUTOMATIC/MANUEL TOOL CHANGE )\nT{T} S3000 F2000 M=E53 ( Search satiri )\nG327 I1=5 E201\nG29 E18 E18=(E201=1) N={SON}'}
 
+[TAKIM ADLARI]
+// 840D'de takım verisi $TC_DPn[T,D] ile okunur. Aktif takımda $TC_DPn[$P_TOOLNO,$P_TOOL]; başka takımda T numarası takım adından
+// GETT ile alınır: R54=GETT("ad") sonra $TC_DPn[R54,1] · R = 54: T numarasının yazıldığı R parametresi
+// 91 = TKY11230: T91'in adı (yazılmayan takımın adı numarasıdır, KONTROL notu düşer)
+R = 54
+
 [E PARAMETRELERİ]
 // MillPlus E = 840D R · listede olmayan En = Rn · KOŞUL: G29 koşulu için kullanılan E
 // döner desen: E10 sayaç, E5 özellik başına açı, E20 güncel açı (840D R5, R10, R20 · Mazak #990, #995, #999)
@@ -8243,6 +8249,14 @@ SÜREKLİ
     });
     // [MILLPLUS] lines, [MILLPLUS TAKIM DEĞİŞTİRME], [E PARAMETRELERİ]
     const mpSide = t => (/^S[İI]L$/i.test(t.trim()) ? '' : t.trim());
+    const toolNames = new Map();
+    let toolNameR = '54';
+    (sections['TAKIM ADLARI'] || []).forEach(l => {
+      let r = l.match(/^\s*R\s*=\s*R?(\d+)\s*$/i);
+      if (r) { toolNameR = r[1]; return; }
+      r = l.match(/^\s*T?(\d+)\s*=\s*(.+?)\s*$/);
+      if (r) toolNames.set(+r[1], r[2].replace(/^"|"$/g, ''));
+    });
     const mp = { lines: [], tool: trimBlock(sections['MILLPLUS TAKIM DEGISTIRME']), e2r: new Map(), r2e: new Map(), scratch: 'E1' };
     // how a MillPlus program is read (MillPlus Okuma): a section that isn't there keeps the built-in way
     const tplOr = (k, def) => (sections[k] ? trimBlock(sections[k]) : def);
@@ -8286,7 +8300,7 @@ SÜREKLİ
       toolData.set(TD_KEYS[sectionKey(r[1])], { tpl: (k < 0 ? r[2] : r[2].slice(0, k)).trim(), note: k < 0 ? '' : r[2].slice(k).replace(/^\(!!\s*KONTROL:?\s*|\)\s*$/g, '').trim() });
     });
     return {
-      toolData,
+      toolData, toolNames, toolNameR,
       mp,
       c800,
       m: mapOf(sections['M KODLARI'], 'M'),
@@ -9035,6 +9049,8 @@ SÜREKLİ
         if (mm) { st.toolSel = sieOfIso(mm[1]); if (comments.length) emit(i, withComments('', comments), 'changed'); continue; }
       }
       if (tdm) {
+        // the active tool: [$P_TOOLNO,$P_TOOL]; another one: its T number from its name (GETT) into an R parameter
+        const tdPre = [];
         const sieTD = (t, lhs) => {
           const tt = t.replace(/\s+/g, '');
           for (const [dp, d] of R.toolData) {
@@ -9046,6 +9062,12 @@ SÜREKLİ
               if (dp === 0) return '$P_TOOLNO';
               const t = mm[1] != null ? sieOfIso(mm[1]) : st.toolSel;
               if (t == null) continue;
+              if (/^\d+$/.test(String(t))) {
+                if (st.tool != null && String(parseInt(t, 10)) === String(parseInt(String(st.tool).replace(/\D/g, ''), 10))) return `$TC_DP${dp}[$P_TOOLNO,$P_TOOL]`;
+                const nm = R.toolNames.get(+t), rr = 'R' + R.toolNameR;
+                if (!tdPre.some(x => x.t === t)) tdPre.push({ t, text: `${rr}=GETT("${nm != null ? nm : t}")`, flag: nm == null ? `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı` : '' });
+                return `$TC_DP${dp}[${rr},1]`;
+              }
               return `$TC_DP${dp}[${t},1]`;
             }
           }
@@ -9053,6 +9075,7 @@ SÜREKLİ
         };
         const L = sieTD(tdm[1], true), Rt = sieTD(tdm[2].trim(), false);
         if (L || Rt) {
+          tdPre.forEach(x => emit(i, x.text, 'added', x.flag));
           emit(i, withComments(`${L || sieOfIso(tdm[1])}=${Rt || sieOfIso(tdm[2].trim())}`, comments), 'changed');
           continue;
         }
@@ -11090,6 +11113,15 @@ SÜREKLİ
       flag(i, `G${d.g} döngüsü çevrilmedi`);
       return null;
     };
+    // tool data: the active tool is [$P_TOOLNO,$P_TOOL]; another tool's T number comes from its name (GETT) into an R parameter
+    let curTool = null;
+    const tdIdx = (t, i) => {
+      if (!/^\d+$/.test(t)) return { idx: `${t},1`, pre: [] };
+      if (String(parseInt(t, 10)) === curTool) return { idx: '$P_TOOLNO,$P_TOOL', pre: [] };
+      const nm = R.toolNames.get(+t), rr = 'R' + R.toolNameR;
+      if (nm == null) flag(i, `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı`);
+      return { idx: `${rr},1`, pre: [`${rr}=GETT("${nm != null ? nm : t}")`] };
+    };
     const lineOut = (raw, i) => {
       const n = nOf(raw);
       const body = raw.replace(/^\s*N\d+\s*/i, '');
@@ -11178,11 +11210,11 @@ SÜREKLİ
       const tOf = w => { const t = w.match(/\bT\s*=\s*(\([^()]*\)|[^\s]+)|\bT(\d+)/i); return t ? (t[1] ? expr(t[1]) : t[2]) : null; };
       if ((m = code.match(/^G149\s+T0\s+E(\d+)$|^G149\s+E(\d+)\s+T0$/i))) return line(`R${eToR(+(m[1] || m[2]))}=$P_TOOLNO`);
       if (/^G149\b/i.test(code) && /\b[LR]1\s*=/i.test(code) && tOf(code)) {
-        const t = tOf(code), res = [];
+        const t = tOf(code), x = tdIdx(t, i), res = [...x.pre];
         if (/\bT2\s*=/i.test(code)) flag(i, 'G149 T2= (düzeltme indeksi) — D1 kabul edildi');
         const l1 = code.match(/\bL1\s*=\s*(\d+)/i), r1 = code.match(/\bR1\s*=\s*(\d+)/i);
-        if (l1) res.push(`R${eToR(+l1[1])}=($TC_DP3[${t},1]+$TC_DP12[${t},1])`);
-        if (r1) res.push(`R${eToR(+r1[1])}=($TC_DP6[${t},1]+$TC_DP15[${t},1])`);
+        if (l1) res.push(`R${eToR(+l1[1])}=($TC_DP3[${x.idx}]+$TC_DP12[${x.idx}])`);
+        if (r1) res.push(`R${eToR(+r1[1])}=($TC_DP6[${x.idx}]+$TC_DP15[${x.idx}])`);
         if (/\bM1\s*=/i.test(code)) flag(i, 'G149 M1= (takım ömrü) çevrilmedi');
         res[0] = line(res[0]);
         return res;
@@ -11190,7 +11222,8 @@ SÜREKLİ
       if ((m = code.match(/^G(321|331)\b.*?\bI1\s*=\s*(\d+).*?\b(E\d+)\s*$/i)) && tOf(code)) {
         const dp = MP_TOOL_FIELD[m[2]], t = tOf(code), e = 'R' + eToR(+m[3].slice(1));
         if (!dp) { flag(i, `G${m[1]} I1=${m[2]} (takım tablosu alanı) çevrilmedi — I1=1…5 (L, R, C, L4, R4) çevrilir`); return line(code); }
-        return line(m[1] === '321' ? `${e}=$TC_DP${dp}[${t},1]` : `$TC_DP${dp}[${t},1]=${e}`);
+        const x = tdIdx(t, i), td = m[1] === '321' ? `${e}=$TC_DP${dp}[${x.idx}]` : `$TC_DP${dp}[${x.idx}]=${e}`;
+        return x.pre.length ? [line(x.pre[0]), td] : line(td);
       }
       if (/^T\s*=?\s*\S+\s+M67$/i.test(code)) return line(''); // activates a written tool table: 840D and Mazak read it as it is
       if (!o.toMp && /^T\d+$/i.test(code) && R.mp.single !== 'YAZ') return line(''); // T3 alone: the next tool made ready ([MILLPLUS TEK T])
@@ -11246,6 +11279,7 @@ SÜREKLİ
       if (/(^|\s)M4(\s|$)/.test(ws)) cy.M4 = true; if (/(^|\s)M3(\s|$)/.test(ws)) cy.M4 = false;
       const sm = ws.match(/(?:^|\s)S([\d.]+)/); if (sm) cy.S = sm[1];
       const fm = ws.match(/(?:^|\s)F([\d.]+)/); if (fm) cy.F = fm[1];
+      { const tn = /\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)/i.test(ws) && ws.match(/(?:^|\s)T(\d+)(?=\s|$)/); if (tn) curTool = String(parseInt(tn[1], 10)); }
       if (/\bM\s*=\s*E\d+/i.test(ws)) ws = ws.replace(/\b[SF][\d.]+\s*/gi, '').replace(/\bM\s*=\s*E\d+/i, 'M6');
       ws = ws.replace(/\bG54\s+I(\d+)/i, (mm, k) => (+k <= 4 ? 'G' + (53 + +k) : 'G' + (500 + +k)));
       if (/\bG4[12]\b/i.test(ws)) comp = true;
