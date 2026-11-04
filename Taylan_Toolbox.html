@@ -7507,7 +7507,7 @@ ${o.tool || 'G17 M55\nE53=6 ( AUTOMATIC/MANUEL TOOL CHANGE )\nT{T} S3000 F2000 M
 
 [TAKIM ADLARI]
 // 840D'de takım verisi $TC_DPn[T,D] ile okunur. Aktif takımda $TC_DPn[$P_TOOLNO,$P_TOOL]; başka takımda T numarası takım adından
-// GETT ile alınır: R54=GETT("ad") sonra $TC_DPn[R54,1] · R = 54: T numarasının yazıldığı R parametresi
+// GETT ile alınır: R54=GETT("ad",1) sonra $TC_DPn[R54,1] · R = 54: T numarasının yazıldığı R parametresi
 // 91 = TKY11230: T91'in adı (yazılmayan takımın adı numarasıdır, KONTROL notu düşer)
 R = 54
 
@@ -9065,7 +9065,7 @@ SÜREKLİ
               if (/^\d+$/.test(String(t))) {
                 if (st.tool != null && String(parseInt(t, 10)) === String(parseInt(String(st.tool).replace(/\D/g, ''), 10))) return `$TC_DP${dp}[$P_TOOLNO,$P_TOOL]`;
                 const nm = R.toolNames.get(+t), rr = 'R' + R.toolNameR;
-                if (!tdPre.some(x => x.t === t)) tdPre.push({ t, text: `${rr}=GETT("${nm != null ? nm : t}")`, flag: nm == null ? `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı` : '' });
+                if (!tdPre.some(x => x.t === t)) tdPre.push({ t, text: `${rr}=GETT("${nm != null ? nm : t}",1)`, flag: nm == null ? `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı` : '' });
                 return `$TC_DP${dp}[${rr},1]`;
               }
               return `$TC_DP${dp}[${t},1]`;
@@ -11120,7 +11120,7 @@ SÜREKLİ
       if (String(parseInt(t, 10)) === curTool) return { idx: '$P_TOOLNO,$P_TOOL', pre: [] };
       const nm = R.toolNames.get(+t), rr = 'R' + R.toolNameR;
       if (nm == null) flag(i, `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı`);
-      return { idx: `${rr},1`, pre: [`${rr}=GETT("${nm != null ? nm : t}")`] };
+      return { idx: `${rr},1`, pre: [`${rr}=GETT("${nm != null ? nm : t}",1)`] };
     };
     const lineOut = (raw, i) => {
       const n = nOf(raw);
