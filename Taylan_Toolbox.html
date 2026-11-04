@@ -11458,13 +11458,35 @@ SÜREKLİ
     const out = [];
     let tcp = false, mcall = null, motion = 'G0';
     const pos = { X: null, Y: null };
+    /* M53 (the head along Y, see mpHorizontalHead): a CYCLE800 in the machine's own axes (192) that stands the head
+       there with C at 0 is G18 + M53, not a G7 plane. Until M55, a tool change or another plane the 840D's G17 is the
+       MillPlus G18, and the X Y Z (I J K) the 840D gives are the plane's: each is the machine axis it came from. */
+    const hzh = mpHorizontalHead(kin);
+    let hzOn = false, justPlane = false;
+    const hzPlaneOf = args => {
+      if (!hzh) return false;
+      const v = i => { const t = (args[i] || '').trim(); return t === '' ? 0 : evalExpr(t, new Map()); };
+      const mode = v(3);
+      if (mode == null || Math.round(mode) !== 192 || [4, 5, 6, 10, 11, 12].some(i => v(i) !== 0)) return false;
+      return kin.axes.slice(0, 2).every((a, i) => { const x = v(7 + i); return x != null && Math.abs(angDiff(x, a.name === hzh.zt.name ? 0 : hzh.vals[a.name] || 0)) < 1e-3; });
+    };
+    const hzInv = t => {
+      const m = t.match(/^([XYZIJK])(=?)(.+)$/i);
+      if (!m) return t;
+      const L = m[1].toUpperCase(), q = 'XYZIJK'.indexOf(L) % 3, k = hzh.map.findIndex(x => x.to === q);
+      if (k < 0) return t;
+      const nl = (L < 'X' ? 'IJK' : 'XYZ')[k], sg = hzh.map[k].s;
+      if (sg > 0) return nl + m[2] + m[3];
+      if (/^[-+]?[\d.]+$/.test(m[3])) return nl + fmt(-parseFloat(m[3]));
+      return nl + '=-(' + m[3] + ')';
+    };
     // {SON} of the tool-change template: the number of the item's last line, known once the lines are numbered
     const SON = '@@SON@@', searches = [];
-    const emitTool = (emit, T) => R.mp.tool.forEach(t => {
+    const emitTool = (emit, T) => (hzOn = false, R.mp.tool.forEach(t => {
       const f = fill(t, { T, SON }).out;
       emit(f);
       if (f.includes(SON)) searches.push(out.length - 1);
-    });
+    }));
     // 840D CYCLE81–85 → MillPlus definition (depth Z, Y 1st and B 2nd setup clearance, X dwell) — G79 drills
     const mpCycle = (no, args) => {
       const a = splitArgs(args).map(v => (v === '' ? null : evalExpr(v, new Map())));
@@ -11548,6 +11570,9 @@ SÜREKLİ
       if (o.mpSkip) continue;
       let m;
       if (!code) { emit(''); continue; }
+      const afterPlane = justPlane;
+      justPlane = false;
+      if (hzOn && /^G17$/i.test(code)) { if (afterPlane) { if (com || label != null) emit(''); } else emit('G18'); continue; }
       const mpT = t => (/^\d+$/.test(t.trim()) ? 'T' + t.trim() : 'T=' + expr(t));
       if ((m = code.match(/^R(\d+)\s*=\s*\$P_TOOLNO$/i))) { emit(`G149 T0 E${rToE(+m[1])}`); continue; }
       if ((m = code.match(/^R(\d+)\s*=\s*\(?\s*\$TC_DP(3|6)\s*\[\s*(.+?)\s*,[^\]]*\]\s*\+\s*\$TC_DP(12|15)\s*\[[^\]]*\]\s*\)?$/i))) { emit(`G149 ${mpT(m[3])} ${m[2] === '3' ? 'L1' : 'R1'}=${rToE(+m[1])}`); continue; }
@@ -11571,6 +11596,9 @@ SÜREKLİ
         emit(`G14 N1=${mpLabel(+m[2]).slice(1)}${to ? ` N2=${mpLabel(+to).slice(1)}` : ''}${j}`);
         continue;
       }
+      if ((m = code.match(/^CYCLE800\s*\((.*)\)$/i)) && hzOn && splitArgs(m[1]).every((x, i) => !x.trim() || (i === 1 && /^"0?"$/.test(x.trim())))) { emit('M55'); hzOn = false; continue; }
+      if ((m = code.match(/^CYCLE800\s*\((.*)\)$/i)) && hzPlaneOf(splitArgs(m[1]))) { emit('G18'); o.flag = ''; emit('M53'); hzOn = true; justPlane = true; continue; }
+      if (m) hzOn = false;
       if ((m = code.match(/^CYCLE800\s*\((.*)\)$/i))) { mpPlane(splitArgs(m[1])).forEach((t, x) => emit(t.text, t.flag ? { flag: t.flag } : null)); continue; }
       if (/^MCALL$/i.test(code)) { mcall = null; if (com || label != null) emit(''); continue; }
       if ((m = code.match(/^(MCALL\s+)?CYCLE(8[1-5]|840)\s*\((.*)\)$/i))) {
@@ -11606,6 +11634,7 @@ SÜREKLİ
       }
       // words of a plain block
       let ws = code;
+      if (hzOn) { const arc = /\bG0?[23]\b/.test(ws); ws = mpToks(ws).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzInv(t) : t)).join(' '); }
       const mo = ws.match(/\bG0?([0-3])\b(?!\.)/); if (mo) motion = 'G' + mo[1];
       ['X', 'Y'].forEach(a => { const v = ws.match(new RegExp('(?:^|\\s)' + a + '(-?[\\d.]+)(?=\\s|$)')); if (v) pos[a] = parseFloat(v[1]); });
       // a position under MCALL drills there: G79 with the surface as Z
