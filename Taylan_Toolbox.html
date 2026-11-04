@@ -11073,8 +11073,10 @@ SÜREKLİ
     const hz0 = !o.toMp && o.kin ? mpHorizontalHead(o.kin) : null;
     // a subprogram starts in the plane its caller called it in (o.init: {hz: {on, c}, plane}); the calls it makes are noted (calls)
     const ini = o.init || {}, calls = [];
-    const hz = hz0 && Object.assign(hz0, { on: !!(ini.hz && ini.hz.on) });
+    // g: the 840D working plane under the head — the plane lines give G17; MillPlus G18 / G17 under M53 are the 840D's G17 / G18
+    const hz = hz0 && Object.assign(hz0, { on: !!(ini.hz && ini.hz.on), g: 'G17' });
     const hzPlane = () => {
+      hz.g = 'G17';
       const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? '0' : fmt(hz.vals[a.name] || 0)));
       return R.mp.head.map(t => fill(t, { EKSEN1: slot[0], EKSEN2: slot[1] || '0' }).out);
     };
@@ -11298,14 +11300,15 @@ SÜREKLİ
         // the head along Y: X Y Z (and arc centres) are the plane's, G18 is its G17 (written with the
         // plane); C moves stay C moves (the plane is fixed to the machine, the table turns the part about its Z)
         const arc = /\bG0?[23]\b/i.test(ws);
-        // the Hermle stays in G17 under the head (the plane lines give it): MillPlus G17 / G18 there are not written
-        const toks = mpToks(ws).filter(t => !/^G0?1[78]$/i.test(t)).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
+        // under the head MillPlus G18 (its usual plane) is the 840D's G17 and MillPlus G17 (machine XY: side arcs) its G18 — written only when it changes
+        const pl = t => { const g = /^G0?17$/i.test(t) ? 'G18' : /^G0?18$/i.test(t) ? 'G17' : null; if (!g) return t; if (hz.g === g) return ''; hz.g = g; return g; };
+        const toks = mpToks(ws).map(pl).filter(Boolean).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
         return line(toks.join(' '));
       }
       return line(ws);
     };
     // ---- M53: the head in the G18 position (see mpHorizontalHead) ----
-    // It holds until M55, a tool change (not the manual M66), G7, G19 or the program end; then the plane goes. G17 / G18 under it are not written (the target stays in G17).
+    // It holds until M55, a tool change (not the manual M66), G7, G19 or the program end; then the plane goes. Under it MillPlus G18 / G17 are the target's G17 / G18.
     // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
     // M53 to come is noted), nor is it given back when the plane goes.
     const hzStart = /(^|\s)M53(?=\s|$)/i;
@@ -11630,6 +11633,7 @@ SÜREKLİ
       const afterPlane = justPlane;
       justPlane = false;
       if (hzOn && /^G17$/i.test(code)) { if (afterPlane) { if (com || label != null) emit(''); } else emit('G18'); continue; }
+      if (hzOn && /^G18$/i.test(code)) { emit('G17'); continue; } // the 840D's G18 under the head: the machine's XY (MillPlus G17)
       const mpT = t => (/^\d+$/.test(t.trim()) ? 'T' + t.trim() : 'T=' + expr(t));
       if ((m = code.match(/^R(\d+)\s*=\s*\$P_TOOLNO$/i))) { emit(`G149 T0 E${rToE(+m[1])}`); continue; }
       if ((m = code.match(/^R(\d+)\s*=\s*\(?\s*\$TC_DP(3|6)\s*\[\s*(.+?)\s*,[^\]]*\]\s*\+\s*\$TC_DP(12|15)\s*\[[^\]]*\]\s*\)?$/i))) { emit(`G149 ${mpT(m[3])} ${m[2] === '3' ? 'L1' : 'R1'}=${rToE(+m[1])}`); continue; }
