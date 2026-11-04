@@ -11279,6 +11279,8 @@ SÜREKLİ
       if (/(^|\s)M4(\s|$)/.test(ws)) cy.M4 = true; if (/(^|\s)M3(\s|$)/.test(ws)) cy.M4 = false;
       const sm = ws.match(/(?:^|\s)S([\d.]+)/); if (sm) cy.S = sm[1];
       const fm = ws.match(/(?:^|\s)F([\d.]+)/); if (fm) cy.F = fm[1];
+      // T51 M66 (manual tool change): Siemens has no manual tool change — an ordinary T51 / M6
+      if (!o.toMp && /(?:^|\s)T\d+/i.test(ws) && /(^|\s)M66(\s|$)/i.test(ws)) ws = ws.replace(/(^|\s)M66(?=\s|$)/i, '$1M6');
       { const tn = /\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)/i.test(ws) && ws.match(/(?:^|\s)T(\d+)(?=\s|$)/); if (tn) curTool = String(parseInt(tn[1], 10)); }
       if (/\bM\s*=\s*E\d+/i.test(ws)) ws = ws.replace(/\b[SF][\d.]+\s*/gi, '').replace(/\bM\s*=\s*E\d+/i, 'M6');
       ws = ws.replace(/\bG54\s+I(\d+)/i, (mm, k) => (+k <= 4 ? 'G' + (53 + +k) : 'G' + (500 + +k)));
@@ -11335,6 +11337,8 @@ SÜREKLİ
         return [...pre, ...hzPlane(), ...r];
       }
       if (hz.on && hzStart.test(code)) raw = raw.replace(hzStart, ' '); // M53 again with the head already there: nothing to write
+      // a manual tool change (T51 M66) keeps the head along Y; the target's tool change resets the plane, so it is set again after it
+      if (hz.on && /(?:^|\s)T\d+/i.test(code) && /(^|\s)M66(\s|$)/i.test(code)) return [...pre, ...[].concat(lineOut(raw, i)).filter(t => t !== ''), ...hzPlane()];
       const r = lineOut(raw, i);
       return pre.length ? [...pre, ...[].concat(r).filter(t => t !== '')] : r;
     };
