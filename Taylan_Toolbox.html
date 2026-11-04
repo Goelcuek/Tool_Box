@@ -11031,7 +11031,7 @@ SÜREKLİ
       if (!/^G7\b/i.test(c) && cm) st.c = norm360(parseFloat(cm[1]));
       if (/^G7\b/i.test(c)) st.key = /\b[ABC]5\s*=/i.test(c) ? mpKey(c) : 'none';
       else if (/(^|\s)M53(\s|$)/i.test(c)) st.key = 'M53 C' + st.c;
-      else if (/(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)/i.test(c)) st.key = 'none';
+      else if (/(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)/i.test(c)) st.key = 'none';
       return c;
     };
     const nextItemTurns = i => {
@@ -11306,7 +11306,7 @@ SÜREKLİ
     // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
     // M53 to come is noted), nor is it given back when the plane goes.
     const hzStart = /(^|\s)M53(?=\s|$)/i;
-    const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
+    const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
     const G18_RE = /(\([^)]*\))|(^|\s)G0?18(?=\s|$)/gi;
     const withHead = (raw, i) => {
       if (!hz) return lineOut(raw, i);
@@ -11351,7 +11351,7 @@ SÜREKLİ
     const machinePos = b => /(^|\s)(G7[45]|G53|SUPA)(\s|$)/i.test(b);
     const isMove = b => !machinePos(b) && /(^|\s)([XYZABC]\s*=?\s*[-+(\d.R]|CYCLE(8[1-9]|840)\b)/i.test(b);
     const track = b => {
-      if (/^CYCLE800\(|^A?(TRANS|ROT)\b/i.test(b) || /(^|\s)M0?6{1,2}(\s|$)/i.test(b)) { pos = {}; return; }
+      if (/^CYCLE800\(|^A?(TRANS|ROT)\b/i.test(b) || /(^|\s)M0?6(\s|$)/i.test(b)) { pos = {}; return; }
       if (machinePos(b)) { ['X', 'Y', 'Z', 'C'].forEach(a => { if (has(b, a)) delete pos[a]; }); return; }
       if (/(^|\s)G91(\s|$)/i.test(b)) abs = false;
       if (/(^|\s)G90(\s|$)/i.test(b)) abs = true;
@@ -11371,7 +11371,7 @@ SÜREKLİ
     const out = lines.map((raw, i) => {
       let r = [].concat(withHead(raw, i));
       const bs = r.map(bare);
-      if ((replane || saved) && bs.some(b => /^CYCLE800\(|(^|\s)M0?6{1,2}(\s|$)/i.test(b))) { replane = false; saved = null; }
+      if ((replane || saved) && bs.some(b => /^CYCLE800\(|(^|\s)M0?6(\s|$)/i.test(b))) { replane = false; saved = null; }
       // a machine position the program goes to itself (G75 Z1.0): that axis is not brought back
       if (saved) bs.filter(machinePos).forEach(b => ['X', 'Y', 'Z', 'C'].forEach(a => { if (has(b, a)) delete saved[a]; }));
       if ((replane || saved) && bs.some(isMove)) {
