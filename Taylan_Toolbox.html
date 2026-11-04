@@ -7485,7 +7485,8 @@ ${o.lines || 'G74 Z-1 L1 = G75 Z1\nG74 Z-1 L1 = L_M54\nSİL = L_FREI\nG7 L1=1 | 
 
 [MILLPLUS TAKIM DEĞİŞTİRME]
 // 840D'deki T.. / M6 (/ D1) yerine yazılır — {T}: takım numarası
-${o.tool || 'G17 M55\nE53=6 ( AUTOMATIC/MANUEL TOOL CHANGE )\nT{T} S3000 F2000 M=E53 ( Search satiri )'}
+// {SON}: ITEM'ın son satırının numarası — takım kırık çıkarsa (E201=1) ITEM atlanır, program da buradan aranabilir
+${o.tool || 'G17 M55\nE53=6 ( AUTOMATIC/MANUEL TOOL CHANGE )\nT{T} S3000 F2000 M=E53 ( Search satiri )\nG327 I1=5 E201\nG29 E18 E18=(E201=1) N={SON}'}
 
 [E PARAMETRELERİ]
 // MillPlus E = 840D R · listede olmayan En = Rn · KOŞUL: G29 koşulu için kullanılan E
@@ -8076,8 +8077,8 @@ M55 =
 SİL
 
 [MILLPLUS ÇAĞRI]
-// G23 N=2006 N5="\\blum\\" — {N}: alt program numarası · {DIZIN}: N5'teki dizinler (_N_BLUM_DIR/)
-CALL"/_N_CUS_DIR/{DIZIN}_N_SUB{N}_SPF"
+// G23 N=2006 N5="\\blum\\" — {N}: alt program numarası · çağrı yalnız alt programın adıdır (SUB2006) · {DIZIN}: N5'teki dizinler (_N_BLUM_DIR/)
+SUB{N}
 
 [MILLPLUS TAKIM ÖLÇÜMÜ]
 // DİZİN: çağrının N5 dizininde bu geçerse takım ölçümüdür · altındaki satırlar çağrıdan sonra yazılır
@@ -8232,7 +8233,7 @@ SÜREKLİ
     const word = (arr, def) => { const w = trimBlock(arr || [])[0]; return w ? sectionKey(w) : def; };
     mp.single = word(sections['MILLPLUS TEK T'], 'SIL');
     mp.cAxis = word(sections['MILLPLUS C EKSENI'], 'SUREKLI');
-    mp.call = tplOr('MILLPLUS CAGRI', ['CALL"/_N_CUS_DIR/{DIZIN}_N_SUB{N}_SPF"']);
+    mp.call = tplOr('MILLPLUS CAGRI', ['SUB{N}']);
     mp.plane = tplOr('MILLPLUS EGIK DUZLEM', ['CYCLE800(1,"TC1",0,27,0,0,0,{C},{B},{A},0,0,0,1)']);
     mp.planeOff = tplOr('MILLPLUS EGIK DUZLEM IPTALI', ['CYCLE800()']);
     mp.head = tplOr('MILLPLUS KAFA YATAY', ['CYCLE800(1,"TC1",0,192,0,0,0,{EKSEN1},{EKSEN2},0,0,0,0,1)', 'G17']);
@@ -11030,7 +11031,9 @@ SÜREKLİ
     };
     // the head along Y (M53): where C stands, whether it is on, the plane line, the words turned
     const hz0 = !o.toMp && o.kin ? mpHorizontalHead(o.kin) : null;
-    const hz = hz0 && Object.assign(hz0, { on: false, c: null });
+    // a subprogram starts in the plane its caller called it in (o.init: {hz: {on, c}, plane}); the calls it makes are noted (calls)
+    const ini = o.init || {}, calls = [];
+    const hz = hz0 && Object.assign(hz0, { on: !!(ini.hz && ini.hz.on), c: ini.hz && ini.hz.c != null ? ini.hz.c : null });
     const hzPlane = () => {
       const slot = o.kin.axes.slice(0, 2).map(a => (a.name === hz.zt.name ? hz.c || '0' : fmt(hz.vals[a.name] || 0)));
       return R.mp.head.map(t => fill(t, { EKSEN1: slot[0], EKSEN2: slot[1] || '0' }).out);
@@ -11093,7 +11096,7 @@ SÜREKLİ
       if (!code && toSie && !o.toMp && ie.lines.length && ie.when !== 'HIC' && comments.some(c => isItemEnd(c)) && (ie.when === 'HER ZAMAN' ? nextItemAt(i) >= 0 : nextItemTurns(i)))
         return m54After(i, ie.lines) ? [line(''), ...ie.lines] : line('');
       if (!code) return line('');
-      if (o.toMp && /^G327\b/i.test(code)) return line(code); // MillPlus to MillPlus: the tool check stays as it is
+      if (o.toMp && /^G327\b/i.test(code)) return line(''); // MillPlus to MillPlus: the tool-change template writes the tool check again
       if (m54At.has(i)) { cPrev = null; const ls = m54At.get(i); return [line(ls[0]), ...ls.slice(1)]; }
       const U = mpKey(code);
       if (mapLines.has(U)) return line(mapLines.get(U));
@@ -11109,7 +11112,7 @@ SÜREKLİ
         const c = code.match(/\bE\d+\s*=\s*(\([^]*\)|[^\s]+)/i);
         if (!t) { flag(i, 'G29 hedefi okunamadı'); return line(code); }
         if (c && [...probeFlags].some(p => new RegExp('\\bE' + p + '\\b').test(c[1]))) {
-          notes.push(`${n != null ? 'N' + n : 'Satır ' + (i + 1)}: takım ölçüm atlaması (G327 / G29) çevrilmedi — ölçüm her seferinde yapılır.`);
+          if (!o.toMp) notes.push(`${n != null ? 'N' + n : 'Satır ' + (i + 1)}: takım ölçüm atlaması (G327 / G29) çevrilmedi — ölçüm her seferinde yapılır.`);
           return line('');
         }
         const dir = (lineOfN.get(+t[1]) ?? i + 1) > i ? 'GOTOF' : 'GOTOB';
@@ -11144,6 +11147,7 @@ SÜREKLİ
       // calls
       m = code.match(/^G23\b.*?\bN\s*=\s*(\d+)(?:.*?\bN5\s*=\s*"([^"]*)")?/i);
       if (m) {
+        calls.push({ n: +m[1], hz: hz ? { on: hz.on, c: hz.c } : null, plane: plane ? plane.slice() : null });
         const dirs = (m[2] || '').split(/[\\/]+/).filter(Boolean).map(d => `_N_${d.toUpperCase()}_DIR`);
         const cl = R.mp.call.map(t => fill(t, { N: m[1], DIZIN: dirs.length ? dirs.join('/') + '/' : '' }).out);
         const call = [line(cl[0] || ''), ...cl.slice(1)];
@@ -11250,6 +11254,16 @@ SÜREKLİ
     // It holds until M55, a tool change, G7, G17 or G19, or the program end; then the plane goes.
     // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
     // M53 to come is noted), nor is it given back when the plane goes.
+    // the first C a called subprogram gives under the head (the plane starts from it)
+    const subC = n => {
+      for (const l of (o.subLines && o.subLines.get(n)) || []) {
+        const cs = mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code;
+        if (hzEnd(cs)) return null;
+        const cm = !/^G7\b/i.test(cs) && cs.match(/(?:^|\s)C\s*=?\s*(\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|E\d+|[-+]?[\d.]+)(?![\d.=])/i);
+        if (cm) return expr(cm[1]);
+      }
+      return null;
+    };
     const hzStart = /(^|\s)M53(?=\s|$)/i;
     const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG1[79]\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
     const G18_RE = /(\([^)]*\))|(^|\s)G0?18(?=\s|$)/gi;
@@ -11284,6 +11298,7 @@ SÜREKLİ
             const cj = mpSplit(lines[j].replace(/^\s*N\d+\s*/i, '')).code;
             if (hzEnd(cj)) break;
             hz.c = cOf(cj);
+            if (hz.c == null) { const g = cj.match(/^G23\b.*?\bN\s*=\s*(\d+)/i); if (g) hz.c = subC(+g[1]); }
           }
           if (hz.c == null) flag(i, 'M53: C konumu bilinmiyor — C0 kabul edildi');
         }
@@ -11297,7 +11312,7 @@ SÜREKLİ
     // was. So before the next move: the plane that was on (unless a plane of its own comes first), then
     // in rapids the last X / Y / C the move doesn't give itself and the last Z (unless the move is a
     // rapid with its own Z). A tool change or a new plane first: nothing (the program positions afresh there).
-    let plane = null, replane = false, saved = null, abs = true, pos = {};
+    let plane = ini.plane ? ini.plane.slice() : null, replane = false, saved = null, abs = true, pos = {};
     // the lines that send the machine to its park position (L_M54): after the probe and at an item end
     const parkLines = new Set(R.mp.probe.after.concat(R.mp.itemEnd.lines).map(t => t.replace(/;.*$/, '').trim().toUpperCase()).filter(t => /^L_|G75|SUPA/.test(t)));
     const bare = t => String(t).replace(/^\s*N\d+\s*/i, '').replace(/;.*$/, '').trim();
@@ -11358,7 +11373,7 @@ SÜREKLİ
     // several 840D lines can come from one MillPlus line: srcOf gives each one's MillPlus line
     const flat = [], srcOf = [];
     out.forEach((o, i) => (Array.isArray(o) ? o : [o]).forEach(t => { flat.push(t); srcOf.push(i); }));
-    return { text: flat.join('\n'), lines, flags, notes, srcOf };
+    return { text: flat.join('\n'), lines, flags, notes, srcOf, calls };
   }
 
   // a line as a rule key: one space, upper case, numbers as numbers (G75 Z1. = G75 Z1.0)
@@ -11465,6 +11480,13 @@ SÜREKLİ
     const out = [];
     let tcp = false, mcall = null, motion = 'G0';
     const pos = { X: null, Y: null };
+    // {SON} of the tool-change template: the number of the item's last line, known once the lines are numbered
+    const SON = '@@SON@@', searches = [];
+    const emitTool = (emit, T) => R.mp.tool.forEach(t => {
+      const f = fill(t, { T, SON }).out;
+      emit(f);
+      if (f.includes(SON)) searches.push(out.length - 1);
+    });
     // 840D CYCLE81–85 → MillPlus definition (depth Z, Y 1st and B 2nd setup clearance, X dwell) — G79 drills
     const mpCycle = (no, args) => {
       const a = splitArgs(args).map(v => (v === '' ? null : evalExpr(v, new Map())));
@@ -11528,7 +11550,7 @@ SÜREKLİ
       const tm = code.match(/^T(\d+)$/i), tm6 = code.match(/^T(\d+)\s+M0?6$/i);
       if (tm6 && R.mp.tool.length) {
         com = '';
-        R.mp.tool.forEach(t => emit(fill(t, { T: tm6[1] }).out));
+        emitTool(emit, tm6[1]);
         let j = k + 1;
         while (j < lines.length && !split(lines[j].text).code) j++;
         if (j < lines.length && /^D\d+$/i.test(split(lines[j].text).code)) lines[j].mpSkip = true;
@@ -11539,7 +11561,7 @@ SÜREKLİ
         while (j < lines.length && !split(lines[j].text).code) j++;
         if (j < lines.length && /^M0?6$/i.test(split(lines[j].text).code)) {
           com = ''; // the template carries its own comment
-          R.mp.tool.forEach(t => emit(fill(t, { T: tm[1] }).out));
+          emitTool(emit, tm[1]);
           for (let q = k + 1; q <= j; q++) lines[q].mpSkip = true;
           if (j + 1 < lines.length && /^D\d+$/i.test(split(lines[j + 1].text).code)) lines[j + 1].mpSkip = true;
           continue;
@@ -11589,6 +11611,7 @@ SÜREKLİ
       if (/^TRAORI\b/i.test(code)) { tcp = true; emit('G141'); continue; }
       if (/^TRAFOOF$/i.test(code)) { tcp = false; emit('G40'); continue; }
       if (/^(STOPRE|DIAMOF|ORIWKS|ORIMKS|ORIAXES|ORIVECT|SOFT|BRISK|FFWON|FFWOF|CFC|CFTCP|UPATH|SPATH|G500)$/i.test(code)) { if (com || label != null) emit(''); continue; }
+      if ((m = code.match(/^SUB(\d+)$/i))) { emit(`G23 N=${+m[1]}`); continue; }
       if ((m = code.match(/^CALL\s*"([^"]*)"$/i))) {
         const segs = m[1].split('/').filter(Boolean);
         const file = (segs.pop() || '').replace(/^_N_/i, '').replace(/_(SPF|MPF)$/i, '');
@@ -11671,6 +11694,15 @@ SÜREKLİ
       res.push({ text: `G7 ${w.join(' ')}${w.length ? ' ' : ''}L1=1`, flag: fl.join('; ') });
       return res;
     }
+    // the item a tool change opens ends at its ITEM SONU, else before the next ITEM, else at the program's end
+    const endRe = R.mp.itemEnd.text.trim() ? new RegExp(R.mp.itemEnd.text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'), 'i') : null;
+    const itemEndOf = at => {
+      for (let j = at + 1; j < out.length; j++) {
+        if (endRe && endRe.test(out[j].text)) return j;
+        if (/\bITEM\b/i.test(out[j].text)) return j - 1;
+      }
+      return out.length - 1;
+    };
     // block numbers: jump targets keep theirs (N0201), the rest count on
     const taken = new Set(out.filter(o => o.mpLabel != null).map(o => o.mpLabel));
     let n = 0;
@@ -11681,6 +11713,7 @@ SÜREKLİ
       if (o.flag && !/!!\s*KONTROL/i.test(o.text)) o.text = `${o.text}${o.text ? ' ' : ''}(!! KONTROL: ${o.flag.replace(/[()]/g, '')})`;
       else if (o.flag) o.text = o.text.replace(/\(!! KONTROL:[^)]*\)|!!\s*KONTROL:.*$/, '(!! KONTROL: ' + o.flag.replace(/[()]/g, '') + ')');
     });
+    searches.forEach(at => { out[at].text = out[at].text.replace(SON, String(parseInt(out[itemEndOf(at)].n.slice(1), 10))); });
     return out;
   }
 
@@ -12177,19 +12210,62 @@ SÜREKLİ
     const sm = options.sourceMachine, tm = options.targetMachine;
     const sie = m => m && Object.assign({}, m, { control: 'siemens840d' });
     const read = new Map();
-    const inFiles = files.map(f => {
-      if (!mpS) return f;
-      const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'), { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin });
+    /* The subprograms (G23 N=2006) among the files: a file whose name has that number. A subprogram
+       is called by its name (SUB2006) and is written under it. Callers are read first: the plane a
+       program is in at the call (M53 head along Y, a tilted plane) is the plane its subprogram starts in. */
+    const split = t => t.split(/\r\n|\r|\n/);
+    const numsOfName = n => [...n.replace(/\.[^.]*$/, '').matchAll(/\d+/g)].map(x => String(parseInt(x[0], 10)));
+    const callsIn = f => split(f.text).map(l => (mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code.match(/^G23\b.*?\bN\s*=\s*(\d+)/i) || [])[1]).filter(Boolean).map(x => String(parseInt(x, 10)));
+    const subOf = new Map();       // number → index of the file
+    if (mpS) files.forEach((f, k) => numsOfName(f.name).forEach(n => { if (!subOf.has(n)) subOf.set(n, k); }));
+    const calledIdx = new Set();
+    files.forEach((f, k) => { if (mpS) callsIn(f).forEach(n => { const j = subOf.get(n); if (j != null && j !== k) calledIdx.add(j); }); });
+    const subNum = new Map();      // file index → its number, for the files that are called
+    subOf.forEach((j, n) => { if (calledIdx.has(j) && !subNum.has(j)) subNum.set(j, n); });
+    const subLines = new Map([...subNum].map(([j, n]) => [+n, split(files[j].text)]));
+    const nameOf = (f, k) => (subNum.has(k) ? 'SUB' + subNum.get(k) + '.SPF' : f.name.replace(/\.[^.]*$/, '') + '.MPF');
+    const initOf = new Map();      // file index → the state its caller was in
+    const subNotes = new Map();
+    const order = [], seen = new Set();
+    const queue = files.map((f, k) => k).filter(k => !calledIdx.has(k));
+    if (!queue.length) queue.push(...files.map((f, k) => k));
+    while (queue.length) {
+      const k = queue.shift();
+      if (seen.has(k)) continue;
+      seen.add(k); order.push(k);
+      if (mpS) callsIn(files[k]).forEach(n => { const j = subOf.get(n); if (j != null && !seen.has(j) && !queue.includes(j)) queue.push(j); });
+    }
+    files.forEach((f, k) => { if (!seen.has(k)) order.push(k); });
+    const done = new Map();
+    order.forEach(k => {
+      const f = files[k];
+      if (!mpS) { done.set(k, f); return; }
+      const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'),
+        { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k), subLines });
+      // what the called files are given: the state at the first call; a later call in another plane is noted
+      r.calls.forEach(c => {
+        const j = subOf.get(String(c.n));
+        if (j == null || j === k) return;
+        const st = { hz: c.hz, plane: c.plane };
+        if (!initOf.has(j)) initOf.set(j, st);
+        else if (JSON.stringify(initOf.get(j)) !== JSON.stringify(st)) subNotes.set(j, `${nameOf(files[j], j)}: birden çok yerden farklı düzlemle çağrılıyor — ilk çağrıdaki düzlem (M53 / eğik düzlem) kullanıldı.`);
+      });
       if (options._mpRotate || options._mpShift) {
         const rr = rotateSie(r.text, options._mpRotate || 0, sm ? machineKin(sm.def) : rules.kin, options._mpShift || 0);
         r.text = rr.text;
-        rr.flags.forEach((fl, k) => { const i = r.srcOf[k]; if (!r.flags.has(i)) r.flags.set(i, []); r.flags.get(i).push(...fl); });
+        rr.flags.forEach((fl, kk) => { const i = r.srcOf[kk]; if (!r.flags.has(i)) r.flags.set(i, []); r.flags.get(i).push(...fl); });
       }
-      const name = f.name.replace(/\.[^.]*$/, '') + '.MPF';
+      const name = nameOf(f, k);
+      if (initOf.has(k) && initOf.get(k).hz && initOf.get(k).hz.on) r.notes.push('Alt program çağıran programın düzleminde başlar: M53 (kafa yatay) açık — X / Y / Z düzleme göre yazıldı.');
+      if (subNotes.has(k)) r.notes.push(subNotes.get(k));
       read.set(name, { r, orig: f.name });
-      return { name, text: r.text };
+      done.set(k, { name, text: r.text });
     });
+    const inFiles = files.map((f, k) => done.get(k));
+    const leads = new Map();
+    initOf.forEach((st, k) => { if (st.plane && st.plane.length) leads.set(nameOf(files[k], k), st.plane); });
     const inner = convertSet(inFiles, Object.assign({}, options, {
+      _leads: leads,
       sourceMachine: mpS ? sie(sm) : sm, targetMachine: mpT ? sie(tm) : tm,
       source: mpS ? 'siemens840d' : options.source, target: mpT ? 'siemens840d' : options.target,
       renumber: mpT ? true : options.renumber, _pivot: true, _toMp: !!mpT
@@ -12307,6 +12383,19 @@ SÜREKLİ
     const res = convertAll(files, options);
     return options._pivot || options._rotated ? res : finishSet(res, options);
   }
+  /* A subprogram works in the plane its caller called it in. The lines that set that plane
+     (options._leads: file name → lines) go before the program while it is converted, so the
+     machine change sees the plane; what they became is left out of the result. */
+  function withLead(name, text, options, conv) {
+    const lead = options._leads && options._leads.get(name);
+    if (!lead || !lead.length) return conv(text);
+    const k = lead.length;
+    const r = conv(lead.join('\n') + '\n' + text);
+    r.lines = r.lines.filter(o => o.src == null || o.src >= k).map(o => (o.src != null ? Object.assign(o, { src: o.src - k }) : o));
+    if (r.srcLines) r.srcLines = r.srcLines.slice(k);
+    r.notes = r.notes.map(n => n.replace(/Satır (\d+)/g, (m, d) => 'Satır ' + Math.max(1, +d - k)));
+    return r;
+  }
   function convertAll(files, options) {
     const turn = parseFloat(options.rotate) || 0, shiftZ = parseFloat(options.shiftZ) || 0;
     if (((turn && norm360(turn) !== 0) || shiftZ) && !options._rotated) return convertRotated(files, options, turn, shiftZ);
@@ -12339,14 +12428,14 @@ SÜREKLİ
       const programs = files.map(f => {
         const { base, isSub, num } = subOf(f);
         const outName = isSub && num ? fill(rules.sub.file, { P: String(parseInt(num, 10)) }).out : base + target.mainExt;
-        const result = convertFromSiemens(f.text, Object.assign({ isSub, localSubs }, common));
+        const result = withLead(f.name, f.text, options, t => convertFromSiemens(t, Object.assign({ isSub, localSubs }, common)));
         if (isSub && !num) result.notes.push(`${f.name}: alt program adında numara yok — ALT PROGRAM NUMARALARI'na ${base.toUpperCase()} = numara yazın.`);
         return { srcName: f.name, outName, isSub, number: num || null, result };
       });
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'siemens-siemens') {
-      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: /\.SPF$/i.test(f.name), number: null, result: convertSieSie(f.text, common) }));
+      const programs = files.map(f => ({ srcName: f.name, outName: f.name, isSub: /\.SPF$/i.test(f.name), number: null, result: withLead(f.name, f.text, options, t => convertSieSie(t, common)) }));
       return { programs, missing: [], rules, target, route };
     }
     if (route === 'iso-iso') {
