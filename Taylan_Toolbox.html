@@ -11302,7 +11302,9 @@ SÜREKLİ
         const arc = /\bG0?[23]\b/i.test(ws);
         // under the head MillPlus G18 (its usual plane) is the 840D's G17 and MillPlus G17 (machine XY: side arcs) its G18 — written only when it changes
         const pl = t => { const g = /^G0?17$/i.test(t) ? 'G18' : /^G0?18$/i.test(t) ? 'G17' : null; if (!g) return t; if (hz.g === g) return ''; hz.g = g; return g; };
-        const toks = mpToks(ws).map(pl).filter(Boolean).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t));
+        const toks = mpToks(ws).map(pl).filter(Boolean).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzWord(t) : t))
+          // arcs of a MillPlus G17 under the head turn the other way round in the 840D's G18
+          .map(t => (hz.g === 'G18' && /^G0?[23]$/i.test(t) ? (/3$/.test(t) ? 'G2' : 'G3') : t));
         return line(toks.join(' '));
       }
       return line(ws);
@@ -11522,7 +11524,7 @@ SÜREKLİ
        there with C at 0 is G18 + M53, not a G7 plane. Until M55, a tool change or another plane the 840D's G17 is the
        MillPlus G18, and the X Y Z (I J K) the 840D gives are the plane's: each is the machine axis it came from. */
     const hzh = mpHorizontalHead(kin);
-    let hzOn = false, justPlane = false;
+    let hzOn = false, justPlane = false, hz18 = false; // hz18: the 840D's G18 under the head (MillPlus G17)
     const hzPlaneOf = args => {
       if (!hzh) return false;
       const v = i => { const t = (args[i] || '').trim(); return t === '' ? 0 : evalExpr(t, new Map()); };
@@ -11632,8 +11634,9 @@ SÜREKLİ
       if (!code) { emit(''); continue; }
       const afterPlane = justPlane;
       justPlane = false;
-      if (hzOn && /^G17$/i.test(code)) { if (afterPlane) { if (com || label != null) emit(''); } else emit('G18'); continue; }
-      if (hzOn && /^G18$/i.test(code)) { emit('G17'); continue; } // the 840D's G18 under the head: the machine's XY (MillPlus G17)
+      if (!hzOn) hz18 = false;
+      if (hzOn && /^G17$/i.test(code)) { hz18 = false; if (afterPlane) { if (com || label != null) emit(''); } else emit('G18'); continue; }
+      if (hzOn && /^G18$/i.test(code)) { hz18 = true; emit('G17'); continue; } // the 840D's G18 under the head: the machine's XY (MillPlus G17)
       const mpT = t => (/^\d+$/.test(t.trim()) ? 'T' + t.trim() : 'T=' + expr(t));
       if ((m = code.match(/^R(\d+)\s*=\s*\$P_TOOLNO$/i))) { emit(`G149 T0 E${rToE(+m[1])}`); continue; }
       if ((m = code.match(/^R(\d+)\s*=\s*\(?\s*\$TC_DP(3|6)\s*\[\s*(.+?)\s*,[^\]]*\]\s*\+\s*\$TC_DP(12|15)\s*\[[^\]]*\]\s*\)?$/i))) { emit(`G149 ${mpT(m[3])} ${m[2] === '3' ? 'L1' : 'R1'}=${rToE(+m[1])}`); continue; }
@@ -11695,7 +11698,7 @@ SÜREKLİ
       }
       // words of a plain block
       let ws = code;
-      if (hzOn) { const arc = /\bG0?[23]\b/.test(ws); ws = mpToks(ws).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzInv(t) : t)).join(' '); }
+      if (hzOn) { const arc = /\bG0?[23]\b/.test(ws); ws = mpToks(ws).map(t => (/^[XYZ]/i.test(t) || (arc && /^[IJK]/i.test(t)) ? hzInv(t) : hz18 && /^G0?[23]$/i.test(t) ? (/3$/.test(t) ? 'G2' : 'G3') : t)).join(' '); }
       const mo = ws.match(/\bG0?([0-3])\b(?!\.)/); if (mo) motion = 'G' + mo[1];
       ['X', 'Y'].forEach(a => { const v = ws.match(new RegExp('(?:^|\\s)' + a + '(-?[\\d.]+)(?=\\s|$)')); if (v) pos[a] = parseFloat(v[1]); });
       // a position under MCALL drills there: G79 with the surface as Z
