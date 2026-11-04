@@ -955,10 +955,12 @@
   .ph-badge { display: flex; gap: 5px; align-items: center; }
   .diff-pos { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); white-space: nowrap; }
 
+  /* the line-number columns: wide enough for 6 digits (1000+ lines no longer cut to "13…") */
+  .diff-wrap { --numw: 62px; }
   .diff-wrap { border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; margin-top: 6px; }
   .diff-head {
     display: grid;
-    grid-template-columns: 46px 1fr 46px 1fr 16px;
+    grid-template-columns: var(--numw) 1fr var(--numw) 1fr 16px;
     background: var(--card);
     border-bottom: 1px solid var(--line-soft);
     font-size: 12px;
@@ -976,9 +978,9 @@
     font-family: var(--mono);
     font-size: 12px;
   }
-  .diff-row { display: grid; grid-template-columns: 46px 1fr 46px 1fr; white-space: pre; }
+  .diff-row { display: grid; grid-template-columns: var(--numw) 1fr var(--numw) 1fr; white-space: pre; }
   .diff-row > div { padding: 2px 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .diff-row .dnum { color: var(--ink-faint); text-align: right; user-select: none; }
+  .diff-row .dnum { color: var(--ink-faint); text-align: right; user-select: none; padding: 2px 8px 2px 4px; text-overflow: clip; }
   .diff-row .side-b { border-left: 1px solid var(--line-soft); }
   .diff-row.eq .dtext { color: var(--ink-soft); }
   .diff-row .side-a.changed { background: rgba(255,59,48,0.10); }
@@ -1018,7 +1020,7 @@
   /* With everything on screen at once the map has nothing to add, and its
      scale would disagree with where the rows visibly sit. */
   .diff-wrap.no-map .diff-main { grid-template-columns: 1fr; }
-  .diff-wrap.no-map .diff-head { grid-template-columns: 46px 1fr 46px 1fr 0; }
+  .diff-wrap.no-map .diff-head { grid-template-columns: var(--numw) 1fr var(--numw) 1fr 0; }
   .diff-wrap.no-map .file-map, .diff-wrap.no-map .map-head { display: none; }
   .fm-tick { position: absolute; left: 2px; right: 2px; border-radius: 2px; min-height: 2px; }
   .fm-ins { background: #1f8a4c; }
@@ -1057,8 +1059,7 @@
     .kpi-row { grid-template-columns: repeat(2, 1fr); }
     .cmp-results-grid { grid-template-columns: 1fr; }
     .pair-list { max-height: 260px; }
-    .diff-head { grid-template-columns: 38px 1fr 38px 1fr 16px; }
-    .diff-row { grid-template-columns: 38px 1fr 38px 1fr; }
+    .diff-wrap { --numw: 52px; } /* line numbers up to 99999 */
     .pair-row { grid-template-columns: 1fr 54px 1fr; }
   }
 
@@ -1387,7 +1388,7 @@
   .topic-fixed { font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
   @media (max-width: 640px) { .topic-table { grid-template-columns: 1fr 1fr; } .topic-table .th:first-child { display: none; } .topic-table > span:not(.th):nth-child(3n+1) { grid-column: 1 / -1; font-weight: 600; } }
   .rules-box textarea { margin-top: 10px; height: 460px; font-family: var(--mono); font-size: 12px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
-  .conv-head { grid-template-columns: 46px 1fr 46px 1fr; }
+  .conv-head { grid-template-columns: var(--numw) 1fr var(--numw) 1fr; }
   .conv-arrow { align-self: flex-end; padding-bottom: 9px; color: var(--ink-faint); font-size: 18px; }
   .rules-state { font-weight: 500; font-size: 12px; color: var(--amber); margin-left: 6px; }
   .diff-row.conv-row .side-b.added { background: #e8f0fb; }
