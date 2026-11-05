@@ -10413,7 +10413,7 @@ SÜREKLİ
         }
         if ((m = t.match(/^M0*(\d+)$/i))) {
           const key = 'M' + parseInt(m[1], 10);
-          if (parseInt(m[1], 10) === 6) { toolChange = true; return; }
+          if (parseInt(m[1], 10) === 6) { toolChange = true; st.rpos = {}; return; } // the tool change sends the rotary axes home: where they stand is not known
           if (parseInt(m[1], 10) === 17) { ws.push(R.sub.end); return; }
           if (R.m.has(key)) { const rep = R.m.get(key); if (rep.length) { ws.push(rep[0]); rep.slice(1).forEach(x => after.push(x)); } return; }
           ws.push(t.toUpperCase()); return;
@@ -10428,13 +10428,24 @@ SÜREKLİ
           const letter = m[1].toUpperCase(), mode = m[2].toUpperCase();
           const v = evalExpr(m[3], rvals);
           const val = v != null ? fmt(v) : '[' + fanucExpr(m[3], base) + ']';
+          const rp = st.rpos || (st.rpos = {}), rot3 = 'ABC'.includes(letter);
           if (mode === 'IC') {
+            if (rot3) { if (rp[letter] != null && v != null) rp[letter] += v; else delete rp[letter]; }
             if (st.abs) { incWs.push(letter + val); return; } // incremental inside G90: its own G91 block
             ws.push(letter + val); return;
           }
           if (!st.abs) flags.push(`${mode}() G91 içinde — mutlak değer`);
           if (mode === 'DC') usedDC = true;
-          if (mode === 'ACP' || mode === 'ACN') flags.push(`${mode}: dönüş yönü Mazak'ta makine parametresiyle belirlenir`);
+          // ACP / ACN: the way round the 840D is told. From where the axis stands it is a turn by that much
+          // that way: G91 C… then G90 (an absolute C would let the machine choose the way)
+          if ((mode === 'ACP' || mode === 'ACN') && rot3 && st.abs && v != null && rp[letter] != null) {
+            const d = mode === 'ACP' ? norm360(v - rp[letter]) : -norm360(rp[letter] - v);
+            rp[letter] = v;
+            if (Math.abs(d) > 1e-9) incWs.push(letter + fmt(d));
+            return;
+          }
+          if (mode === 'ACP' || mode === 'ACN') flags.push(`${mode}: önceki ${letter} konumu bilinmiyor — mutlak yazıldı, dönüş yönünü kontrol edin`);
+          if (rot3) { if (v != null) rp[letter] = v; else delete rp[letter]; }
           ws.push(letter + val);
           return;
         }
@@ -10446,6 +10457,10 @@ SÜREKLİ
             raw = v != null ? fmt(v) : '[' + fanucExpr(raw.replace(/^\((.*)\)$/, '$1'), base) + ']';
           }
           if (letter === 'F' && dwell) { ws.push('X' + raw); return; }
+          if ('ABC'.includes(letter)) { // where the rotary axis stands, for ACP / ACN
+            const rp = st.rpos || (st.rpos = {}), n = /^-?[\d.]+$/.test(raw) ? parseFloat(raw) : null;
+            if (n == null) delete rp[letter]; else if (st.abs) rp[letter] = n; else if (rp[letter] != null) rp[letter] += n;
+          }
           if (letter === 'F') st.F = raw;
           if (letter === 'S') st.S = raw;
           ws.push(letter + raw);
