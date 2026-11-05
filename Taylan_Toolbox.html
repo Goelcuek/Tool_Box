@@ -12385,10 +12385,21 @@ SÜREKLİ
       done.set(k, { name, text: r.text });
     });
     const inFiles = files.map((f, k) => done.get(k));
+    /* A Mazak names a subprogram after the folder the MillPlus call gives and its number:
+       G23 N=1 N5="\\1364M37G02-OP70\\" → G65<1364M37G02-OP70-1> (the file 1364M37G02-OP70-1.EIA). Called
+       without a folder, the subprogram file's own name. The tool probe's folder (BLUM) is not one of them. */
+    const subNames = new Map();
+    if (mpS) files.forEach(f => split(f.text).forEach(l => {
+      const m = mpSplit(l.replace(/^\s*N\d+\s*/i, '')).code.match(/^G23\b.*?\bN\s*=\s*(\d+)(?:.*?\bN5\s*=\s*"([^"]*)")?/i);
+      if (!m) return;
+      const n = String(parseInt(m[1], 10)), dir = (m[2] || '').split(/[\\/]+/).filter(Boolean).pop();
+      if (dir && rules.mp.probe.dir && dir.toLowerCase().includes(rules.mp.probe.dir.toLowerCase())) return;
+      if (dir && !subNames.has('SUB' + n)) subNames.set('SUB' + n, dir + '-' + n);
+    }));
     const leads = new Map();
     initOf.forEach((st, k) => { if (st.plane && st.plane.length) leads.set(nameOf(files[k], k), st.plane); });
     const inner = convertSet(inFiles, Object.assign({}, options, {
-      _orig: new Map([...read].map(([n, x]) => [n, x.orig])),
+      _orig: new Map([...read].map(([n, x]) => [n, x.orig])), _subNames: subNames,
       _leads: leads,
       sourceMachine: mpS ? sie(sm) : sm, targetMachine: mpT ? sie(tm) : tm,
       source: mpS ? 'siemens840d' : options.source, target: mpT ? 'siemens840d' : options.target,
@@ -12568,8 +12579,8 @@ SÜREKLİ
       /* A Mazak names its subprograms: the file starts with <NAME>(), it is called with G65<NAME> and ends with M99.
          The name is the subprogram file's own (a MillPlus 9.pm: 9; options._orig gives the file behind SUB9.SPF). */
       const named = target.id === 'mazak';
-      const dispOf = f => ((options._orig && options._orig.get(f.name)) || f.name).replace(/\.[^.]+$/, '');
-      const namedSubs = new Map();
+      const dispOf = f => (options._subNames && options._subNames.get(f.name.replace(/\.[^.]+$/, '').toUpperCase())) || ((options._orig && options._orig.get(f.name)) || f.name).replace(/\.[^.]+$/, '');
+      const namedSubs = new Map(named && options._subNames ? options._subNames : []);
       if (named) files.forEach(f => { const s = subOf(f); if (s.isSub) namedSubs.set(s.base.toUpperCase(), dispOf(f)); });
       const programs = files.map(f => {
         step(options, `${f.name} — çevriliyor`);
