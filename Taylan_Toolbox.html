@@ -9790,9 +9790,10 @@ SÜREKLİ
     parts.forEach((p, k) => { p.k = k; });
     const probeArg = new Set(), callArgs = new Map();
     parts.forEach((p, k) => {
-      const cm = p.code.match(/^CALL\s*"([^"]*)"/i);
-      if (!cm) return;
-      const cn = callName(cm[1]);
+      // CALL "…/_N_SUB2001_SPF", or the subprogram's name alone (SUB2001, from a MillPlus G23) when a [ÇAĞRI] rule has it
+      const cm = p.code.match(/^CALL\s*"([^"]*)"/i), bn = p.code.trim().toUpperCase();
+      if (!cm && !(/^[A-Z_][A-Z0-9_]*$/.test(bn) && R.calls.has(bn))) return;
+      const cn = cm ? callName(cm[1]) : bn;
       if (!R.calls.has(cn) && (R.subNames.has(cn) || (opts.localSubs && opts.localSubs.has(cn)))) return; // a subprogram of this set reads them itself
       const args = [];
       for (let j = k - 1; j >= 0; j--) {
@@ -10349,7 +10350,11 @@ SÜREKLİ
         const name = bare[1].toUpperCase();
         if (name === 'TRAORI') st.tcp = true;
         if (name === 'TRAFOOF') st.tcp = false;
-        if (R.cmds.has(name)) {
+        if (!R.cmds.has(name) && R.calls.has(name)) {
+          // a subprogram called by its name alone with a [ÇAĞRI] rule (MillPlus G23 N=2001 → SUB2001 → G65 P9862 …)
+          tplOut(i, R.calls.get(name), { T: toolNo(st.tool) || '' });
+          if (comment) emit(i, comment, 'changed');
+        } else if (R.cmds.has(name)) {
           // TRANS / ROT alone clear the whole programmable frame: whatever the rule writes, a G52 / G68 set here goes too
           if (/^(TRANS|ROT)$/.test(name)) {
             if (st.trans && ['X', 'Y', 'Z'].some(l => !angZ(st.trans[l]))) emit(i, 'G52 X0 Y0 Z0', 'added');
