@@ -11310,6 +11310,8 @@ SÜREKLİ
       const fm = ws.match(/(?:^|\s)F([\d.]+)/); if (fm) cy.F = fm[1];
       // T51 M66 (manual tool change): Siemens has no manual tool change — an ordinary T51 / M6
       if (!o.toMp && /(?:^|\s)T\d+/i.test(ws) && /(^|\s)M66(\s|$)/i.test(ws)) ws = ws.replace(/(^|\s)M66(?=\s|$)/i, '$1M6');
+      // a subprogram's M30: the subprogram end (840D M17; a Mazak writes it as its own, M99)
+      if (o.isSub && !o.toMp) ws = ws.replace(/(^|\s)M(30|0?2)(?=\s|$)/i, '$1M17');
       { const tn = /\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)/i.test(ws) && ws.match(/(?:^|\s)T(\d+)(?=\s|$)/); if (tn) { curTool = String(parseInt(tn[1], 10)); cPrev = null; } } // after a tool change (a Mazak's sends C to 0) where C stands is not known
       if (/\bM\s*=\s*E\d+/i.test(ws)) ws = ws.replace(/\b[SF][\d.]+\s*/gi, '').replace(/\bM\s*=\s*E\d+/i, 'M6');
       ws = ws.replace(/\bG54\s+I(\d+)/i, (mm, k) => (+k <= 4 ? 'G' + (53 + +k) : 'G' + (500 + +k)));
@@ -11341,7 +11343,7 @@ SÜREKLİ
     // The target stays in G17 throughout: the G18 that sets up M53 is not written (one with no
     // M53 to come is noted), nor is it given back when the plane goes.
     const hzStart = /(^|\s)M53(?=\s|$)/i;
-    const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG19\b|(^|\s)M(30|0?2)(\s|$)/i.test(c);
+    const hzEnd = c => /(^|\s)M55(\s|$)|\bM\s*=\s*E\d+|(^|\s)M0?6(\s|$)|^G7\b|\bG19\b/i.test(c) || (!o.isSub && /(^|\s)M(30|0?2)(\s|$)/i.test(c)); // a subprogram's end leaves the caller's plane on
     const G18_RE = /(\([^)]*\))|(^|\s)G0?18(?=\s|$)/gi;
     const withHead = (raw, i) => {
       if (!hz) return lineOut(raw, i);
@@ -11552,12 +11554,24 @@ SÜREKLİ
        MillPlus G18, and the X Y Z (I J K) the 840D gives are the plane's: each is the machine axis it came from. */
     const hzh = mpHorizontalHead(kin);
     let hzOn = false, justPlane = false, hz18 = false; // hz18: the 840D's G18 under the head (MillPlus G17)
+    // R parameters given a plain number (R20 = 0 before a plane from a Mazak G68.2): a jump or a label forgets them
+    const rv = new Map();
+    // any CYCLE800 form (axis by axis, solid angle, machine axes) whose plane is the head along Y with C at 0
     const hzPlaneOf = args => {
       if (!hzh) return false;
-      const v = i => { const t = (args[i] || '').trim(); return t === '' ? 0 : evalExpr(t, new Map()); };
+      const v = i => { const t = (args[i] || '').trim(); return t === '' ? 0 : evalExpr(t, rv); };
+      if ([4, 5, 6, 10, 11, 12].some(i => v(i) !== 0)) return false;
       const mode = v(3);
-      if (mode == null || Math.round(mode) !== 192 || [4, 5, 6, 10, 11, 12].some(i => v(i) !== 0)) return false;
-      return kin.axes.slice(0, 2).every((a, i) => { const x = v(7 + i); return x != null && Math.abs(angDiff(x, a.name === hzh.zt.name ? 0 : hzh.vals[a.name] || 0)) < 1e-3; });
+      if (mode == null) return false;
+      const kind = Math.round(mode) & 0xC0, seq = seqOfMode(Math.round(mode) & 63), a = [7, 8, 9].map(v);
+      if (a.some(x => x == null)) return false;
+      let m = null;
+      if (kind === 0 && seq.every(Boolean)) m = turns(seq.map((ax, i) => [ax, a[i]]));
+      else if (kind === 0x40) m = turns([['Z', a[0]], ['Y', a[1]], ['Z', a[2]]]);
+      else if (kind === 0xC0) { const pos = {}; kin.axes.forEach((ax, i) => { if (i < 2) pos[ax.name] = a[i]; }); m = kinFrame(kin, pos); }
+      if (!m) return false;
+      const H = kinFrame(kin, Object.assign({}, hzh.vals, { [hzh.zt.name]: 0 }));
+      return m.every((r, i) => r.every((x, j) => Math.abs(x - H[i][j]) < 1e-6));
     };
     const hzInv = t => {
       const m = t.match(/^([XYZIJK])(=?)(.+)$/i);
@@ -11631,6 +11645,7 @@ SÜREKLİ
       const lm = code.match(/^([A-Z_][A-Z0-9_]*):\s*/i);
       if (lm) { if (used.has(lm[1].toUpperCase())) label = labelNo(lm[1].toUpperCase()); code = code.slice(lm[0].length).trim(); }
       if (o.n && /^N\d+$/.test(o.n) && used.has(o.n.toUpperCase())) label = +o.n.slice(1);
+      if (label != null || lm || /\b(GOTO[FBC]?|REPEATB?)\b/i.test(code)) rv.clear();
       const emit = (text, extra) => { push(o, [text, mpCom(com)].filter(Boolean).join(' '), Object.assign({ mpLabel: label }, extra || {})); label = null; com = ''; };
       const U = mpKey(code);
       // the pair's own lines first (L_M54 → G74 Z-1 L1)
@@ -11673,7 +11688,7 @@ SÜREKLİ
         emit(`${mpT(m[2])} M67`); // the written value counts only after the tool is activated again
         continue;
       }
-      if ((m = code.match(/^R(\d+)\s*=\s*(.+)$/i))) { emit(`E${rToE(+m[1])}=${expr(m[2])}`); continue; }
+      if ((m = code.match(/^R(\d+)\s*=\s*(.+)$/i))) { if (/^\s*[-+]?(\d+\.?\d*|\.\d+)\s*$/.test(m[2])) rv.set(m[1], parseFloat(m[2])); else rv.delete(m[1]); emit(`E${rToE(+m[1])}=${expr(m[2])}`); continue; }
       if ((m = code.match(/^IF\s+(.+?)\s+GOTO[FBC]?\s+([A-Z_][A-Z0-9_]*)$/i))) {
         emit(`G29 N=${mpLabel(labelNo(m[2].toUpperCase())).slice(1)} ${scratch}=(${cond(m[1])}) ${scratch}`,
           /\bXOR\b/i.test(m[1]) ? { flag: 'XOR MillPlus\'ta yok — koşulu yeniden yazın' } : null);
@@ -12342,7 +12357,7 @@ SÜREKLİ
       if (!mpS) { done.set(k, f); return; }
       step(options, `${f.name} — MillPlus okunuyor`);
       const r = mp2sie(f.text, rules, !!mpT || (tm ? controlOf(tm.control).target === 'siemens840d' : options.target === 'siemens840d'),
-        { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k) });
+        { toMp: !!mpT, kin: sm ? machineKin(sm.def) : rules.kin, init: initOf.get(k), isSub: subNum.has(k) || f.role === 'sub' });
       // what the called files are given: the state at the first call; a later call in another plane is noted
       r.calls.forEach(c => {
         const j = subOf.get(String(c.n));
