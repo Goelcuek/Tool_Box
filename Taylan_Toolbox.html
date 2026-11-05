@@ -9800,7 +9800,8 @@ SÜREKLİ
         const c = parts[j].code;
         if (!c) continue; // blank lines, comments, the TP1LASER: label
         const a = c.match(/^R(\d+)\s*=/i);
-        if (!a) break;
+        // spindle / coolant words between the values and the call (R98=… M3 CALL …) don't end them
+        if (!a) { if (/^([MS][\d.]+\s*)+$/i.test(c)) continue; break; }
         if (!rRead.has(a[1])) { probeArg.add(j); args.unshift(c.replace(/\s+/g, '')); }
       }
       callArgs.set(k, args);
