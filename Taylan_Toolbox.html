@@ -9963,6 +9963,13 @@ SÜREKLİ
     // subprogram called by name (SUBIT14): its number from ALT PROGRAM NUMARALARI, or the
     // number its file was given in this conversion; one that stays on the machine needs a rule
     function subCall(i, name, L, code, comment) {
+      // a Mazak calls a subprogram of this set by its name: G65<NAME> (L: times)
+      const nmd = opts.namedSubs && opts.namedSubs.get(name);
+      if (nmd) {
+        emit(i, withC(`G65<${nmd}>` + (L && +L > 1 ? ` L${+L}` : ''), comment), 'changed');
+        st.pos = { X: null, Y: null, Z: null };
+        return;
+      }
       const local = opts.localSubs && opts.localSubs.get(name);
       const num = R.subNames.get(name) || local;
       if (!num) { emit(i, withC(code, comment), 'same', `${name} için kural yok — KOMUTLAR'a (komut) ya da ALT PROGRAM NUMARALARI'na (alt program) ekleyin`); return; }
@@ -10330,7 +10337,7 @@ SÜREKLİ
         const tpl = R.calls.get(name);
         if (tpl) { tplOut(i, tpl, { T: toolNo(st.tool) || '' }); if (comment) emit(i, comment, 'changed'); }
         else if (/^[A-Z_][A-Z0-9_]*$/.test(name) && R.cmds.has(name)) { R.cmds.get(name).forEach(l => emit(i, l, 'template')); if (comment) emit(i, comment, 'changed'); }
-        else if (R.subNames.has(name) || (opts.localSubs && opts.localSubs.has(name))) subCall(i, name, null, code, comment);
+        else if (R.subNames.has(name) || (opts.localSubs && opts.localSubs.has(name)) || (opts.namedSubs && opts.namedSubs.has(name))) subCall(i, name, null, code, comment);
         else {
           const args = callArgs.get(p.k) || [];
           emit(i, withC(code, comment), 'same', `CALL ${name} için kural yok — ÇAĞRI ${name} bölümü ekleyin` + (args.length ? ` · değerler: ${args.join(' ')}` : ''));
@@ -12381,6 +12388,7 @@ SÜREKLİ
     const leads = new Map();
     initOf.forEach((st, k) => { if (st.plane && st.plane.length) leads.set(nameOf(files[k], k), st.plane); });
     const inner = convertSet(inFiles, Object.assign({}, options, {
+      _orig: new Map([...read].map(([n, x]) => [n, x.orig])),
       _leads: leads,
       sourceMachine: mpS ? sie(sm) : sm, targetMachine: mpT ? sie(tm) : tm,
       source: mpS ? 'siemens840d' : options.source, target: mpT ? 'siemens840d' : options.target,
@@ -12557,11 +12565,22 @@ SÜREKLİ
       };
       const localSubs = new Map();
       files.forEach(f => { const s = subOf(f); if (s.isSub && s.num) localSubs.set(s.base.toUpperCase(), String(parseInt(s.num, 10))); });
+      /* A Mazak names its subprograms: the file starts with <NAME>(), it is called with G65<NAME> and ends with M99.
+         The name is the subprogram file's own (a MillPlus 9.pm: 9; options._orig gives the file behind SUB9.SPF). */
+      const named = target.id === 'mazak';
+      const dispOf = f => ((options._orig && options._orig.get(f.name)) || f.name).replace(/\.[^.]+$/, '');
+      const namedSubs = new Map();
+      if (named) files.forEach(f => { const s = subOf(f); if (s.isSub) namedSubs.set(s.base.toUpperCase(), dispOf(f)); });
       const programs = files.map(f => {
         step(options, `${f.name} — çevriliyor`);
         const { base, isSub, num } = subOf(f);
+        if (named && isSub) {
+          const result = withLead(f.name, f.text, options, t => convertFromSiemens(t, Object.assign({ isSub, localSubs, namedSubs }, common)));
+          result.lines.unshift({ text: `<${dispOf(f)}>()`, kind: 'added', src: null, noN: true });
+          return { srcName: f.name, outName: dispOf(f) + target.mainExt, isSub, number: null, result };
+        }
         const outName = isSub && num ? fill(rules.sub.file, { P: String(parseInt(num, 10)) }).out : base + target.mainExt;
-        const result = withLead(f.name, f.text, options, t => convertFromSiemens(t, Object.assign({ isSub, localSubs }, common)));
+        const result = withLead(f.name, f.text, options, t => convertFromSiemens(t, Object.assign({ isSub, localSubs, namedSubs }, common)));
         if (isSub && !num) result.notes.push(`${f.name}: alt program adında numara yok — ALT PROGRAM NUMARALARI'na ${base.toUpperCase()} = numara yazın.`);
         return { srcName: f.name, outName, isSub, number: num || null, result };
       });
