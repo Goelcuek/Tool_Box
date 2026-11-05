@@ -10443,7 +10443,6 @@ SÜREKLİ
       });
 
       // a rotary move with the plane on (4-axis work under a turned head: MillPlus M53)
-      if (st.inPlane && !st.tcp && ws.some(w => /^[ABC](-?[\d.]+|\[.*\])$/.test(w))) flags.push('G68.2 düzlemi açıkken döner eksen hareketi — Mazak bunu kabul etmeyebilir, 4 eksen işlemeyi kontrol edin');
       // rotary axes on another machine: TCP moves (TRAORI) keep the tool direction
       if (rot && rot.mode !== 'same') {
         const rw = ws.filter(w => { const m = w.match(/^([A-Z])(-?[\d.]+|\[.*\])$/); return m && rot.has(m[1]); });
@@ -11091,7 +11090,9 @@ SÜREKLİ
       cPrev = v;
       // [MILLPLUS C EKSENİ] MODÜLO: the MillPlus took the short way too — the position alone
       if (prev == null || Math.abs(d) < 180 - 1e-9 || R.mp.cAxis === 'MODULO') return 'C' + fmt(p);
-      if (Math.abs(d) >= 360 - 1e-9 || !toSie) return `C=IC(${fmt(d)})`;
+      // a Mazak goes to the position (its C is modulo); only a full turn or more is written as a turn (IC)
+      if (Math.abs(d) >= 360 - 1e-9) return `C=IC(${fmt(d)})`;
+      if (!toSie) return 'C' + fmt(p);
       return `C=${d > 0 ? 'ACP' : 'ACN'}(${fmt(p)})`;
     };
     // the head along Y (M53): where C stands, whether it is on, the plane line, the words turned
@@ -11308,7 +11309,7 @@ SÜREKLİ
       const fm = ws.match(/(?:^|\s)F([\d.]+)/); if (fm) cy.F = fm[1];
       // T51 M66 (manual tool change): Siemens has no manual tool change — an ordinary T51 / M6
       if (!o.toMp && /(?:^|\s)T\d+/i.test(ws) && /(^|\s)M66(\s|$)/i.test(ws)) ws = ws.replace(/(^|\s)M66(?=\s|$)/i, '$1M6');
-      { const tn = /\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)/i.test(ws) && ws.match(/(?:^|\s)T(\d+)(?=\s|$)/); if (tn) curTool = String(parseInt(tn[1], 10)); }
+      { const tn = /\bM\s*=\s*E\d+|(^|\s)M0?6{1,2}(\s|$)/i.test(ws) && ws.match(/(?:^|\s)T(\d+)(?=\s|$)/); if (tn) { curTool = String(parseInt(tn[1], 10)); cPrev = null; } } // after a tool change (a Mazak's sends C to 0) where C stands is not known
       if (/\bM\s*=\s*E\d+/i.test(ws)) ws = ws.replace(/\b[SF][\d.]+\s*/gi, '').replace(/\bM\s*=\s*E\d+/i, 'M6');
       ws = ws.replace(/\bG54\s+I(\d+)/i, (mm, k) => (+k <= 4 ? 'G' + (53 + +k) : 'G' + (500 + +k)));
       if (/\bG4[12]\b/i.test(ws)) comp = true;
