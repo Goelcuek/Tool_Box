@@ -11144,7 +11144,8 @@ SÜREKLİ
     // tool data: the active tool is [$P_TOOLNO,$P_TOOL]; another tool's T number comes from its name (GETT) into an R parameter
     let curTool = null;
     const tdIdx = (t, i) => {
-      if (!/^\d+$/.test(t)) return { idx: `${t},1`, pre: [] };
+      // $P_TOOLNO / GETT are the 840D's; for a Mazak the tool number stays (its [TAKIM VERİSİ] selects the tool by it)
+      if (!toSie || !/^\d+$/.test(t)) return { idx: `${t},1`, pre: [] };
       if (String(parseInt(t, 10)) === curTool) return { idx: '$P_TOOLNO,$P_TOOL', pre: [] };
       const nm = R.toolNames.get(+t), rr = 'R' + R.toolNameR;
       if (nm == null) flag(i, `T${t} için [TAKIM ADLARI] yok — numara takım adı olarak yazıldı`);
@@ -11365,7 +11366,7 @@ SÜREKLİ
       if (!hz.on && hzStart.test(code)) {
         hz.on = true;
         const r = [].concat(lineOut(raw.replace(hzStart, ' '), i)).filter(t => t !== '');
-        flag(i, 'M53 kafa yatay (G18) → tabla CYCLE800 ile döndürüldü, sonraki X/Y/Z düzleme göre, C hareketleri olduğu gibi yazıldı — ilk denemede kontrol edin');
+        flag(i, 'M53 kafa yatay (G18) → tabla eğik düzlemle döndürüldü (CYCLE800 / G68.2), sonraki X/Y/Z düzleme göre, C hareketleri olduğu gibi yazıldı — ilk denemede kontrol edin');
         return [...pre, ...hzPlane(), ...r];
       }
       if (hz.on && hzStart.test(code)) raw = raw.replace(hzStart, ' '); // M53 again with the head already there: nothing to write
