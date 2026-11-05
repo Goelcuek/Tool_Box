@@ -11118,9 +11118,8 @@ SÜREKLİ
       cPrev = v;
       // [MILLPLUS C EKSENİ] MODÜLO: the MillPlus took the short way too — the position alone
       if (prev == null || Math.abs(d) < 180 - 1e-9 || R.mp.cAxis === 'MODULO') return 'C' + fmt(p);
-      // a Mazak goes to the position (its C is modulo); only a full turn or more is written as a turn (IC)
-      if (Math.abs(d) >= 360 - 1e-9) return `C=IC(${fmt(d)})`;
-      if (!toSie) return 'C' + fmt(p);
+      // a full turn or more, or on a Mazak (C 0…360, always the short way) 180° or more: the turn itself, G91 C… then G90
+      if (Math.abs(d) >= 360 - 1e-9 || !toSie) return `C=IC(${fmt(d)})`;
       return `C=${d > 0 ? 'ACP' : 'ACN'}(${fmt(p)})`;
     };
     // the head along Y (M53): where C stands, whether it is on, the plane line, the words turned
